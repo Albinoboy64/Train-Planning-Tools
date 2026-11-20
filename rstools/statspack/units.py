@@ -255,10 +255,9 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                         break
     lacking = [DAY_NAMES[d] for d in days[:-1] if d not in covered]
     if lacking and not trent_links and not (attune is not None and attune.path):
-        warnings.append(f"{inferred} link(s) were inferred: without an XML or the TRENT VehicleLayout23 print, units "
-                        "are followed by matching where they stabled to where a diagram starts (marked 'inferred'). "
-                        "Add the Attune XML, or the VehicleLayout23 print alongside this one, for exact next-day "
-                        "workings.")
+        warnings.append(f"{inferred} link(s) were inferred: without an XML, units are followed by matching where "
+                        "they stabled to where a diagram starts (marked 'inferred'). Add the Attune XML for exact "
+                        "next-day workings.")
     elif lacking and not trent_links:
         warnings.append("The XML has no unit diagrams for " + ", ".join(lacking) + ", so units on those days were "
                         "followed by matching where they stabled to where a diagram starts (marked 'inferred'). "

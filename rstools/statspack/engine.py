@@ -17,7 +17,7 @@ from .days import DAYS, DAY_NAMES
 from .fleet import FleetTable
 from .model import build_day
 from .stats import TAB_ORDER, Table, build_tables, weekly_tables
-from .trent import TrentData, TrentFormatError, parse_vehicle_layout
+from .trent import FORMAT_HELP, TrentData, TrentFormatError, parse_vehicle_layout
 from .output import sink_for
 from .report_compare import compare_reports
 
@@ -84,35 +84,27 @@ def split_paths(text: str) -> List[str]:
 
 
 def _read_trents(paths: List[str], log) -> TrentData:
-    """One or more TRENT prints read as one (the TLGN prints come one per day type)."""
+    """One or more TRENT VehicleLayout29 prints read as one (e.g. the SNGX and TLGN prints, or the LTP print with a
+    week's STP print). A diagram in more than one print is read once."""
     parts = []
     for p in paths:
         log(f"Reading TRENT print {os.path.basename(p)}")
-        parts.append(cached(parse_vehicle_layout, p))
+        t = cached(parse_vehicle_layout, p)
+        if t.layout != "VL29":
+            raise TrentFormatError(f"'{os.path.basename(p)}' is a TRENT VehicleLayout{t.layout[2:]} print. "
+                                   + FORMAT_HELP)
+        parts.append(t)
     if len(parts) == 1:
         return parts[0]
-    from .trent import LAYOUT_RANK
-    # the most complete layout first (VehicleLayout29: LTP / STP, TIPLOCs, miles); a diagram also in another
-    # print (VL23 / TLGN, 11, 05) is read once, and fills in what the first lacks - next-day links, miles
-    order = sorted(parts, key=lambda t: LAYOUT_RANK.get(t.layout, 9))
-    found, diagrams, warnings = {}, [], []
-    for t in order:
-        warnings += [w for w in t.warnings if "VehicleLayout05" not in w or order[0].layout == "VL05"]
+    seen, diagrams, warnings = set(), [], []
+    for t in parts:
+        warnings += t.warnings
         for d in t.diagrams:
-            key = (d.key, d.days_code, d.start, tuple((r.headcode[:4], r.dep) for r in d.rows[:3]))
-            first = found.get(key)
-            if first is None:
-                found[key] = d
+            key = (d.key, d.days_code, d.plan, d.start, tuple((r.headcode, r.dep) for r in d.rows[:3]))
+            if key not in seen:
+                seen.add(key)
                 diagrams.append(d)
-                continue
-            first.prev_num = first.prev_num or d.prev_num
-            first.next_num = first.next_num or d.next_num
-            if len(first.rows) == len(d.rows):
-                for a, b in zip(first.rows, d.rows):
-                    if a.miles is None and b.miles is not None:
-                        a.miles = b.miles
-    layout = "+".join(dict.fromkeys(t.layout for t in order))
-    return TrentData(order[0].path, diagrams, warnings, layout)
+    return TrentData(parts[0].path, diagrams, warnings, "VL29")
 
 
 def empty_attune() -> AttuneData:

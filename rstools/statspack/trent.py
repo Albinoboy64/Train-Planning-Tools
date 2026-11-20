@@ -50,8 +50,8 @@ from .days import days_of_code
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
-FORMAT_HELP = ("Use a TRENT unit diagram print: VehicleLayout29 (the most complete: TIPLOCs, full headcodes such "
-               "as 1F93BT, LTP/STP and miles), VehicleLayout23 (also the TLGN print), 11 or 05, saved as Word.")
+FORMAT_HELP = ("Use the TRENT VehicleLayout29 unit diagram print (TIPLOCs, full headcodes such as 1F93BT, LTP/STP "
+               "and miles), saved as Word (.docx). Other TRENT layouts (VehicleLayout23, 11, 05) are not used.")
 
 _HEADER = re.compile(
     r"^\s*(?P<depot>[A-Z]{1,4})\s*(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)\s+(?:(?P<plan>(?!FROM)\S+)\s+)?"

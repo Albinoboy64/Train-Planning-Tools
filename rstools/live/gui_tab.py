@@ -27,8 +27,8 @@ _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm
 _CWN = (".xlsx", ".xlsm", ".xls", ".xlsb")
 FILES = {     # box key, label, accepted extensions, several files?
     "cwn": [("a", "Original CWN:", _CWN, False), ("b", "Updated CWN:", _CWN, False)],
-    "sp_plans": [("xa", "Original Attune XML:", (".xml",), False), ("ta", "Original TRENT print(s):", (".docx",), True),
-                 ("xb", "Updated Attune XML:", (".xml",), False), ("tb", "Updated TRENT print(s):", (".docx",), True)],
+    "sp_plans": [("xa", "Original Attune XML:", (".xml",), False), ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
+                 ("xb", "Updated Attune XML:", (".xml",), False), ("tb", "Updated TRENT VL29 print(s):", (".docx",), True)],
     "sp_packs": [("a", "Original stats pack:", _XL, False), ("b", "Updated stats pack:", _XL, False)],
     "timetables": [("a", "GTR timetable:", _XL, False), ("b", "Network Rail timetable:", _XL, False)],
     "print_tt": [("a", "Train print(s) - reference:", _PR, True), ("b", "Timetable to check:", _XL, False)],

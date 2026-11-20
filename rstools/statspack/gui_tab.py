@@ -29,23 +29,22 @@ from .seats import shown
 TITLE = f"{APP_NAME} - Stats Pack"
 EXT = {"xml": ".xml", "trent": ".docx", "pack": ".xlsx"}
 FILETYPES = {"xml": [("Attune diagram XML", "*.xml"), ("All files", "*.*")],
-             "trent": [("TRENT unit diagram print (Word)", "*.docx"), ("All files", "*.*")],
+             "trent": [("TRENT VehicleLayout29 print (Word)", "*.docx"), ("All files", "*.*")],
              "pack": [("Stats pack (Excel)", "*.xlsx"), ("All files", "*.*")]}
 MODES = {"create": ("Create a stats pack", "Create stats pack"),
          "plans": ("Compare two plans (two sets of XML + TRENT print)", "Compare plans"),
          "packs": ("Compare two stats pack files", "Compare stats packs"),
          "units": ("Unit reports: washes and CETs, depot returns / swaps, captive units, fuel", "Create unit report"),
          "seats": ("Capacity report: by headcode group, corridor or station to station", "Create capacity report")}
-FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT print(s):")],
-         "plans": [("xml_a", "Original XML:"), ("trent_a", "Original TRENT print(s):"),
-                   ("xml_b", "Updated XML:"), ("trent_b", "Updated TRENT print(s):")],
+FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
+         "plans": [("xml_a", "Original XML:"), ("trent_a", "Original TRENT VL29 print(s):"),
+                   ("xml_b", "Updated XML:"), ("trent_b", "Updated TRENT VL29 print(s):")],
          "packs": [("pack_a", "Original stats pack:"), ("pack_b", "Updated stats pack:")],
-         "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT print(s):")],
-         "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT print(s):")]}
-NOTE = ("• Use a TRENT unit diagram print saved as Word (.docx): VehicleLayout29 is the most complete; 23 "
-        "(also the TLGN print), 11 and 05 work too. Several prints can go in one box - e.g. TLGN SX, SO and SU, or "
-        "VL29 with VL23 for its next-day links.\n• The Attune XML must be exported from the same plan as the "
-        "TRENT print. Unit reports can be made from the TRENT print alone.")
+         "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT VL29 print(s):")],
+         "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
+NOTE = ("• Use the TRENT VehicleLayout29 unit diagram print, saved as Word (.docx). Several VL29 prints can go in "
+        "one box - e.g. the LTP print with a week's STP print.\n• The Attune XML must be exported from the same "
+        "plan as the TRENT print. Unit reports can be made from the TRENT print alone.")
 OPTIONAL = {("units", "xml_a")}         # boxes that may be left blank
 OP_LABEL = {op: f"{op} ({', '.join(deps)})" for op, deps in OPERATOR_DEPOTS.items()}
 OP_LABEL[OTHER] = "Other depots"

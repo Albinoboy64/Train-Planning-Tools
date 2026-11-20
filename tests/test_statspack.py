@@ -575,22 +575,11 @@ def test_tlgn_print_and_unit_reports():
         assert [r.headcode for r in dg.rows if r.headcode] == ["5T01", "1T02", "1T17"]
         assert [r.miles for r in dg.rows if r.headcode] == [2.0, 10.0, 10.0]     # running miles -> per move
         assert dg.rows[-1].loc == "HRNSYMD" and dg.rows[1].loc == "KNGX"          # names as TIPLOCs (name table)
-        try:
-            load_plan(PlanInputs("", f"{a} ; {b}"))                              # stats pack: XML needed
-            raise AssertionError("the XML is needed unless it is optional")
-        except StatsPackError:
-            pass
-        plan = load_plan(PlanInputs("", f"{a} ; {b}"), xml_optional=True)
-        assert plan.trent.days() == {5, 6}
-        units, _per_day, _w = follow_units(plan.trent, None, [5, 6])
-        (u,) = units
-        assert [x.key for x in u.diagrams] == ["HE303", "HE316"] and u.links == ["TRENT"]
-        o = opts(d, [5, 6])
-        (out,), _warn = unit_reports(plan, o, ["washes", "depots", "captive"], week=True)
-        rows = tab_rows(out, "Washes and CETs by Unit")
-        assert any(r[0] == "SO HE303" and r[2] == 2 for r in rows)          # one unit over both days
-        dep = tab_rows(out, "Depot Moves by Depot")
-        assert any(r[:3] == ["Hornsey", "Hornsey", "Return"] for r in dep)
+        try:                                     # the app takes VehicleLayout29 prints only
+            load_plan(PlanInputs("", f"{a} ; {b}"), xml_optional=True)
+            raise AssertionError("a VehicleLayout23 / TLGN print is refused")
+        except StatsPackError as exc:
+            assert "VehicleLayout23" in str(exc) and "VehicleLayout29" in str(exc)
 
 
 def test_tlgn_headcodes_and_names_match_the_xml():
@@ -621,35 +610,6 @@ def test_attune_day_masks():
     assert days_of_mask("NNNNNNNYN") == {5}
     assert days_of_mask("NYNNNNNNN") == {6}                  # Sunday is the 2nd character
     assert days_of_mask("NNNYYYYYN") == {1, 2, 3, 4, 5}      # Tue-Sat (after-midnight trains of Mon-Fri)
-
-
-def test_tlgn_print_with_xml_uses_tiplocs():
-    """A TLGN print names places; with the XML each move gets the XML's TIPLOCs - by name, or where TRENT
-    and Attune name a place differently, by the matching time (Sunday XML mask, 4-character headcodes)."""
-    from rstools.statspack.fleet import FleetTable
-    from rstools.statspack.model import build_day
-    with tempfile.TemporaryDirectory() as d:
-        su = os.path.join(d, "SU.docx")                  # a place TRENT names in a way the name table doesn't know
-        write_docx(su, tlgn_lines("316", "Su", [
-            ("Hornsey E.M.U.D.", "", "06+00\xa0", "5T05", "", "303(1)", "  2.00"),
-            ("London Kings Cross", "06+29\xa0", "06.54\xa0", "1T06", "", "303(1)", " 22.00"),
-            ("Hornsey Shed X", "08.00\xa0", "", "STABLD", "", "", "")]))
-        xml = os.path.join(d, "tl.xml")
-        legs = {"5T05GR": '<leg origin="HRNSYMD" dep="06:00:00" dest="KNGX" arr="06:29:00"/>',
-                "1T06GR": '<leg origin="KNGX" dep="06:54:00" dest="HRNSDRS" arr="08:00:00"/>'}
-        with open(xml, "w", encoding="utf-8") as fh:
-            fh.write('<diagramExchange version="1.0" plantype="L" xmlns="http://www.tracsis.com/TTVP_Interface">'
-                     '<trainList>' + "".join(f'<train id="{t}" trainKey="1" daysRun="NYNNNNNNN" planType="L">{l}'
-                                             '</train>' for t, l in legs.items())
-                     + '</trainList><locationList><location tiploc="HRNSYMD" longDesc="Hornsey E.M.U.D."/>'
-                     '<location tiploc="KNGX" longDesc="London Kings Cross"/>'
-                     '<location tiploc="HRNSDRS" longDesc="Hornsey Down Reversing Sidings"/></locationList>'
-                     '</diagramExchange>')
-        plan = load_plan(PlanInputs(xml, su))
-        m = build_day(plan.trent, plan.attune, FleetTable.load(), 6, {"TLGN"}, None)
-        moves = [(mv.headcode, mv.origin, mv.dest) for dg in m.diagrams for mv in dg.moves]
-        assert ("5T05GR", "HRNSYMD", "KNGX") in moves       # the XML's full ID for a 4-character headcode
-        assert ("1T06GR", "KNGX", "HRNSDRS") in moves       # an unknown TRENT name: the XML's TIPLOC by time
 
 
 def test_379_seats_replace_old_placeholders_only(monkeypatch):
@@ -704,22 +664,18 @@ def test_vl11_vl05_and_merged_layouts():
         assert [r.miles for r in dx.rows if r.headcode] == [22.29, 38.30]                 # VL11: miles per move
         assert dy.rows[2].positions == ["10", "1", "21"] and dy.rows[0].miles is None    # VL05: no miles
         assert any("VehicleLayout05" in w for w in y.warnings)
-        # a VL29 diagram and the same diagram in VL23 (with its next-day link): read once, link filled in
+        # several VL29 prints go in one box (a diagram in two of them is read once); other layouts are refused
         v29 = os.path.join(d, "v29.docx")
         write_docx(v29, plan_lines())
         p29 = parse_vehicle_layout(v29)
-        first = p29.diagrams[0]
-        v23 = os.path.join(d, "v23.docx")
-        rows = [(r.loc, "", f"{r.dep // 60:02d}+{r.dep % 60:02d}\xa0" if r.dep is not None else "", r.headcode[:4] or
-                 r.activity, "", "/".join(f"{n}({i + 1})" for i, n in enumerate(r.positions)), "")
-                for r in first.rows]
-        lines = tlgn_lines(first.number, first.days_code, rows, forms="999")
-        lines[1] = lines[1].replace("HE ", first.depot + " ").replace("19/12/2026", first.start).replace(
-            "15/05/2027", first.end).replace("379/0", first.fleet)
-        write_docx(v23, lines)
-        merged = _read_trents([v29, v23], lambda m: None)
-        assert merged.layout == "VL29+VL23" and len(merged.diagrams) == len(p29.diagrams)
-        assert next(d2 for d2 in merged.diagrams if d2.key == first.key and d2.start == first.start).next_num == "999"
+        both = _read_trents([v29, v29], lambda m: None)
+        assert both.layout == "VL29" and len(both.diagrams) == len(p29.diagrams)
+        for other in (a, b):
+            try:
+                _read_trents([v29, other], lambda m: None)
+                raise AssertionError("only VehicleLayout29 prints are used")
+            except TrentFormatError as exc:
+                assert "VehicleLayout29" in str(exc)
 
 
 if __name__ == "__main__":

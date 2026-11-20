@@ -119,13 +119,12 @@ TIPS = {
     "Updated Attune XML:": "The Attune diagram export (.xml) of the updated plan.",
     "Attune XML (optional):": "The Attune diagram export (.xml) of the plan. Unit reports can be made from the "
                               "TRENT print alone: the XML adds next-day workings for SNGX diagrams.",
-    "TRENT print(s):": "The TRENT unit diagram print saved as Word (.docx), from the same plan as the XML. "
-                       "VehicleLayout29 is the most complete (TIPLOCs, LTP / STP, miles); VehicleLayout23 (also the "
-                       "TLGN print), 11 and 05 are read too (05 has no miles). Several prints can go in this box: "
-                       "Browse lets you pick several, or drop them all on the box. VL29 with VL23 adds VL23's "
-                       "next-day links for unit reports.",
-    "Original TRENT print(s):": "The TRENT unit diagram print(s) (.docx) of the original plan.",
-    "Updated TRENT print(s):": "The TRENT unit diagram print(s) (.docx) of the updated plan.",
+    "TRENT VL29 print(s):": "The TRENT VehicleLayout29 unit diagram print saved as Word (.docx), from the same plan "
+                            "as the XML (TIPLOCs, LTP / STP, miles). Several VL29 prints can go in this box - e.g. "
+                            "the LTP print with a week's STP print: Browse lets you pick several, or drop them all "
+                            "on the box. Other TRENT layouts (VehicleLayout23, 11, 05) are not used.",
+    "Original TRENT VL29 print(s):": "The TRENT VehicleLayout29 print(s) (.docx) of the original plan.",
+    "Updated TRENT VL29 print(s):": "The TRENT VehicleLayout29 print(s) (.docx) of the updated plan.",
     "Original stats pack:": "The earlier stats pack workbook (.xlsx).",
     "Updated stats pack:": "The newer stats pack workbook (.xlsx).",
     "Washes and CETs": "How many washes and CETs each unit gets in the week, and where.",
