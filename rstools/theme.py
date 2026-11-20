@@ -145,11 +145,16 @@ def _dark_title_bar(root: tk.Tk, dark: bool):
         pass
 
 
+CURRENT: dict = {}             # the palette in use (for widgets made later, e.g. suggestion lists)
+
+
 def apply(root: tk.Tk, mode: str) -> dict:
     """Style the whole window for a theme setting; returns the palette in use."""
     name = resolve(mode)
     p = dict(PALETTES[name], name=name)
     p.setdefault("select_fg", p["fg"])
+    CURRENT.clear()
+    CURRENT.update(p)
     hc = name == "contrast"
     style = ttk.Style(root)
     native = name == "light" and sys.platform.startswith("win") and "vista" in style.theme_names()

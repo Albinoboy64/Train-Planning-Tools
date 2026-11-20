@@ -459,7 +459,12 @@ def seats_group(kind: str, name: str, corridor_dir: str = "both", journey: Tuple
             raise StatsPackError("Choose both stations.")
         return journey_group(*journey)
     code = name.strip().split(" ")[0] if name.strip() else ""
-    custom = next((g for g in load_groups() if g.kind == kind and g.name in (name, code)), None)
+    groups = [g for g in load_groups() if g.kind == kind]
+    typed = " ".join(name.split()).casefold()
+    custom = next((g for g in groups if g.name in (name, code) or g.name.casefold() == typed), None)
+    if custom is None and typed and kind == "Corridor":         # part of a name typed in: the one it matches
+        found = [g for g in groups if typed in g.name.casefold()]
+        custom = found[0] if len(found) == 1 else None
     if custom is not None:
         return custom.with_direction(corridor_dir) if kind == "Corridor" else custom
     if kind == "Service group" and re.fullmatch(r"[0-9][A-Z]", code.upper()):

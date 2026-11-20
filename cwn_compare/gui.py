@@ -15,6 +15,7 @@ from typing import Dict
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
 from rstools import theme, updater
+from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.update_dialog import UpdateDialog
 from rstools.widgets import ScrollPage, Tooltip
@@ -912,7 +913,7 @@ class App(tk.Tk):
             ttk.Label(sb, text=text).grid(row=r, column=0, sticky="w", pady=1)
             if key == "station":
                 self.book_station_box = w = ttk.Combobox(sb, textvariable=self.book_vars[key])
-                w.bind("<KeyRelease>", self._filter_book_stations)
+                Suggest(w, lambda: self._book_stations)
                 ttk.Button(sb, text="Add to list", command=self._add_book_station).grid(row=r, column=2,
                                                                                         padx=(4, 0), pady=1)
             else:
@@ -950,12 +951,6 @@ class App(tk.Tk):
         self.book_vars["station"].set("")
         self.book_vars["platforms"].set("")
 
-    def _filter_book_stations(self, event):
-        if event.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
-            return
-        typed = self.book_station_box.get().strip().casefold()
-        self.book_station_box.configure(values=[s for s in self._book_stations if typed in s.casefold()]
-                                        if typed else self._book_stations)
 
     def _read_book_xml(self):
         """List the XML's stations (and its timetable name) in the background, for the station box."""

@@ -128,7 +128,7 @@ def test_every_module_imports():
         for mod in pkgutil.walk_packages([os.path.join(root, pkg)], prefix=pkg + "."):
             name = mod.name
             if not have_tk and (name.endswith(("gui", "gui_tab", "theme", "widgets", "help_text", "notify",
-                                               "update_dialog"))):
+                                               "update_dialog", "autocomplete"))):
                 continue
             importlib.import_module(name)
 
@@ -353,3 +353,52 @@ def test_third_party_notices_ship():
     text = open(path, encoding="utf-8").read()
     for name in ("openpyxl", "pyxlsb", "LGPL", "pypdf", "pypdfium2", "PDFium", "ReportLab", "tkinterdnd2"):
         assert name in text
+
+
+def test_station_suggestions_as_you_type():
+    """Typing in a station box lists matching names below it (starts-with first); Down + Enter takes one,
+    and anything can still be typed over the box."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from tkinter import ttk
+    from rstools.autocomplete import Suggest, matches
+    names = ["Brighton", "Preston Park", "London Bridge", "London Victoria", "Hove", "Burgess Hill"]
+    assert matches("lon", names) == ["London Bridge", "London Victoria"]
+    assert matches("bri", names) == ["Brighton", "London Bridge"]         # a word starting with it comes next
+    assert matches("ill", names) == ["Burgess Hill"]
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return
+    try:
+        picked = []
+        box = ttk.Combobox(root, values=names)
+        box.pack()
+        box.set("Hove")                                   # existing text can be typed over
+        s = Suggest(box, lambda: names, picked.append)
+        root.update()
+        box.focus_force()
+        box.delete(0, "end")
+        box.insert(0, "lon")
+        box.event_generate("<KeyRelease>", keysym="n")
+        root.update()
+        assert s.shown and list(s.box.get(0, "end")) == ["London Bridge", "London Victoria"]
+        box.event_generate("<Down>")
+        box.event_generate("<Down>")
+        box.event_generate("<Return>")
+        root.update()
+        assert box.get() == "London Victoria" and picked == ["London Victoria"] and not s.shown
+        box.delete(0, "end")
+        box.insert(0, "Somewhere new")                    # a name not in the list is kept as typed
+        box.event_generate("<KeyRelease>", keysym="w")
+        root.update()
+        assert box.get() == "Somewhere new" and not s.shown
+    finally:
+        root.destroy()
+
+
+def test_service_groups_listed_without_an_xml():
+    """Before an XML is chosen the capacity report lists the built-in GTR groups, SNGX and TLGN."""
+    from rstools.statspack.seats import default_headcode_groups
+    codes = [c for c, _d in default_headcode_groups()]
+    assert len(codes) > 40 and {"1A", "1C", "1T", "2V", "9J", "9Y"} <= set(codes)

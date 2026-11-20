@@ -12,6 +12,7 @@ from collections import Counter
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import theme
+from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 from rstools.fsutil import write_json
@@ -353,9 +354,12 @@ class StatsPackTab(ttk.Frame):
         for r, kind in enumerate(("Service group", "Corridor")):
             ttk.Radiobutton(sf, text=labels[kind], variable=self.seat_kind, value=kind,
                             command=self._seat_kind_changed).grid(row=2 * r, column=0, sticky="w")
-            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], state="readonly", width=46)
+            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=46)     # pick or type
             box.grid(row=2 * r, column=1, sticky="ew", padx=(4, 0), pady=1)
-            box.bind("<<ComboboxSelected>>", lambda _e, k=kind: (self.seat_kind.set(k), self._seat_kind_changed()))
+            pick = (lambda _v=None, k=kind: (self.seat_kind.set(k), self._seat_kind_changed()))
+            box.bind("<<ComboboxSelected>>", lambda _e, f=pick: f())
+            box.bind("<Key>", lambda e, f=pick: f() if e.char and e.char.isprintable() else None, add="+")
+            Suggest(box, lambda b=box: b.cget("values"), pick)
             self.seat_boxes[kind] = box
         self.seat_group_note = ttk.Label(sf, text="", style="Small.TLabel")
         self.seat_group_note.grid(row=1, column=1, sticky="w", padx=(4, 0))
@@ -377,7 +381,9 @@ class StatsPackTab(ttk.Frame):
             box = ttk.Combobox(jf, textvariable=var, width=20)
             box.grid(row=0, column=c, sticky="ew")
             box.bind("<<ComboboxSelected>>", lambda _e: (self.seat_kind.set(JOURNEY), self._seat_kind_changed()))
-            box.bind("<KeyRelease>", self._filter_stations)
+            journey = (lambda _v=None: (self.seat_kind.set(JOURNEY), self._seat_kind_changed()))
+            box.bind("<Key>", lambda e, f=journey: f() if e.char and e.char.isprintable() else None, add="+")
+            Suggest(box, self._station_names, journey)
             self.journey_boxes.append(box)
         ttk.Label(jf, text="to").grid(row=0, column=1, padx=4)
         self.seat_week = tk.BooleanVar(value=True)
@@ -414,7 +420,7 @@ class StatsPackTab(ttk.Frame):
         self.seat_station = tk.StringVar(value="London Victoria")
         self.seat_station_box = ttk.Combobox(af, textvariable=self.seat_station, width=30)
         self.seat_station_box.grid(row=0, column=1, sticky="ew", padx=(4, 0))
-        self.seat_station_box.bind("<KeyRelease>", self._filter_stations)
+        Suggest(self.seat_station_box, self._station_names)
         self.seat_at_note = ttk.Label(sf, text="(departing the first station)", style="Small.TLabel")
         self.seat_at_note.grid(row=7, column=0, columnspan=2, sticky="w", padx=(22, 0))
         ttk.Checkbutton(sf, text="Compare two timetables (original and updated XML + TRENT print)",
@@ -441,7 +447,9 @@ class StatsPackTab(ttk.Frame):
         self.seat_boxes["Corridor"].configure(values=names)
         if self.seat_group["Corridor"].get() not in names:
             self.seat_group["Corridor"].set(names[0] if names else "")
-        heads = [f"{code}   {desc}" for code, desc in self._headcode_groups]
+        from .seats import default_headcode_groups
+        built_in = not self._headcode_groups
+        heads = [f"{code}   {desc}" for code, desc in (self._headcode_groups or default_headcode_groups())]
         self.seat_boxes["Service group"].configure(values=heads)
         cur = self.seat_group["Service group"].get().split(" ")[0]
         match = next((h for h in heads if h.split(" ")[0] == cur), None)
@@ -449,8 +457,9 @@ class StatsPackTab(ttk.Frame):
             self.seat_group["Service group"].set(match)
         elif heads and not cur:
             self.seat_group["Service group"].set(heads[0])
-        self.seat_group_note.configure(text="Choose the Attune XML to list its headcode groups (1F, 1W, 2F...).")
-        (self.seat_group_note.grid_remove if heads else self.seat_group_note.grid)()
+        self.seat_group_note.configure(text="Built-in list of GTR groups: choose the Attune XML to list this "
+                                            "timetable's own, or type any group (e.g. 1F).")
+        (self.seat_group_note.grid if built_in else self.seat_group_note.grid_remove)()
         stations = self._stations or sorted({shown(s) for g in self._groups for s in g.route}, key=str.casefold)
         for box in (self.seat_station_box, *self.journey_boxes):
             box.configure(values=stations)
@@ -471,14 +480,9 @@ class StatsPackTab(ttk.Frame):
     def _corridor_dir_key(self) -> str:
         return getattr(self, "_dir_texts", {}).get(self.corridor_dir_box.get(), self.corridor_dir.get() or "both")
 
-    def _filter_stations(self, event):
-        """Typing in a station box narrows its list to matching stations."""
-        box = event.widget
-        if event.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
-            return
-        typed = box.get().strip().casefold()
-        stations = self._stations or sorted({shown(s) for g in self._groups for s in g.route}, key=str.casefold)
-        box.configure(values=[s for s in stations if typed in s.casefold()] if typed else stations)
+    def _station_names(self):
+        """The stations offered as you type: the XML's, else every station on the corridors."""
+        return self._stations or sorted({shown(s) for g in self._groups for s in g.route}, key=str.casefold)
 
     def _seat_kind_changed(self):
         self.corridor_dir.set(self._corridor_dir_key())
@@ -968,8 +972,8 @@ class StatsPackTab(ttk.Frame):
                 if st["journey"][0].casefold() == st["journey"][1].casefold():
                     return messagebox.showwarning(TITLE, "Choose two different stations.")
             elif not st["groups"][st["kind"]]:
-                return messagebox.showwarning(TITLE, "Choose the Attune XML first, then a headcode group." if
-                                              st["kind"] == "Service group" else "Choose a corridor.")
+                return messagebox.showwarning(TITLE, "Choose or type a headcode group (e.g. 1F)." if
+                                              st["kind"] == "Service group" else "Choose or type a corridor.")
             if self.seat_window.get():
                 from .seats import SeatsError, parse_time
                 try:

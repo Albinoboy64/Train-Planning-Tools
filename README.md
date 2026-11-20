@@ -323,6 +323,11 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.13.1** - easier station and group boxes
+* **Suggestions as you type**: typing in a station box (capacity report stations, the time-window station and the Station Working Book station) lists the matching stations just below it. Names starting with what you've typed come first, then names with a word starting with it (e.g. *bri* finds Brighton, then London Bridge). Use Down / Up and Enter (or click) to take one, and Escape to close the list.
+* **Type over any box**: the capacity report's *Service group* and *Corridor* boxes used to be pick-only. You can now type in them too, with the same suggestions. Type any headcode group (e.g. `1F`, `9J`), or enough of a corridor's name to pick it out. Station names not in the list are kept as typed.
+* **Service groups before an XML is chosen**: the list used to be empty, apart from the last group used, until an Attune XML was read. It now shows a built-in list of every SNGX and TLGN headcode group (62, e.g. 1A-2Z and 9A-9Z) with their main routes. Choosing the XML replaces it with that timetable's own groups and train counts.
+
 **3.13.0** - week 37 (timetable change) data
 * **Week STP prints**: VehicleLayout23, 11 and 05 don't print LTP / STP, so a diagram running for a week or less is now taken as **STP**. When the LTP print and a week's STP print are loaded together, the STP version is used, as it already was with VL29. A stats pack or unit report made from a week's STP print only is named by its railway week (e.g. *Stats pack for STP wc 12 Dec 2026*) instead of *DEC26*.
 * **More TRENT locations**: Edenbridge, Polegate, Polegate shunt signal 1373, North Pole turnback siding and North Pole signal VC818 (full and short names), found in the week 37 prints.

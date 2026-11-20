@@ -126,6 +126,18 @@ def headcode_group(code: str) -> Group:
     return Group("Service group", code.upper(), [], headcodes=[code.upper()], minimum=0)
 
 
+def default_headcode_groups() -> List[Tuple[str, str]]:
+    """[(code, main routes)] from the built-in list of GTR (SNGX and TLGN) headcode groups, shown until an
+    XML is chosen."""
+    import csv
+    try:
+        with open(os.path.join(HERE, "service_groups_default.csv"), encoding="utf-8-sig") as fh:
+            return [(r["Headcode group"].strip(), r["Main routes"].strip()) for r in csv.DictReader(fh)
+                    if (r.get("Headcode group") or "").strip()]
+    except (OSError, KeyError):
+        return []
+
+
 def journey_group(origin: str, dest: str) -> Group:
     return Group(JOURNEY, f"{origin} to {dest}", [], minimum=0, journey=(origin.strip(), dest.strip()))
 
