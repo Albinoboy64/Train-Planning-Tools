@@ -727,3 +727,28 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_stp_inferred_week_names_and_new_locations():
+    """VL23 / 11 / 05 print no LTP / STP: a diagram for a week or less is taken as STP, a print of only
+    such diagrams is named by its railway week, and the week 37 names are known."""
+    from rstools.statspack.engine import timetable
+    t = "\t" * 7
+    lines = ["\t" * 6 + "Diagram  :\tBI\t1\tTO\t387/3", "\t\t\tRuns from:\t15/12/2026 until 15/12/2026",
+             t + "Ednbg\t\t04+20\xa0\t5H92\t\t1(1)",
+             t + "Pole\t06.09\xa0\t\t\tSTABLD\t",
+             t + "MILES  : (LD)\t0.00\t(ETY)\t22.29\t(TOT)\t22.29",
+             "\t" * 6 + "Diagram  :\tBI\t2\tSX\t387/3", "\t\t\tRuns from:\t14/12/2026 until 14/05/2027",
+             t + "NPoleTbSd\t\t04+20\xa0\t5H93\t\t2(1)",
+             t + "North PoB\t06.09\xa0\t\t\tSTABLD\t",
+             t + "MILES  : (LD)\t0.00\t(ETY)\t1.00\t(TOT)\t1.00"]
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "vl05.docx")
+        write_docx(p, lines)
+        data = parse_vehicle_layout(p)
+    stp, ltp = data.diagrams
+    assert (stp.plan, ltp.plan) == ("STP", "LTP")
+    assert [r.loc for r in stp.rows + ltp.rows] == ["EDNB", "POLGATE", "NPLETB", "NPLE818"]
+    assert timetable(data) == "DEC26"
+    data.diagrams = [stp]
+    assert timetable(data) == "STP wc 12 Dec 2026"

@@ -445,3 +445,26 @@ def test_half_minutes_kept_unless_compared_with_whole_minutes():
     hh_wtt = [e.time for e in working[0].events if e.name == "Haywards Heath"]
     assert hh_pub == ["0553", "0553"] and hh_wtt == ["0552½", "0553½"]
     assert any(e.name == "Keymer Jn" for e in working[0].events)          # a passing time: working only
+
+
+def test_attune_train_list_columns():
+    """Attune's own export: 'Work Dep' / 'Work Arr' / 'Stage' columns are recognised, bus IDs are kept and the
+    record-keeping columns (Last Update, Lock Id...) are listed but never compared."""
+    import openpyxl
+    from rstools.timetable.trainlist import compare_train_lists, read_train_list
+    with tempfile.TemporaryDirectory() as d:
+        for v in (1, 2):
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.append([None, "Stage", "Headcode", "Origin", "Work Dep", "Destination", "Work Arr", "Days",
+                       "Last Update", "Last Updated By", "Lock Id"])
+            ws.append([None, "LTP Published", "1A08BU", "VICTRIC", dt.time(9, 0), "BRGHTN", dt.time(10, 5), "SX",
+                       f"2026-0{v}-01", f"user{v}", v])
+            ws.append([None, "STP", "BHQ200", "CAMBDGE", dt.time(4, 53), "ROYSTON",
+                       dt.time(5, 33 if v == 1 else 40), "Su", None, None, None])
+            wb.save(os.path.join(d, f"l{v}.xlsx"))
+        a, b = read_train_list(os.path.join(d, "l1.xlsx")), read_train_list(os.path.join(d, "l2.xlsx"))
+    assert len(a.rows) == 2 and {"origin_time", "dest_time", "stp"} <= set(a.roles)
+    cmp = compare_train_lists(a, b)
+    assert [(h, old, new) for _i, _j, h, old, new in cmp.changes] == [("Work Arr", "0533", "0540")]
+    assert cmp.ignored == ["Last Update", "Last Updated By", "Lock Id"]

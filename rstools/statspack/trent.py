@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import re
 import zipfile
+from datetime import datetime
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
@@ -291,7 +292,7 @@ def parse_vehicle_layout(path: str) -> TrentData:
                                                                     _HEADER05).match(flat)
         if m:
             g = m.groupdict()
-            cur = TrentDiagram(depot=g["depot"], number=g["num"], days_code=g["days"], plan=g.get("plan") or "LTP",
+            cur = TrentDiagram(depot=g["depot"], number=g["num"], days_code=g["days"], plan=g.get("plan") or "",
                                start=g.get("frm") or "", end=g.get("until") or "", fleet=g["fleet"])
             diagrams.append(cur)
             continue
@@ -344,6 +345,8 @@ def parse_vehicle_layout(path: str) -> TrentData:
     mismatched = []
     for d in diagrams:
         _unroll_times(d)
+        if not d.plan:          # VL23 / 11 / 05 print no plan: a diagram for a week or less is a short-term one
+            d.plan = "STP" if 0 <= _span_days(d.start, d.end) <= 6 else "LTP"
         if not d.days:
             warnings.append(f"Diagram {d.key} has an unrecognised days code '{d.days_code}' and was skipped.")
         elif layout != "VL05" and not _totals_match(d):
@@ -351,8 +354,17 @@ def parse_vehicle_layout(path: str) -> TrentData:
     if mismatched:
         warnings.append(f"{len(mismatched)} diagram(s) in the TRENT print have service miles that do not add up to "
                         f"the printed mileage total (e.g. {', '.join(mismatched[:8])}) - part of the print may not "
-                        "have been read. Check the file is a complete TRENT unit diagram print.")
+                        "have been read, or TRENT's own total counts miles no printed move carries. Check the file is a "
+                        "complete TRENT unit diagram print.")
     return TrentData(path, [d for d in diagrams if d.days], warnings, layout)
+
+
+def _span_days(start: str, end: str) -> int:
+    """Days from a 'dd/mm/yyyy' start to end; -1 when either is missing."""
+    try:
+        return (datetime.strptime(end, "%d/%m/%Y") - datetime.strptime(start, "%d/%m/%Y")).days
+    except ValueError:
+        return -1
 
 
 def is_empty_headcode(headcode: str) -> bool:

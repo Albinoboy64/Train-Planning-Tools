@@ -478,6 +478,8 @@ class Builder:
         if not leaving or len(leaving) == len(ends):
             return None
         at = next(iter(leaving.values()))[0].moves[next(iter(leaving.values()))[1]].dest
+        if not any(c.loc == at and c.arr is not None for c in t.calls[i + 1:]):
+            return None         # the unit leaves where the train does not stop after here (e.g. a pass)
         staying = [k for k in formation if k not in leaving]
         groups = []
         for keys, other in ((staying, None), ([k for k in formation if k in leaving], leaving)):

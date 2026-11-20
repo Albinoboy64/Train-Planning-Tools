@@ -522,3 +522,17 @@ def test_reorder_already_in_order_saves_nothing():
     make(src, BTN_ORIG, VIC_ORIG)
     res = reorder_cwn(src, d)
     assert res["path"] == "" and res["trains"] == 0 and os.listdir(d) == ["plain.xlsx"]
+
+
+def test_single_day_cwn_against_day_coded_cwn():
+    """A CWN with no days column filled in (a single-day CWN) compared with one whose trains carry a day
+    code ('WO') is not a days change on every train."""
+    o = [list(r) for r in BTN_ORIG]
+    for r in o:
+        r[1] = ""
+    u = [list(r) for r in BTN_ORIG]
+    for r in u:
+        r[1] = "WO"
+    u[0][3] = "9"
+    _res, changes = _run_pair(o, u, "single")
+    assert {c["category"] for c in changes} == {"PLATFORM"}, changes

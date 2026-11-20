@@ -196,10 +196,11 @@ def loose_text(text: str) -> str:
 
 
 class _Ctx:
-    def __init__(self, sheet_key, title, loose=False):
+    def __init__(self, sheet_key, title, loose=False, single_day=(False, False)):
         self.sheet = sheet_key
         self.title = title
         self.loose = loose
+        self.single_day = single_day            # (original, updated) is a one-day CWN with no day codes
         self.out: List[Change] = []
 
     def differs(self, field_name: str, a: str, b: str) -> bool:
@@ -228,6 +229,10 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
     that still runs on other days is reported as a days change, not as cancelled or new."""
     old_ids = (full_old or old).all_train_ids()
     new_ids = (full_new or new).all_train_ids()
+    # a one-day CWN (e.g. an STP week's WO CWN) gives no day codes: its trains all run that day, so a blank
+    # there against 'SX' in a CWN of several days is not a change
+    single = tuple(not any(b.main.get("days") for s in (full or m).sheets.values() for b in s.blocks)
+                   for m, full in ((old, full_old), (new, full_new)))
 
     def at(model, sk) -> set:
         sh = model.sheets.get(sk) if model else None
@@ -240,7 +245,7 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
         title = (sn or so).title
         if progress:
             progress(i, len(keys), title)
-        ctx = _Ctx(sk, title, loose)
+        ctx = _Ctx(sk, title, loose, single)
         pairs, removed, added = match_blocks(so.blocks if so else [], sn.blocks if sn else [])
         pair_map: Dict[str, List[str]] = defaultdict(list)
         for o, n, _mode in pairs:
@@ -320,6 +325,8 @@ def _compare_pair(ctx: _Ctx, o: Block, n: Block, mode: str = "same"):
     for f, cat in simple:
         if not diff(f) or (f == "days" and ignore_days):
             continue
+        if f == "days" and ((ctx.single_day[0] and not om.get(f)) or (ctx.single_day[1] and not nm.get(f))):
+            continue                            # one-day CWN: no day codes, every train runs that day
         if f == "dest" and is_next_working(orw.get("dest", "")) and is_next_working(nrw.get("dest", "")):
             continue    # berth / next-day working lines are compared as a set below
         if f == "loc":

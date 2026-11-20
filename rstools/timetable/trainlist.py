@@ -25,16 +25,20 @@ _ROLE_PATTERNS = (
     ("days", re.compile(r"^(days?(\s*(of\s*operation|run|running|pattern))?|days\s*run|dow|operating\s*days)$",
                         re.I)),
     ("origin_time", re.compile(r"^(origin\s*(dep(arture)?\s*)?time|dep(arture)?\s*time|start\s*time|"
-                               r"wtt\s*dep(arture)?|origin\s*dep(arture)?|dep)$", re.I)),
+                               r"wtt\s*dep(arture)?|origin\s*dep(arture)?|work(ing)?\s*dep(arture)?|dep)$", re.I)),
     ("origin", re.compile(r"^(origin(\s*(loc|location|station|tiploc))?|start\s*location)$", re.I)),
     ("dest_time", re.compile(r"^(dest(ination)?\s*(arr(ival)?\s*)?time|arr(ival)?\s*time|end\s*time|"
-                             r"wtt\s*arr(ival)?|dest(ination)?\s*arr(ival)?|arr)$", re.I)),
+                             r"wtt\s*arr(ival)?|dest(ination)?\s*arr(ival)?|work(ing)?\s*arr(ival)?|arr)$", re.I)),
     ("destination", re.compile(r"^(dest(ination)?(\s*(loc|location|station|tiploc))?|end\s*location)$", re.I)),
     ("operator", re.compile(r"^(operator|toc|toc\s*code|business)$", re.I)),
     ("category", re.compile(r"^(train\s*)?category$", re.I)),
-    ("stp", re.compile(r"^(stp(\s*indicator)?|ltp\s*/\s*stp)$", re.I)),
+    ("stp", re.compile(r"^(stp(\s*indicator)?|ltp\s*/\s*stp|stage)$", re.I)),
     ("start_date", re.compile(r"^(start\s*date|valid\s*from|date\s*from|from\s*date|runs\s*from|from)$", re.I)),
 )
+# record-keeping columns (Attune's 'Last Update', 'Lock Id'...) change on every save: listed, never compared
+_AUDIT = re.compile(r"^(last\s*(update|updated|modified|edited)(\s*(by|on|date))?|(updated|modified|edited)\s*(by|on)|"
+                    r"update\s*id|lock(\s*client)?\s*id|edited\??)$", re.I)
+_ID = re.compile(r"^[A-Z0-9]{4,8}$")          # a bus or other non-standard train ID ('BHQ200')
 _TIMEISH = re.compile(r"time|dep|arr|pass|wtt|start\s*t|end\s*t", re.I)
 
 
@@ -145,7 +149,7 @@ def read_train_list(path: str) -> TrainList:
         if "uid" in roles:
             if not values[roles["uid"]]:
                 continue                        # a total / notes row under the list
-        elif not norm_headcode(values[roles["headcode"]]):
+        elif not (norm_headcode(values[roles["headcode"]]) or _ID.match(values[roles["headcode"]].upper())):
             continue
         data.append(values)
         excel_rows.append(n)
@@ -165,6 +169,7 @@ class ListComparison:
     removed: List[int]
     changes: List[Tuple[int, int, str, str, str]]     # (original row, updated row, column, old, new)
     warnings: List[str] = field(default_factory=list)
+    ignored: List[str] = field(default_factory=list)    # record-keeping columns in both, not compared
 
 
 def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
@@ -191,7 +196,7 @@ def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
     used = {j for _i, j in pairs}
     added = [j for j in range(len(b.rows)) if j not in used]
     pairs.sort()
-    common = [h for h in a.headers if h in b.headers]
+    common = [h for h in a.headers if h in b.headers and not _AUDIT.match(h)]
     changes = []
     for i, j in pairs:
         for h in common:
@@ -199,7 +204,8 @@ def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
             if old != new and not _same(old, new):
                 changes.append((i, j, h, old, new))
     return ListComparison(a, b, keys, common, [h for h in a.headers if h not in b.headers],
-                          [h for h in b.headers if h not in a.headers], pairs, added, sorted(removed), changes)
+                          [h for h in b.headers if h not in a.headers], pairs, added, sorted(removed), changes,
+                          ignored=[h for h in a.headers if h in b.headers and _AUDIT.match(h)])
 
 
 def _same(old: str, new: str) -> bool:
@@ -247,6 +253,7 @@ def build_workbook(cmp: ListComparison):
              ["Updated sheet / heading row", f"{b.sheet}, row {b.header_row}"],
              ["Trains paired by", ", ".join(cmp.key_headers)],
              ["Columns compared", f"{len(cmp.common)}: {', '.join(cmp.common)}"],
+             ["Record-keeping columns (not compared)", ", ".join(cmp.ignored) or "None"],
              ["Columns only in the original (not compared)", ", ".join(cmp.only_original) or "None"],
              ["Columns only in the updated (not compared)", ", ".join(cmp.only_updated) or "None"],
              ["Cells compared", len(cmp.pairs) * len(cmp.common)]]

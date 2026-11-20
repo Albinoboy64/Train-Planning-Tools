@@ -323,6 +323,14 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.13.0** - week 37 (timetable change) data
+* **Week STP prints**: VehicleLayout23, 11 and 05 don't print LTP / STP, so a diagram running for a week or less is now taken as **STP**. When the LTP print and a week's STP print are loaded together, the STP version is used, as it already was with VL29. A stats pack or unit report made from a week's STP print only is named by its railway week (e.g. *Stats pack for STP wc 12 Dec 2026*) instead of *DEC26*.
+* **More TRENT locations**: Edenbridge, Polegate, Polegate shunt signal 1373, North Pole turnback siding and North Pole signal VC818 (full and short names), found in the week 37 prints.
+* **Attune train list exports**: the *Work Dep*, *Work Arr* and *Stage* (LTP / STP) columns are now recognised, so trains are paired by headcode, days, departure time and origin, with no duplicate pairings. Bus replacement IDs (e.g. `BHQ200`) are kept instead of being dropped. The record-keeping columns (*Last Update*, *Last Updated By*, *Lock Id*, *Update Id*, *Edited?*) are no longer reported as changes; *What Was Compared* lists them.
+* **CWN Tools**: comparing a single-day CWN (no day codes on its trains) with a CWN whose trains carry a day code (e.g. the LTP SX CWN against a week's WO CWN) no longer reports a days change on every train.
+* **Station Working Book**: fixed a crash when a unit left a dividing train where the train doesn't stop (seen with the week 37 XML).
+* A TRENT diagram whose printed mileage total doesn't match its moves (TRENT's own total sometimes counts miles that no printed move carries, e.g. BI 9003 in week 37) is now explained as such in the warning.
+
 **3.12.0** - every TRENT print layout
 * **All four TRENT unit diagram print layouts are read**: VehicleLayout29 (still the best: TIPLOCs, LTP/STP, miles), VehicleLayout23 (the same layout as the TLGN print), and now **VehicleLayout11** and **VehicleLayout05**, which used to be rejected. Checked against the full Dec 26 prints of every GTR train: all four layouts give the same 2,369 diagrams with the same trains, times, units and miles.
 * **Built-in table of every GTR location in TRENT** (210 TIPLOCs, with TRENT's full and short names), so station names in VL23, VL11, VL05 and the TLGN print become TIPLOCs, as in VL29. Depots, captive units, XML matching and the stats pack then work exactly as with VL29.

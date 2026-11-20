@@ -175,8 +175,20 @@ def default_name() -> str:
 
 
 def timetable(trent: TrentData) -> str:
-    """The timetable a TRENT print is for, from its diagrams' start dates, e.g. 'DEC26'."""
-    return naming.timetable_of(d.start for d in trent.diagrams)
+    """The timetable a TRENT print is for, from its diagrams' start dates, e.g. 'DEC26'; a print of
+    short-term diagrams only (a week's STP) is named by its week, e.g. 'STP wc 12 Dec 2026'."""
+    from datetime import datetime, timedelta
+    from .trent import _span_days
+    ds = trent.diagrams
+    if ds and all(0 <= _span_days(d.start, d.end) <= 6 for d in ds):
+        try:
+            first = min(datetime.strptime(d.start, "%d/%m/%Y") for d in ds)
+        except ValueError:
+            first = None
+        if first is not None:
+            sat = first - timedelta(days=(first.weekday() - 5) % 7)       # railway weeks run Saturday to Friday
+            return f"STP wc {sat.day} {sat:%b %Y}"
+    return naming.timetable_of(d.start for d in ds)
 
 
 def pack_name(trent: TrentData, days: Sequence[int] = ()) -> str:
