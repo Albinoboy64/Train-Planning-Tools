@@ -423,7 +423,7 @@ class TimetableTab(ttk.Frame):
         for side, (key, label) in enumerate(zip(("a", "b"), SIDES[mode])):
             what = file_label(label)
             if not sides[key]:
-                return messagebox.showwarning(TITLE, f"Please choose the {what} file.")
+                return messagebox.showwarning(TITLE, f"Choose the {what} file.")
             if not MULTI.get(mode, (False, False))[side] and len(sides[key]) > 1:
                 return messagebox.showwarning(TITLE, f"Choose one file for the {what}.")
             for p in sides[key]:

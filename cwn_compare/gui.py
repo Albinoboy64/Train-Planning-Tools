@@ -625,8 +625,8 @@ class App(tk.Tk):
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
 
-        ttk.Label(outer, text="Carriage Working Notice Comparison", style="Head.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w")
+        self.heading = ttk.Label(outer, text="Carriage Working Notice Comparison", style="Head.TLabel")
+        self.heading.grid(row=0, column=0, columnspan=2, sticky="w")
         self.intro = theme.tip(ttk.Label(outer, text="", style="Small.TLabel"))
         self.intro.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
@@ -680,7 +680,7 @@ class App(tk.Tk):
         self.prev_info.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # --- output
-        of = ttk.LabelFrame(left, text="3. Output", padding=8)
+        of = self.out_frame = ttk.LabelFrame(left, text="3. Output", padding=8)
         of.grid(row=2, column=0, sticky="ew")
         of.columnconfigure(1, weight=1)
         self.out_type = tk.StringVar(value="full")
@@ -1061,6 +1061,9 @@ class App(tk.Tk):
                                 else "Open output CWN")
         (self.open_rep.grid_remove if single else self.open_rep.grid)()
         self.run_frame.configure(text="4. Run" if single else "5. Run")
+        self.out_frame.configure(text="3. Stations and output" if station else "3. Output")
+        self.heading.configure(text="Day Variants in Order" if reorder else "Station Working Book" if station
+                               else "Carriage Working Notice Comparison")
         self.intro.configure(text="Saves a tidier copy of one multi-day CWN, with each train's day variants listed "
                                   "in order. Nothing in the CWN is changed or removed." if reorder else
                              "Makes a Station Working Book in the TRACS-RS layout from an Attune XML: every train "
@@ -1161,7 +1164,7 @@ class App(tk.Tk):
             self.mode.set("compare")
             self._mode_changed()
         if not files:
-            messagebox.showwarning(APP_TITLE, "Please drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb).")
+            messagebox.showwarning(APP_TITLE, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb).")
             return event.action
         if self.mode.get() == "reorder":
             self.orig.set(files[0])
@@ -1241,20 +1244,20 @@ class App(tk.Tk):
 
     def _run_station_book(self, o: Options):
         if not o.original.lower().endswith(".xml") or not os.path.isfile(o.original):
-            messagebox.showwarning(APP_TITLE, "Please choose the Attune XML (.xml).")
+            messagebox.showwarning(APP_TITLE, "Choose the Attune XML (.xml).")
             return
         from rstools.stationbook import parse_station_list
         entries = parse_station_list(o.book_list)
         if o.book_station and (o.book_station, o.book_platforms) not in entries and entries:
             entries.append((o.book_station, o.book_platforms))      # chosen but not yet added to the list
         if not entries and not o.book_station:
-            messagebox.showwarning(APP_TITLE, "Please choose the station (or add several to the list).")
+            messagebox.showwarning(APP_TITLE, "Choose the station (or add several to the list).")
             return
         if not o.book_days:
             messagebox.showwarning(APP_TITLE, "Tick at least one sheet (SX, SO or Su).")
             return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_TITLE, f"Output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
             return
         saved = dataclasses.replace(o, output_name="", days=[])
         saved.save()
@@ -1289,13 +1292,13 @@ class App(tk.Tk):
 
     def _run_reorder(self, o: Options):
         if not o.original:
-            messagebox.showwarning(APP_TITLE, "Please choose the CWN first.")
+            messagebox.showwarning(APP_TITLE, "Choose the CWN first.")
             return
         if not os.path.isfile(o.original):
-            messagebox.showwarning(APP_TITLE, f"File not found:\n{o.original}")
+            messagebox.showwarning(APP_TITLE, f"This file could not be found:\n{o.original}")
             return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_TITLE, f"Output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
             return
         self.add_recent("cwn", o.original)
         saved = dataclasses.replace(o, output_name="", days=[])
@@ -1342,14 +1345,14 @@ class App(tk.Tk):
     def _run_batch(self, o: Options):
         from .batch import pair_files, workers_for
         if not (os.path.isdir(o.original) and os.path.isdir(o.updated)):
-            messagebox.showwarning(APP_TITLE, "Please choose the folder of original CWNs and the folder of "
+            messagebox.showwarning(APP_TITLE, "Choose the folder of original CWNs and the folder of "
                                               "updated CWNs.")
             return
         if os.path.normcase(os.path.abspath(o.original)) == os.path.normcase(os.path.abspath(o.updated)):
             messagebox.showwarning(APP_TITLE, "The two folders are the same folder.")
             return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_TITLE, f"Output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
             return
         pairs, left, right = pair_files(o.original, o.updated)
         if not pairs:
@@ -1573,14 +1576,14 @@ class App(tk.Tk):
         if o.mode == "station":
             return self._run_station_book(o)
         if not o.original or not o.updated:
-            messagebox.showwarning(APP_TITLE, "Please select both files first.")
+            messagebox.showwarning(APP_TITLE, "Choose both files first.")
             return
         for p in (o.original, o.updated):
             if not os.path.exists(p):
-                messagebox.showwarning(APP_TITLE, f"File not found:\n{p}")
+                messagebox.showwarning(APP_TITLE, f"This file could not be found:\n{p}")
                 return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_TITLE, f"Output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
             return
         if self.available_days and not any(v.get() for i, v in enumerate(self.day_vars) if i in self.available_days):
             messagebox.showwarning(APP_TITLE, "Tick at least one day to check.")

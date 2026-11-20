@@ -350,7 +350,7 @@ class LiveTab(ttk.Frame):
             paths = _split(self.vars[key].get())
             what = file_label(label)
             if not paths:
-                raise ValueError(f"Please choose the {what} file.")
+                raise ValueError(f"Choose the {what} file.")
             if not many and len(paths) > 1:
                 raise ValueError(f"Choose one file for the {what}.")
             for p in paths:

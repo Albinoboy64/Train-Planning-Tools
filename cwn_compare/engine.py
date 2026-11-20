@@ -87,15 +87,15 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
             log(msg)
 
     if not opts.original or not opts.updated:
-        raise RunError("Please select both files.")
+        raise RunError("Choose both files.")
     for path in (opts.original, opts.updated):
         if not os.path.isfile(path):
-            raise RunError(f"File not found:\n{path}")
+            raise RunError(f"This file could not be found:\n{path}")
     if os.path.abspath(opts.original) == os.path.abspath(opts.updated):
         raise RunError("The two files selected are the same file.")
     if is_comparison_output(opts.updated):
         raise RunError("The updated file is a comparison output produced by this app.\n"
-                       "Please select the clean updated CWN instead.")
+                       "Choose the clean updated CWN instead.")
     cumulative = opts.mode == "cumulative"
 
     # ---- first file: a previous comparison (use its stored clean data) or the original CWN

@@ -33,7 +33,7 @@ def load_any(path: str, read_only: bool = False) -> "openpyxl.Workbook":
     import openpyxl                     # imported here so the app window opens faster
     ext = os.path.splitext(path)[1].lower()
     if not os.path.exists(path):
-        raise LoadError(f"File not found: {path}")
+        raise LoadError(f"This file could not be found: {path}")
     try:
         if ext in NATIVE_EXT:
             from rstools.fsutil import check_office_file

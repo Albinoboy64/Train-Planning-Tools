@@ -28,7 +28,7 @@ from .seats import shown
 TITLE = f"{APP_NAME} - Stats Pack"
 EXT = {"xml": ".xml", "trent": ".docx", "pack": ".xlsx"}
 FILETYPES = {"xml": [("Attune diagram XML", "*.xml"), ("All files", "*.*")],
-             "trent": [("TRENT VehicleLayout29 print (Word)", "*.docx"), ("All files", "*.*")],
+             "trent": [("TRENT unit diagram print (Word)", "*.docx"), ("All files", "*.*")],
              "pack": [("Stats pack (Excel)", "*.xlsx"), ("All files", "*.*")]}
 MODES = {"create": ("Create a stats pack", "Create stats pack"),
          "plans": ("Compare two plans (two sets of XML + TRENT print)", "Compare plans"),
@@ -307,7 +307,7 @@ class StatsPackTab(ttk.Frame):
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data) if os.path.isfile(p)]
         by_kind = {k: [p for p in paths if p.lower().endswith(ext)] for k, ext in EXT.items()}
         if not any(by_kind.values()):
-            messagebox.showwarning(TITLE, "Drop an Attune XML (.xml), a TRENT VehicleLayout29 print (.docx) "
+            messagebox.showwarning(TITLE, "Drop an Attune XML (.xml), a TRENT unit diagram print (.docx) "
                                           "or stats packs (.xlsx).")
             return event.action
         if key and paths and all(p.lower().endswith(EXT[_kind(key)]) for p in paths):
@@ -933,7 +933,7 @@ class StatsPackTab(ttk.Frame):
             if not files[key]:
                 if (mode, key) in OPTIONAL and not self.two_plans.get():
                     continue
-                return messagebox.showwarning(TITLE, f"Please choose the {file_label(label)} file.")
+                return messagebox.showwarning(TITLE, f"Choose the {file_label(label)} file.")
             parts = _split(files[key]) if _kind(key) == "trent" else [files[key]]
             for p in parts:
                 if not os.path.isfile(p):

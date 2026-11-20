@@ -156,7 +156,7 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
     from .writer import _fix_hyperlinks
     from .xlsxfix import save_workbook
     if not path or not os.path.isfile(path):
-        raise ReorderError(f"File not found:\n{path}")
+        raise ReorderError(f"This file could not be found:\n{path}")
     if is_comparison_output(path):
         raise ReorderError("This is a comparison CWN made by this app. Choose the CWN itself - put its day "
                            "variants in order first, then compare.")

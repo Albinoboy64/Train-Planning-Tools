@@ -110,12 +110,12 @@ def empty_attune() -> AttuneData:
 def load_plan(inputs: PlanInputs, log: Callable[[str], None] = lambda m: None, xml_optional: bool = False) -> LoadedPlan:
     trents = split_paths(inputs.trent)
     if not trents:
-        raise StatsPackError("Please select the TRENT unit diagram print.")
+        raise StatsPackError("Choose the TRENT unit diagram print.")
     for p in trents:
         if not os.path.isfile(p):
             raise StatsPackError(f"The TRENT print could not be found:\n{p}")
     if not (xml_optional and not inputs.xml) and (not inputs.xml or not os.path.isfile(inputs.xml)):
-        raise StatsPackError("Please select the Attune XML file.")
+        raise StatsPackError("Choose the Attune XML file.")
     try:
         trent = _read_trents(trents, log)
         if inputs.xml:
@@ -310,7 +310,7 @@ def compare_packs(old_path: str, new_path: str, output_dir: str = "", output_nam
     from .compare import PackReadError, compare_pack_files
     for label, path in (("original", old_path), ("updated", new_path)):
         if not path or not os.path.isfile(path):
-            raise StatsPackError(f"Please select the {label} stats pack.")
+            raise StatsPackError(f"Choose the {label} stats pack.")
     folder = output_dir or os.path.dirname(os.path.abspath(new_path))
     out = unique_path(folder, _safe(output_name.strip() or packs_name(old_path, new_path)), ext_for(fmt))
     try:

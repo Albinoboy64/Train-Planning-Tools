@@ -40,7 +40,7 @@ from .days import days_of_code
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
-FORMAT_HELP = ("Please use the TRENT 'VehicleLayout29' diagram print (SNGX: TIPLOC codes, full headcodes such as "
+FORMAT_HELP = ("Use the TRENT 'VehicleLayout29' diagram print (SNGX: TIPLOC codes, full headcodes such as "
                "1F93BT, LTP/STP and the mileage of each service) or the TLGN unit diagram print (station names, "
                "'Forms (Next Day)').")
 
@@ -271,7 +271,7 @@ def parse_vehicle_layout(path: str) -> TrentData:
     if not diagrams:
         head = "\n".join(lines[:60])
         if any(p.search(head) for p in _OTHER_LAYOUTS):
-            raise TrentFormatError("This TRENT print is not the VehicleLayout29 format. " + FORMAT_HELP)
+            raise TrentFormatError("This TRENT print is not one of the layouts the app reads. " + FORMAT_HELP)
         raise TrentFormatError("No unit diagrams were found in this file. " + FORMAT_HELP)
 
     mismatched = []
@@ -284,7 +284,7 @@ def parse_vehicle_layout(path: str) -> TrentData:
     if mismatched:
         warnings.append(f"{len(mismatched)} diagram(s) in the TRENT print have service miles that do not add up to "
                         f"the printed mileage total (e.g. {', '.join(mismatched[:8])}) - part of the print may not "
-                        "have been read. Check the file is a complete VehicleLayout29 print.")
+                        "have been read. Check the file is a complete TRENT unit diagram print.")
     return TrentData(path, [d for d in diagrams if d.days], warnings)
 
 

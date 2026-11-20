@@ -2,24 +2,24 @@
 
 # Train Planning Tools
 
-A portable Windows desktop app for GTR Train Planning (formerly *Rolling Stock Tools* and *CWN Compare*). It has four tabs:
+A portable Windows desktop app for GTR train planning (formerly *Rolling Stock Tools* and *CWN Compare*). It has four tabs:
 
-* **CWN Tools** compares two **Carriage Working Notices (CWNs)** and can put a multi-day CWN's day variants in order ([see below](#putting-day-variants-in-order)). A comparison produces:
+* **CWN Tools** compares two **Carriage Working Notices (CWNs)**, puts a multi-day CWN's day variants in order ([see below](#putting-day-variants-in-order)) and makes **TRACS-RS style station working books** from an Attune XML ([see below](#station-working-book-tracs-rs-layout)). A comparison produces:
   1. **A comparison CWN.** This is the updated CWN with every amendment highlighted in a colour you choose. Tabs that contain changes are highlighted too.
   2. **A change report.** This is a separate Excel workbook summarising every change by category, by location tab and by train.
-* **Stats Pack** builds the rolling stock stats pack (the same tabs and figures as the TRACS-RS stats pack) from an Attune diagram XML and the TRENT diagram print. It can also compare two plans, or two stats packs, to show the mileage and other effects of a new plan. See [Stats Pack](#stats-pack).
-* **Live View** shows any of these comparisons inside the app, train by train, and refreshes as you save the files. See [Live View](#live-view).
+* **Stats Pack** builds the rolling stock stats pack (the same tabs and figures as the TRACS-RS stats pack), **unit reports** (washes and CETs, depot returns and swaps, captive units, the 171 fuel check) and **capacity reports** from an Attune diagram XML and the TRENT unit diagram prints (SNGX and TLGN). It can also compare two plans, or two stats packs, to show the mileage and other effects of a new plan. See [Stats Pack](#stats-pack).
 * **Timetable Comparison** checks a timetable against the Network Rail timetable, Attune **train prints** or an Attune **train list** (each as the reference) and writes the approved *Consolidated TT Comparison* workbook. It also compares two sets of train prints (PDF or Word) and two Attune train list exports (Excel). See [Timetable Comparison](#timetable-comparison).
+* **Live View** shows any of these comparisons inside the app, train by train, and refreshes as you save the files. See [Live View](#live-view).
 
 ## Running it (no admin rights needed)
 
-1. Download `TrainPlanningTools-portable.zip` (or just `TrainPlanningTools.exe`). You can get it from the **Actions** tab of this repository (open the latest *Build portable Windows app* run and look under *Artifacts*), or from **Releases** when a version tag has been published.
+1. Download `TrainPlanningTools.exe` (or `TrainPlanningTools-portable.zip`, which also contains this guide) from the latest release on the [Releases](https://github.com/Albinoboy64/Train-Planning-Tools/releases) page.
 2. Save `TrainPlanningTools.exe` anywhere you can write to, such as your Desktop, Documents or a network drive.
 3. Double-click it. Nothing is installed, and no admin rights or Python are needed.
 
 ### "Windows protected your PC" / unknown publisher
 
-Windows shows this warning for any downloaded program that isn't **digitally signed** with a code-signing certificate. The app itself can't switch the warning off. The exe now carries its name, version, publisher ("GTR Train Planning") and icon in *Properties → Details*, and its start-up code is built specially to avoid false antivirus alerts. The publisher only shows as verified once the exe is signed.
+Windows shows this warning for any downloaded program that isn't **digitally signed** with a code-signing certificate. The app itself can't switch the warning off. The exe carries its name, version, publisher ("GTR Train Planning") and icon in *Properties → Details*, and its start-up code is built specially to avoid false antivirus alerts. The publisher only shows as verified once the exe is signed.
 
 Updates installed with *Options > Check for updates* never show this warning: the app downloads them itself, so they don't carry the "downloaded from the internet" mark. Only the first download from the browser does.
 
@@ -322,6 +322,11 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.11.2** - polish
+* **Clearer messages**: every "choose a file" / "file not found" / "output folder does not exist" message now uses the same wording on every tab, and messages about TRENT prints name both the SNGX and TLGN prints.
+* **CWN Tools**: the heading follows what you're doing (*Carriage Working Notice Comparison*, *Day Variants in Order* or *Station Working Book*), and in station mode the third section is called *Stations and output*.
+* **This guide**: the introduction lists the tabs in the app's order, includes station working books, unit and capacity reports, and links straight to the Releases page.
 
 **3.11.1**
 * **New home**: the app is now published in this public repository, [Albinoboy64/Train-Planning-Tools](https://github.com/Albinoboy64/Train-Planning-Tools), under the GPL-3.0 licence. *Check for updates* looks here from this version on (no token needed). Copies of 3.11.0 or earlier must be replaced by hand once: see [Updates](#updates).

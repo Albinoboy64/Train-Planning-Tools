@@ -154,7 +154,7 @@ def _check(first: Sequence[str], second: Sequence[str]):
         raise TimetableRunError("Choose the files on both sides of the comparison.")
     for f in list(first) + list(second):
         if not os.path.isfile(f):
-            raise TimetableRunError(f"File not found:\n{f}")
+            raise TimetableRunError(f"This file could not be found:\n{f}")
     return first, second
 
 
