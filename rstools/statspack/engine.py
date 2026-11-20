@@ -91,20 +91,38 @@ def _read_trents(paths: List[str], log) -> TrentData:
         parts.append(cached(parse_vehicle_layout, p))
     if len(parts) == 1:
         return parts[0]
-    seen, diagrams, warnings = set(), [], []
-    for t in parts:
-        warnings += t.warnings
+    from .trent import LAYOUT_RANK
+    # the most complete layout first (VehicleLayout29: LTP / STP, TIPLOCs, miles); a diagram also in another
+    # print (VL23 / TLGN, 11, 05) is read once, and fills in what the first lacks - next-day links, miles
+    order = sorted(parts, key=lambda t: LAYOUT_RANK.get(t.layout, 9))
+    found, diagrams, warnings = {}, [], []
+    for t in order:
+        warnings += [w for w in t.warnings if "VehicleLayout05" not in w or order[0].layout == "VL05"]
         for d in t.diagrams:
-            key = (d.key, d.days_code, d.plan, d.start)
-            if key not in seen:                     # the same diagram in two prints is read once
-                seen.add(key)
+            key = (d.key, d.days_code, d.start, tuple((r.headcode[:4], r.dep) for r in d.rows[:3]))
+            first = found.get(key)
+            if first is None:
+                found[key] = d
                 diagrams.append(d)
-    return TrentData(paths[0], diagrams, warnings)
+                continue
+            first.prev_num = first.prev_num or d.prev_num
+            first.next_num = first.next_num or d.next_num
+            if len(first.rows) == len(d.rows):
+                for a, b in zip(first.rows, d.rows):
+                    if a.miles is None and b.miles is not None:
+                        a.miles = b.miles
+    layout = "+".join(dict.fromkeys(t.layout for t in order))
+    return TrentData(order[0].path, diagrams, warnings, layout)
 
 
 def empty_attune() -> AttuneData:
-    """No XML: names, trains and next-day workings come from the TRENT print alone."""
-    return AttuneData(path="", plan="", start="", end="", locations={}, trains={}, diagram_days=set(), warnings=[])
+    """No XML: trains and next-day workings come from the TRENT print alone; location names from the built-in
+    lists (the GTR locations of the Dec 26 plan, and the TRENT names)."""
+    from rstools.timetable.base import load_tiplocs
+    from .trent import name_table
+    names = dict(name_table()["name"])
+    names.update(load_tiplocs())
+    return AttuneData(path="", plan="", start="", end="", locations=names, trains={}, diagram_days=set(), warnings=[])
 
 
 def load_plan(inputs: PlanInputs, log: Callable[[str], None] = lambda m: None, xml_optional: bool = False) -> LoadedPlan:

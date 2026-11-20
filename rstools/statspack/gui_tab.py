@@ -41,10 +41,10 @@ FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT print(s):")],
          "packs": [("pack_a", "Original stats pack:"), ("pack_b", "Updated stats pack:")],
          "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT print(s):")],
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT print(s):")]}
-NOTE = ("• Use the TRENT unit diagram print saved as Word (.docx): the SNGX 'VehicleLayout29' print or the "
-        "TLGN unit diagram print. Several prints (e.g. TLGN SX, SO and SU) can go in one box.\n• The Attune XML "
-        "must be exported from the same plan as the TRENT print. Unit reports can be made from the TRENT "
-        "print alone.")
+NOTE = ("• Use a TRENT unit diagram print saved as Word (.docx): VehicleLayout29 is the most complete; 23 "
+        "(also the TLGN print), 11 and 05 work too. Several prints can go in one box - e.g. TLGN SX, SO and SU, or "
+        "VL29 with VL23 for its next-day links.\n• The Attune XML must be exported from the same plan as the "
+        "TRENT print. Unit reports can be made from the TRENT print alone.")
 OPTIONAL = {("units", "xml_a")}         # boxes that may be left blank
 OP_LABEL = {op: f"{op} ({', '.join(deps)})" for op, deps in OPERATOR_DEPOTS.items()}
 OP_LABEL[OTHER] = "Other depots"

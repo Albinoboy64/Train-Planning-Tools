@@ -574,7 +574,7 @@ def test_tlgn_print_and_unit_reports():
         assert dg.key == "HE303" and dg.next_num == "316" and dg.fleet == "379/0"
         assert [r.headcode for r in dg.rows if r.headcode] == ["5T01", "1T02", "1T17"]
         assert [r.miles for r in dg.rows if r.headcode] == [2.0, 10.0, 10.0]     # running miles -> per move
-        assert dg.rows[-1].loc == "Hornsey E.M.U.D."                              # the STABLD TIPLOC named
+        assert dg.rows[-1].loc == "HRNSYMD" and dg.rows[1].loc == "KNGX"          # names as TIPLOCs (name table)
         try:
             load_plan(PlanInputs("", f"{a} ; {b}"))                              # stats pack: XML needed
             raise AssertionError("the XML is needed unless it is optional")
@@ -629,7 +629,11 @@ def test_tlgn_print_with_xml_uses_tiplocs():
     from rstools.statspack.fleet import FleetTable
     from rstools.statspack.model import build_day
     with tempfile.TemporaryDirectory() as d:
-        _so, su = write_tlgn(d)
+        su = os.path.join(d, "SU.docx")                  # a place TRENT names in a way the name table doesn't know
+        write_docx(su, tlgn_lines("316", "Su", [
+            ("Hornsey E.M.U.D.", "", "06+00\xa0", "5T05", "", "303(1)", "  2.00"),
+            ("London Kings Cross", "06+29\xa0", "06.54\xa0", "1T06", "", "303(1)", " 22.00"),
+            ("Hornsey Shed X", "08.00\xa0", "", "STABLD", "", "", "")]))
         xml = os.path.join(d, "tl.xml")
         legs = {"5T05GR": '<leg origin="HRNSYMD" dep="06:00:00" dest="KNGX" arr="06:29:00"/>',
                 "1T06GR": '<leg origin="KNGX" dep="06:54:00" dest="HRNSDRS" arr="08:00:00"/>'}
@@ -644,8 +648,8 @@ def test_tlgn_print_with_xml_uses_tiplocs():
         plan = load_plan(PlanInputs(xml, su))
         m = build_day(plan.trent, plan.attune, FleetTable.load(), 6, {"TLGN"}, None)
         moves = [(mv.headcode, mv.origin, mv.dest) for dg in m.diagrams for mv in dg.moves]
-        assert ("5T05", "HRNSYMD", "KNGX") in moves
-        assert ("1T06", "KNGX", "HRNSDRS") in moves         # 'Hornsey E.M.U.D.' in TRENT, another name in Attune
+        assert ("5T05GR", "HRNSYMD", "KNGX") in moves       # the XML's full ID for a 4-character headcode
+        assert ("1T06GR", "KNGX", "HRNSDRS") in moves       # an unknown TRENT name: the XML's TIPLOC by time
 
 
 def test_379_seats_replace_old_placeholders_only(monkeypatch):
@@ -666,6 +670,56 @@ def test_379_seats_replace_old_placeholders_only(monkeypatch):
         got = {r["Class Name"]: r for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
         assert [got["379/0"][c] for c in F._SEAT_COLS] == ["20", "189", "136", "325"]
         assert got["717/0"]["Standing Capacity"] == "500"
+
+
+def test_vl11_vl05_and_merged_layouts():
+    """VehicleLayout11 / 05 (short names) are read like VL29, names become TIPLOCs, and a VL23 print's next-day
+    links fill in a VL29 print of the same diagrams."""
+    from rstools.statspack.engine import _read_trents
+    t = "\t" * 7
+    vl11 = ["\t" * 7 + "DIAGRAM :\tBI1\tSO\tFleet\t387/3", "\t\t\tStart Date : 19/12/2026\tEnd Date : 15/05/2027",
+            "\t" * 6 + "OFF\t\t\tMiles from Fuel\t0.00",
+            t + "\tBarnham\t\t04+20\xa0\t5H92\t1(1)\t22.29",
+            t + "\tHay Hth\t06.09\xa0\t\t\tATTTT\t",
+            t + "\tHay Hth\t\t06.13\xa0\t1F93\t10(1)/1(2)\t38.30",
+            t + "\tVic (C)\t06.58\xa0\t\t\tSTABLD\t",
+            "\t" * 6 + "WORKS\t\t\tMiles from Fuel\t0.00",
+            "\t" * 7 + "Loaded\t38.30\tEmpty\t22.29\tTotal Mileage\t60.59"]
+    vl05 = ["\t" * 6 + "Diagram  :\tBI\t1\tSO\t387/3", "\t\t\tRuns from:\t19/12/2026 until 15/05/2027",
+            t + "Barnham\t\t04+20\xa0\t5H92\t\t1(1)",
+            t + "Hay Hth\t06.09\xa0\t\t\tATTTT\t",
+            t + "Hay Hth\t\t06.13\xa0\t1F93\t\t10(1)/1(2)",
+            "\t" * 12 + "21(3)",
+            t + "Vic (C)\t06.58\xa0\t\t\tSTABLD\t",
+            t + "MILES  : (LD)\t38.30\t(ETY)\t22.29\t(TOT)\t60.59"]
+    with tempfile.TemporaryDirectory() as d:
+        a, b = os.path.join(d, "vl11.docx"), os.path.join(d, "vl05.docx")
+        write_docx(a, vl11)
+        write_docx(b, vl05)
+        x, y = parse_vehicle_layout(a), parse_vehicle_layout(b)
+        assert (x.layout, y.layout) == ("VL11", "VL05")
+        (dx,), (dy,) = x.diagrams, y.diagrams
+        assert (dx.key, dx.days_code, dx.start, dx.end, dx.total) == ("BI1", "SO", "19/12/2026", "15/05/2027", 60.59)
+        assert [r.loc for r in dx.rows] == ["BRHM", "HYWRDSH", "HYWRDSH", "VICTRIC"]     # short names as TIPLOCs
+        assert [r.miles for r in dx.rows if r.headcode] == [22.29, 38.30]                 # VL11: miles per move
+        assert dy.rows[2].positions == ["10", "1", "21"] and dy.rows[0].miles is None    # VL05: no miles
+        assert any("VehicleLayout05" in w for w in y.warnings)
+        # a VL29 diagram and the same diagram in VL23 (with its next-day link): read once, link filled in
+        v29 = os.path.join(d, "v29.docx")
+        write_docx(v29, plan_lines())
+        p29 = parse_vehicle_layout(v29)
+        first = p29.diagrams[0]
+        v23 = os.path.join(d, "v23.docx")
+        rows = [(r.loc, "", f"{r.dep // 60:02d}+{r.dep % 60:02d}\xa0" if r.dep is not None else "", r.headcode[:4] or
+                 r.activity, "", "/".join(f"{n}({i + 1})" for i, n in enumerate(r.positions)), "")
+                for r in first.rows]
+        lines = tlgn_lines(first.number, first.days_code, rows, forms="999")
+        lines[1] = lines[1].replace("HE ", first.depot + " ").replace("19/12/2026", first.start).replace(
+            "15/05/2027", first.end).replace("379/0", first.fleet)
+        write_docx(v23, lines)
+        merged = _read_trents([v29, v23], lambda m: None)
+        assert merged.layout == "VL29+VL23" and len(merged.diagrams) == len(p29.diagrams)
+        assert next(d2 for d2 in merged.diagrams if d2.key == first.key and d2.start == first.start).next_num == "999"
 
 
 if __name__ == "__main__":

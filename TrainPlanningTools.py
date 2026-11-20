@@ -177,8 +177,9 @@ def statspack_cli(argv):
 
     ap = argparse.ArgumentParser(prog="TrainPlanningTools statspack", description="Rolling stock stats pack")
     ap.add_argument("--xml", help="Attune diagram XML")
-    ap.add_argument("--trent", help="TRENT unit diagram print (.docx); several prints separated by ';' "
-                                    "(e.g. the TLGN SX, SO and SU prints)")
+    ap.add_argument("--trent", help="TRENT unit diagram print (.docx): VehicleLayout29 (best), 23 (also the TLGN "
+                                    "print), 11 or 05; several separated by ';' (e.g. TLGN SX;SO;SU, or VL29;VL23 "
+                                    "for VL23's next-day links)")
     ap.add_argument("--old-xml", help="original plan XML (compare two plans)")
     ap.add_argument("--old-trent", help="original plan TRENT print (compare two plans)")
     ap.add_argument("--old-pack", help="original stats pack (compare two packs)")

@@ -182,6 +182,24 @@ def _best_leg(legs, rng, loc_attr, time_attr, loc, minute):
     return best, best_gap
 
 
+def _new_train_here(attune, headcode: str, day: int, loc: str, arr_min: int, dep_min: int) -> bool:
+    """A 4-character print headcode (VehicleLayout23 / 11 / 05) that is two trains in the XML: one ending here
+    and another, with a different full ID, starting here (e.g. 5Y47GS reversing as 5Y47GT). VehicleLayout29
+    shows them as two moves, so they are kept apart."""
+    if attune is None or len(headcode) != 4 or not attune.trains:
+        return False
+    ends, starts = set(), set()
+    for hc in _short_index(attune).get(headcode, ()):
+        for t in attune.trains[hc]:
+            if not t.legs or not ({day, (day + arr_min // 1440) % 7} & t.days):
+                continue
+            if t.legs[-1].dest == loc and _gap(arr_min, t.legs[-1].arr) <= LOC_TOL:
+                ends.add(t.id)
+            if t.legs[0].origin == loc and _gap(dep_min, t.legs[0].dep) <= LOC_TOL:
+                starts.add(t.id)
+    return bool(ends and starts and not ends & starts)
+
+
 def _short_index(attune) -> Dict[str, List[str]]:
     idx = getattr(attune, "_short", None)
     if idx is None:
@@ -241,7 +259,9 @@ def _find_train(attune: Optional[AttuneData], headcode: str, day: int, origin: s
                 if arr_min * 60 - (legs[j].arr + offset) < -LOC_TOL:
                     continue
                 gj = 500
-        score = (PLAN_PRIORITY.get(t.plan.upper(), 0), -(gi + gj))
+        # after midnight the version filed under the next day is the one; before it, the diagram's own day
+        right_day = (run_day if dep_min >= 1440 else day) in t.days
+        score = (PLAN_PRIORITY.get(t.plan.upper(), 0), right_day, -(gi + gj))
         if best is None or score > best[0]:
             best = (score, t, legs[i:j + 1], offset)
     if best is None:
@@ -343,7 +363,9 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
                 end_loc = nxt.loc
                 end_arr = nxt.arr if nxt.arr is not None else nxt.dep
             if nxt.headcode:
-                if nxt.headcode != r.headcode or set(nxt.positions) != units:
+                if nxt.headcode != r.headcode or set(nxt.positions) != units or (
+                        nxt.arr is not None and nxt.dep is not None
+                        and _new_train_here(attune, r.headcode, day, nxt.loc, nxt.arr, nxt.dep)):
                     break
                 miles = None if (unknown or nxt.miles is None) else miles + nxt.miles
                 unknown = unknown or nxt.miles is None
@@ -354,7 +376,8 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
                 k += 1
             again = rows[k] if k < len(rows) else None
             if (again is None or again.headcode != r.headcode or set(again.positions) != units
-                    or again.dep is None or end_arr is None or again.dep - end_arr > MAX_PAUSE):
+                    or again.dep is None or end_arr is None or again.dep - end_arr > MAX_PAUSE
+                    or _new_train_here(attune, r.headcode, day, end_loc, end_arr, again.dep)):
                 break
             j += 1
         if end_loc is None:
@@ -390,7 +413,10 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
                 attune.locations.setdefault(legs[-1].dest, stop_loc)
                 stop_loc = legs[-1].dest
         formation = tuple(r.positions) or (dg.number,)    # diagram numbers; depots resolved later
-        dg.moves.append(Move(r.headcode, start_loc, stop_loc, dep, arr, dep_pub, arr_pub,
+        headcode = r.headcode                             # a 4-character print headcode: the XML's full ID
+        if train is not None and len(headcode) == 4 and train.id[:4] == headcode:
+            headcode = train.id
+        dg.moves.append(Move(headcode, start_loc, stop_loc, dep, arr, dep_pub, arr_pub,
                              None if unknown else round(miles, 4), formation, legs, found=train is not None))
         i = j
 

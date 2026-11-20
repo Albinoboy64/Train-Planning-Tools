@@ -1,5 +1,15 @@
-"""Reader for the TRENT unit diagram prints (Word .docx): the SNGX 'VehicleLayout29' layout and the TLGN
-unit diagram layout.
+"""Reader for the TRENT unit diagram prints (Word .docx). Four layouts of the same diagrams are read:
+
+* VehicleLayout29 - TIPLOCs, full headcodes, LTP / STP, platforms and miles (the most complete);
+* VehicleLayout23 (also the TLGN unit diagram print) - station names, four-character headcodes, a running
+  mileage, the unit count and the diagram each unit came from / forms next;
+* VehicleLayout11 - short station names and the miles of each move;
+* VehicleLayout05 - short station names, no mileage.
+
+Station names are turned into TIPLOCs with the built-in name table (trent_names.csv, the same places in
+all four layouts), so every layout gives the same diagrams. Several prints can be read together: where
+two cover the same diagram, the more complete one is used and the other fills in what it lacks (e.g.
+VehicleLayout23's next-day links for a VehicleLayout29 diagram).
 
 TLGN layout (tab-separated; station names, four-character headcodes, a running mileage, and the
 diagram each unit came from / forms next):
@@ -31,7 +41,6 @@ from __future__ import annotations
 
 import re
 import zipfile
-from collections import Counter, defaultdict
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
@@ -40,9 +49,8 @@ from .days import days_of_code
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
-FORMAT_HELP = ("Use the TRENT 'VehicleLayout29' diagram print (SNGX: TIPLOC codes, full headcodes such as "
-               "1F93BT, LTP/STP and the mileage of each service) or the TLGN unit diagram print (station names, "
-               "'Forms (Next Day)').")
+FORMAT_HELP = ("Use a TRENT unit diagram print: VehicleLayout29 (the most complete: TIPLOCs, full headcodes such "
+               "as 1F93BT, LTP/STP and miles), VehicleLayout23 (also the TLGN print), 11 or 05, saved as Word.")
 
 _HEADER = re.compile(
     r"^\s*(?P<depot>[A-Z]{1,4})\s*(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)\s+(?:(?P<plan>(?!FROM)\S+)\s+)?"
@@ -52,12 +60,20 @@ _SHORT_HEADCODE = re.compile(r"^[0-9][A-Z][0-9]{2}$")
 _TOTALS = re.compile(r"Mileage:\s*\(Loaded\)\s*(?P<l>[\d.]+|\?+)\s*\(Empty\)\s*(?P<e>[\d.]+|\?+)\s*"
                      r"\(Total\)\s*(?P<t>[\d.]+|\?+)")
 _HEADCODE = re.compile(r"^[0-9][A-Z][0-9]{2}[A-Z0-9]{2}$")
-_ROUTE = re.compile(r"^\d+[A-Z]?\(\d+\)(?:\\\d+[A-Z]?\(\d+\))*$")
+_ROUTE = re.compile(r"^\d+[A-Z]?\(\d+\)(?:[\\/]\d+[A-Z]?\(\d+\))*$")     # VL29 '1(1)\10(2)', VL23 '10(1)/1(2)' 
 _POS = re.compile(r"(\d+[A-Z]?)\((\d+)\)")
-_TIME = re.compile(r"^(\d{1,2})[.+:/](\d{2})$")
+_TIME = re.compile(r"^(\d{1,2})[.+:/](\d{2})½?$")         # VL23 prints half minutes ('06+09½'): to the minute
 _NUM = re.compile(r"^-?\d+(?:\.\d+)?$")
-_OTHER_LAYOUTS = (re.compile(r"^\s*DIAGRAM\s*:"), re.compile(r"^\s*Diagram\s+:"),
-                  re.compile(r"FROM - \d\d/\d\d/\d{4}\s*UNTIL"))
+_OTHER_LAYOUTS = (re.compile(r"FROM - \d\d/\d\d/\d{4}\s*UNTIL"),)
+# VehicleLayout11 / 05 headers, dates and totals (tabs read as spaces)
+_HEADER11 = re.compile(r"^\s*DIAGRAM\s*:\s*(?P<depot>[A-Z]{1,4})\s*(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)\s+Fleet\s+(?P<fleet>\S+)")
+_HEADER05 = re.compile(r"^\s*Diagram\s+:\s*(?P<depot>[A-Z]{1,4})\s+(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)\s+(?P<fleet>\S+)\s*$")
+_DATES = re.compile(r"(?:Start Date\s*:\s*|Runs from:\s*)(?P<frm>\d\d/\d\d/\d{4})\s+(?:End Date\s*:\s*|until\s+)"
+                    r"(?P<until>\d\d/\d\d/\d{4})")
+_TOTALS11 = re.compile(r"Loaded\s+(?P<l>[\d.]+)\s+Empty\s+(?P<e>[\d.]+)\s+Total Mileage\s+(?P<t>[\d.]+)")
+_TOTALS05 = re.compile(r"MILES\s*:\s*\(LD\)\s*(?P<l>[\d.]+)\s*\(ETY\)\s*(?P<e>[\d.]+)\s*\(TOT\)\s*(?P<t>[\d.]+)")
+_ACTIVITY = re.compile(r"^[A-Z][A-Z ]{2,}$")
+LAYOUT_RANK = {"VL29": 0, "VL23": 1, "VL11": 2, "VL05": 3}     # most complete first
 
 
 class TrentFormatError(Exception):
@@ -106,6 +122,7 @@ class TrentData:
     path: str
     diagrams: List[TrentDiagram]
     warnings: List[str]
+    layout: str = "VL29"        # VL29 / VL23 (and the TLGN print) / VL11 / VL05
 
     def days(self) -> Set[int]:
         out = set()
@@ -177,53 +194,78 @@ def _parse_row(line: str) -> Optional[TrentRow]:
                     positions=positions, miles=miles)
 
 
-def _parse_tab_row(line: str) -> Optional[TrentRow]:
-    """A TLGN print row: location, arrival, departure, route (headcode or activity), units, running miles."""
+def _parse_tab_row(line: str, cumulative: bool) -> Optional[TrentRow]:
+    """A row of a tab-separated print (VehicleLayout23 / TLGN, 11 or 05): location, arrival, departure, then
+    the headcode or activity, the coupled diagrams in position order and (VL23 running, VL11 per move) miles."""
     parts = [p.replace("\xa0", " ").strip() for p in line.split("\t")]
     while parts and not parts[0]:
         parts.pop(0)
-    if len(parts) < 4 or parts[0].startswith(("Mileage", "Arrives", "*")):
+    if len(parts) < 4 or parts[0].startswith(("Mileage", "Arrives", "*", "Loaded", "MILES", "OFF", "WORKS")) \
+            or "Miles from Fuel" in line:
         return None
-    loc, arr_t, dep_t, route = parts[0], parts[1], parts[2], parts[3]
-    if _minutes(arr_t) is None and _minutes(dep_t) is None and not route:
-        return None
+    loc, arr_t, dep_t = parts[0], parts[1], parts[2]
     headcode = activity = ""
-    positions: List[str] = []
-    cum = None
-    if _SHORT_HEADCODE.match(route) or _HEADCODE.match(route):
-        headcode = route
-        for tok in parts[4:]:
-            if _ROUTE.match(tok):
-                positions = [num for num, _pos in sorted(_POS.findall(tok), key=lambda x: int(x[1]))]
-            elif _NUM.match(tok):
-                cum = float(tok)
-    elif route:
-        activity = route
+    positions: List[tuple] = []
+    miles = None
+    for tok in parts[3:]:
+        if not tok:
+            continue
+        if not headcode and not activity and (_SHORT_HEADCODE.match(tok) or _HEADCODE.match(tok)):
+            headcode = tok
+        elif _ROUTE.match(tok):
+            positions += _POS.findall(tok)              # VL11 carries a third unit on in a later column
+        elif _NUM.match(tok):
+            if headcode and miles is None:
+                miles = float(tok)
+        elif not headcode and not activity and _ACTIVITY.match(tok):
+            activity = tok
+    if _minutes(arr_t) is None and _minutes(dep_t) is None and not (headcode or activity):
+        return None
     row = TrentRow(loc=loc, arr=_minutes(arr_t), dep=_minutes(dep_t), headcode=headcode, activity=activity,
-                   positions=positions, miles=cum)
-    row.cumulative = True
+                   positions=[num for num, _pos in sorted(positions, key=lambda x: int(x[1]))], miles=miles)
+    row.cumulative = cumulative
     return row
 
 
-def _is_tiploc(loc: str) -> bool:
-    return bool(loc) and not any(ch.islower() for ch in loc) and " " not in loc
+_NAMES: Dict[str, Dict[str, str]] = {}
 
 
-def _name_tiplocs(diagrams) -> None:
-    """The TLGN print names stations but gives a TIPLOC on 'STABLD' lines. The line next to it is the
-    same place by name (e.g. 'Hornsey E.M.U.D.' then 'HRNSYMD'), so the TIPLOC is replaced by that name."""
-    seen: Dict[str, Counter] = defaultdict(Counter)
-    for d in diagrams:
-        rows = d.rows
-        for i, r in enumerate(rows):
-            if _is_tiploc(r.loc):
-                for j in (i - 1, i + 1):
-                    if 0 <= j < len(rows) and not _is_tiploc(rows[j].loc):
-                        seen[r.loc][rows[j].loc] += 2 if j < i else 1     # the line before counts more
-    names = {tip: c.most_common(1)[0][0] for tip, c in seen.items()}
+def _name_key(name: str) -> str:
+    """A place name compared without case, full stops or extra spaces ('St. Leonards' = 'St Leonards')."""
+    return " ".join(name.replace(".", " ").casefold().split())
+
+
+def name_table() -> Dict[str, Dict[str, str]]:
+    """{'to_tiploc': {TRENT name or short name: TIPLOC}, 'name': {TIPLOC: TRENT name}} from trent_names.csv."""
+    if not _NAMES:
+        import csv
+        import os
+        to_tip, names = {}, {}
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trent_names.csv")
+        try:
+            with open(path, encoding="utf-8-sig") as fh:
+                for r in csv.DictReader(fh):
+                    tip = (r.get("TIPLOC") or "").strip()
+                    if not tip:
+                        continue
+                    for col in ("TRENT name", "TRENT short name"):
+                        n = (r.get(col) or "").strip()
+                        if n and n != tip:
+                            to_tip.setdefault(_name_key(n), tip)
+                    if (r.get("TRENT name") or "").strip():
+                        names[tip] = r["TRENT name"].strip()
+        except OSError:
+            pass
+        _NAMES.update(to_tiploc=to_tip, name=names)
+    return _NAMES
+
+
+def _to_tiplocs(diagrams) -> None:
+    """Station names (full or short) as TIPLOCs, as VehicleLayout29 gives them; unknown names are kept."""
+    to_tip = name_table()["to_tiploc"]
     for d in diagrams:
         for r in d.rows:
-            r.loc = names.get(r.loc, r.loc)
+            r.loc = to_tip.get(_name_key(r.loc), r.loc)
 
 
 def parse_vehicle_layout(path: str) -> TrentData:
@@ -233,40 +275,65 @@ def parse_vehicle_layout(path: str) -> TrentData:
     diagrams: List[TrentDiagram] = []
     warnings: List[str] = []
     cur: Optional[TrentDiagram] = None
-    tabbed = any("\t" in line and _HEADER.match(line) for line in lines[:400])     # the TLGN layout
+    head = [line.replace("\t", " ") for line in lines[:400]]
+    if any(_HEADER11.match(h) for h in head):
+        layout = "VL11"
+    elif any(_HEADER05.match(h) for h in head):
+        layout = "VL05"
+    elif any("\t" in line and _HEADER.match(line) for line in lines[:400]):
+        layout = "VL23"                         # also the TLGN unit diagram print
+    else:
+        layout = "VL29"
+    tabbed = layout != "VL29"
     for line in lines:
-        m = _HEADER.match(line)
+        flat = line.replace("\t", " ")
+        m = _HEADER.match(line) if layout in ("VL29", "VL23") else (_HEADER11 if layout == "VL11" else
+                                                                    _HEADER05).match(flat)
         if m:
-            cur = TrentDiagram(depot=m["depot"], number=m["num"], days_code=m["days"], plan=m["plan"] or "LTP",
-                               start=m["frm"], end=m["until"], fleet=m["fleet"])
+            g = m.groupdict()
+            cur = TrentDiagram(depot=g["depot"], number=g["num"], days_code=g["days"], plan=g.get("plan") or "LTP",
+                               start=g.get("frm") or "", end=g.get("until") or "", fleet=g["fleet"])
             diagrams.append(cur)
             continue
         if cur is None:
             continue
-        t = _TOTALS.search(line)
+        t = (_TOTALS.search(line) or _TOTALS11.search(flat) or _TOTALS05.search(flat))
         if t:
             cur.loaded, cur.empty, cur.total = (_float(t["l"]), _float(t["e"]), _float(t["t"]))
             continue
         if "AP  DP" in line or not line.strip():
             continue
         if tabbed:
-            link = _LINK.match(line.replace("\t", " "))
+            dates = _DATES.search(flat)
+            if dates:
+                cur.start, cur.end = dates["frm"], dates["until"]
+                continue
+            link = _LINK.match(flat)
             if link:
                 if link["num"]:
                     setattr(cur, "prev_num" if link["kind"].startswith("Off") else "next_num", link["num"])
                 continue
-            row = _parse_tab_row(line)
+            toks = [p.strip() for p in line.replace("\xa0", " ").split("\t") if p.strip()]
+            if toks and cur.rows and all(_ROUTE.match(t) for t in toks):     # VL05: a third unit on its own line
+                extra = [p for t in toks for p in _POS.findall(t)]
+                cur.rows[-1].positions += [num for num, _pos in sorted(extra, key=lambda x: int(x[1]))]
+                continue
+            row = _parse_tab_row(line, cumulative=layout == "VL23")
         else:
             row = _parse_row(line)
         if row:
             cur.rows.append(row)
-    if tabbed:
+    if layout == "VL23":
         for d in diagrams:                  # running mileage -> miles of each move (as VehicleLayout29 gives)
             last = 0.0
             for r in d.rows:
                 if r.headcode and r.miles is not None:
-                    r.miles, last = round(r.miles - last, 4), r.miles
-        _name_tiplocs(diagrams)
+                    r.miles, last = round(r.miles - last, 2), r.miles       # as VL29 prints them
+    if tabbed:
+        _to_tiplocs(diagrams)
+    if layout == "VL05" and diagrams:
+        warnings.append("This TRENT print (VehicleLayout05) has no miles for each train, so mileage figures are left "
+                        "blank. Use the VehicleLayout29, 23 or 11 print (or add one of them) for mileage.")
 
     if not diagrams:
         head = "\n".join(lines[:60])
@@ -279,13 +346,13 @@ def parse_vehicle_layout(path: str) -> TrentData:
         _unroll_times(d)
         if not d.days:
             warnings.append(f"Diagram {d.key} has an unrecognised days code '{d.days_code}' and was skipped.")
-        elif not _totals_match(d):
+        elif layout != "VL05" and not _totals_match(d):
             mismatched.append(f"{d.key} {d.days_code}")
     if mismatched:
         warnings.append(f"{len(mismatched)} diagram(s) in the TRENT print have service miles that do not add up to "
                         f"the printed mileage total (e.g. {', '.join(mismatched[:8])}) - part of the print may not "
                         "have been read. Check the file is a complete TRENT unit diagram print.")
-    return TrentData(path, [d for d in diagrams if d.days], warnings)
+    return TrentData(path, [d for d in diagrams if d.days], warnings, layout)
 
 
 def is_empty_headcode(headcode: str) -> bool:
