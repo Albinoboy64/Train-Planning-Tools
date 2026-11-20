@@ -129,7 +129,7 @@ jobs:
           import os, re
           text = open("README.md", encoding="utf-8").read()
           version = os.environ["TAG"].lstrip("vV")
-          m = re.search(r"^\*\*" + re.escape(version) + r"\*\*\n(.*?)(?=^\*\*\d|^## )", text, re.S | re.M)
+          m = re.search(r"^\*\*" + re.escape(version) + r"\*\*[^\n]*\n(.*?)(?=^\*\*\d|^## )", text, re.S | re.M)
           changes = m.group(1).strip() if m else "See the README for the version history."
           intro = ("Portable Windows app for GTR train planning: CWN Tools (compare Carriage Working Notices, put "
                    "day variants in order and make TRACS-RS style station working books), Stats Pack (rolling "
