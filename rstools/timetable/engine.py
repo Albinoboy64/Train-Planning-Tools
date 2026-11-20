@@ -1,0 +1,339 @@
+"""Run a timetable comparison: read the inputs (in parallel where it pays), compare, save.
+
+Three comparisons share one entry point:
+
+* ``timetables`` - GTR timetable check workbook against the Network Rail timetable (the reference),
+  written into the approved 'Consolidated TT Comparison' template;
+* ``print_tt`` / ``list_tt`` - Attune train prints / an Attune train list as the reference, against a
+  timetable (GTR or Network Rail), by the same rules and into the same template;
+* ``prints``     - two sets of train prints (PDF / Word);
+* ``lists``      - two Attune train list exports (Excel / CSV).
+"""
+from __future__ import annotations
+
+import os
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, field
+from multiprocessing import get_context
+from typing import Callable, List, Optional, Sequence
+
+from rstools.docexport import ext_for
+from rstools.naming import clip, compare_name
+
+MODES = ("timetables", "print_tt", "list_tt", "prints", "lists")
+PARALLEL_BYTES = 4 * 1024 * 1024        # below this, starting helper processes costs more than it saves
+
+
+class TimetableRunError(Exception):
+    pass
+
+
+@dataclass
+class RunResult:
+    path: str
+    lines: List[str] = field(default_factory=list)      # summary for the log
+    warnings: List[str] = field(default_factory=list)
+    differences: int = 0
+
+
+def _workers(paths: Sequence[str]) -> int:
+    """Helper processes for reading `paths`: one per file, leaving a core free for the window."""
+    try:
+        size = sum(os.path.getsize(p) for p in paths)
+    except OSError:
+        return 0
+    cores = os.cpu_count() or 1
+    if len(paths) < 2 or cores < 2 or size < PARALLEL_BYTES:
+        return 0
+    return min(len(paths), cores - 1)
+
+
+def read_all(reader: Callable, paths: Sequence[str]) -> list:
+    """reader(path) for every path, across CPU cores when the files are big enough to benefit.
+    Falls back to reading here if helper processes cannot be started. Results keep the input order."""
+    return read_jobs([(reader, p) for p in paths])
+
+
+_CACHE: "dict" = {}                     # (reader, path) -> (mtime, size, result)
+_CACHE_SIZE = 12
+
+
+def _cache_key(reader, path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None, None
+    return (getattr(reader, "__module__", ""), getattr(reader, "__qualname__", repr(reader)),
+            os.path.abspath(path)), (st.st_mtime_ns, st.st_size)
+
+
+def read_jobs(jobs: Sequence[tuple]) -> list:
+    """reader(path) for each (reader, path), in parallel when it pays; results in the same order.
+    A file read before and unchanged since (same time stamp and size) is not read again - the Live
+    view re-compares within a moment of one file being saved."""
+    out: list = [None] * len(jobs)
+    todo = []
+    for i, (reader, path) in enumerate(jobs):
+        key, stamp = _cache_key(reader, path)
+        hit = _CACHE.get(key) if key else None
+        if hit is not None and hit[0] == stamp:
+            out[i] = hit[1]
+        else:
+            todo.append((i, reader, path, key, stamp))
+    if todo:
+        results = _read_jobs([(reader, path) for _i, reader, path, _k, _s in todo])
+        for (i, _reader, _path, key, stamp), res in zip(todo, results):
+            out[i] = res
+            if key is not None:
+                _CACHE.pop(key, None)
+                _CACHE[key] = (stamp, res)
+                while len(_CACHE) > _CACHE_SIZE:
+                    _CACHE.pop(next(iter(_CACHE)))
+    return out
+
+
+def _sendable(reader) -> bool:
+    """Whether a reader can run in a helper process (it must be a module-level function)."""
+    import pickle
+    try:
+        pickle.dumps(reader)
+        return True
+    except Exception:
+        return False
+
+
+def _read_jobs(jobs: Sequence[tuple]) -> list:
+    paths = [p for _r, p in jobs]
+    workers = _workers(paths)
+    if workers:
+        try:
+            pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"))
+        except Exception:
+            pool = None
+        if pool is not None and not all(_sendable(reader) for reader, _p in jobs):
+            pool.shutdown()                            # a reader that cannot go to a helper: read here
+            pool = None
+        if pool is not None:
+            try:
+                futures = [pool.submit(reader, p) for reader, p in jobs]
+                out = []
+                for (reader, p), fut in zip(jobs, futures):
+                    try:
+                        out.append(fut.result())
+                    except (OSError, RuntimeError, EOFError) as exc:
+                        if type(exc).__name__ == "BrokenProcessPool" or isinstance(exc, EOFError):
+                            out.append(reader(p))              # helper died: read this one here
+                        else:
+                            raise
+                return out
+            finally:
+                pool.shutdown(cancel_futures=True)
+    return [reader(p) for reader, p in jobs]
+
+
+def default_name(mode: str, first: Sequence[str], second: Sequence[str]) -> str:
+    """Default output name. The timetable comparison's name comes from the NR timetable identifier,
+    known once it has been read, so it is filled in when the run starts."""
+    if mode in ("timetables", "print_tt", "list_tt"):
+        return ""
+    a, b = (first[0] if first else ""), (second[0] if second else "")
+    what = "Train Print Comparison" if mode == "prints" else "Train List Comparison"
+    return clip(f"{compare_name(a, b)} {what}") if a and b else ""
+
+
+def _out(folder: str, name: str, fmt: str) -> str:
+    """The output path: shortened if needed so Excel can open it, and never over an existing file."""
+    from rstools.fsutil import unique_stem             # also makes the name a safe file name
+    name = name.strip() or "Comparison"
+    return os.path.join(folder, unique_stem(folder, name, (ext_for(fmt),)) + ext_for(fmt))
+
+
+def _check(first: Sequence[str], second: Sequence[str]):
+    first, second = [f for f in first if f], [f for f in second if f]
+    if not first or not second:
+        raise TimetableRunError("Choose the files on both sides of the comparison.")
+    for f in list(first) + list(second):
+        if not os.path.isfile(f):
+            raise TimetableRunError(f"File not found:\n{f}")
+    return first, second
+
+
+def compare_files(mode: str, first: Sequence[str], second: Sequence[str],
+                  progress: Optional[Callable[[float, str], None]] = None,
+                  log: Optional[Callable[[str], None]] = None):
+    """Read and compare (no output written). Returns the comparison object: a timetable Comparison for
+    'timetables' / 'print_tt' / 'list_tt', a PrintComparison for 'prints', a ListComparison for 'lists'.
+    Used by the comparison runs and by the Live View, so both always agree."""
+    p = progress or (lambda _f, _m: None)
+    lg = log or (lambda _m: None)
+    first, second = _check(first, second)
+    if mode == "timetables":
+        return _cmp_timetables(first[0], second[0], p, lg)
+    if mode in ("print_tt", "list_tt"):
+        return _cmp_base(mode, first, second[0], p, lg)
+    if mode == "prints":
+        return _cmp_prints(first, second, p, lg)
+    if mode == "lists":
+        return _cmp_lists(first[0], second[0], p, lg)
+    raise TimetableRunError(f"Unknown comparison '{mode}'.")
+
+
+def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, name: str = "", fmt: str = "xlsx",
+        progress: Optional[Callable[[float, str], None]] = None,
+        log: Optional[Callable[[str], None]] = None) -> RunResult:
+    p = progress or (lambda _f, _m: None)
+    lg = log or (lambda _m: None)
+    first, second = _check(first, second)
+    if not out_dir or not os.path.isdir(out_dir):
+        raise TimetableRunError(f"The output folder does not exist:\n{out_dir or '(none chosen)'}")
+    cmp = compare_files(mode, first, second, p, lg)
+    p(0.8, "Writing the comparison...")
+    if mode == "prints":
+        from .prints import build_workbook
+        path = _out(out_dir, clip(name or default_name("prints", first, second)), fmt)
+        _save(build_workbook(cmp), path)
+        changed = sum(1 for pr in cmp.pairs if pr[3])
+        lines = [f"{len(cmp.pairs)} train(s) paired: {changed} changed, {len(cmp.pairs) - changed} unchanged",
+                 f"{len(cmp.added)} added, {len(cmp.removed)} removed, {len(cmp.changes)} individual change(s)"]
+        return RunResult(path, lines, list(cmp.warnings), len(cmp.changes) + len(cmp.added) + len(cmp.removed))
+    if mode == "lists":
+        from .trainlist import build_workbook
+        path = _out(out_dir, clip(name or default_name("lists", first, second)), fmt)
+        _save(build_workbook(cmp), path)
+        changed = len({i for i, *_ in cmp.changes})
+        lines = [f"{len(cmp.pairs)} train(s) paired by {', '.join(cmp.key_headers)}: {changed} changed",
+                 f"{len(cmp.added)} added, {len(cmp.removed)} removed, {len(cmp.changes)} changed cell(s)"]
+        return RunResult(path, lines, list(cmp.warnings), len(cmp.changes) + len(cmp.added) + len(cmp.removed))
+    from .output import build_workbook, document_sections, output_name, summary_lines
+    path = _out(out_dir, clip(name or output_name(cmp)), fmt)
+    wb = build_workbook(cmp)
+    _save(wb, path, None if path.endswith(".xlsx") else document_sections(wb))
+    diffs = sum(len(r.missing) + len(r.gaps) + len(r.headcode_mismatches) + sum(len(m.issues) for m in r.matched)
+                for r in cmp.sections)
+    return RunResult(path, summary_lines(cmp), list(cmp.warnings), diffs)
+
+
+def _save(wb, path: str, sections=None):
+    from .xlstyle import save
+    try:
+        save(wb, path, os.path.splitext(os.path.basename(path))[0], sections)
+    except PermissionError:
+        raise TimetableRunError(f"Could not save:\n{path}\n\nIs it open in another program? Close it and run again.")
+
+
+def _cmp_timetables(gtr_path, nr_path, p, lg):
+    from .compare import compare_timetables
+    from .parse import read_timetable
+    p(0.05, "Reading the two timetables...")
+    lg(f"Reading {os.path.basename(gtr_path)} and {os.path.basename(nr_path)}")
+    gtr, nr = read_all(read_timetable, [gtr_path, nr_path])
+    if gtr.identifier and not nr.identifier:            # chosen the other way round
+        gtr, nr = nr, gtr
+        lg("WARNING: the files looked to be the other way round (the Network Rail table was in the GTR box) "
+           "- they have been swapped.")
+    for label, tt in (("GTR", gtr), ("Network Rail", nr)):
+        lg(f"{label}: {os.path.basename(tt.path)} - " + ", ".join(
+            f"{sec} {len(trains)}" for sec, trains in tt.sections.items()) + " trains")
+    p(0.45, "Matching trains...")
+    cmp = compare_timetables(gtr, nr)
+    for w in cmp.warnings:
+        lg("WARNING: " + w)
+    return cmp
+
+
+def _cmp_prints(first, second, p, lg):
+    from .prints import compare_prints, read_print
+    p(0.05, "Reading the train prints...")
+    lg(f"Reading {len(first)} original and {len(second)} updated print file(s)")
+    results = read_all(read_print, list(first) + list(second))
+    orig = [t for r in results[:len(first)] for t in r]
+    upd = [t for r in results[len(first):] for t in r]
+    warnings = []
+    for path, trains in zip(list(first) + list(second), results):
+        lg(f"{os.path.basename(path)}: {len(trains)} train(s)")
+        if not trains:
+            warnings.append(f"{os.path.basename(path)}: no trains were recognised (no heading lines with a "
+                            "headcode and a UID or the word 'Train'). Check it is a train print.")
+    if not orig or not upd:
+        raise TimetableRunError("No trains were recognised on one side of the comparison.\n\n"
+                                + "\n".join(warnings))
+    p(0.5, "Comparing trains...")
+    cmp = compare_prints(orig, upd, warnings)
+    for w in warnings:
+        lg("WARNING: " + w)
+    return cmp
+
+
+def _cmp_lists(a_path, b_path, p, lg):
+    from .trainlist import compare_train_lists, describe, read_train_list
+    p(0.05, "Reading the train lists...")
+    a, b = read_all(read_train_list, [a_path, b_path])
+    lg(describe(a))
+    lg(describe(b))
+    p(0.5, "Comparing trains...")
+    cmp = compare_train_lists(a, b)
+    if cmp.only_original or cmp.only_updated:
+        cmp.warnings.append("Columns in only one list are not compared: "
+                            + ", ".join(cmp.only_original + cmp.only_updated))
+    for w in cmp.warnings:
+        lg("WARNING: " + w)
+    return cmp
+
+
+def read_attune_print(path: str) -> list:
+    """The trains of an Attune Single Train Report print (the only print layout with public times)."""
+    from .attune_print import is_attune_report, parse_attune
+    from .prints import PrintError, read_pages
+    pages = read_pages(path)
+    if not is_attune_report(pages):
+        raise PrintError(f"'{os.path.basename(path)}' is not an Attune 'Single Train Report' print. That layout is "
+                         "needed to compare with a timetable, because it shows each train's public times.")
+    return parse_attune(pages, os.path.basename(path))
+
+
+def _cmp_base(mode, base_paths, tt_path, p, lg):
+    from rstools.naming import short_label
+    from .base import build_base, learn_tiplocs, trains_from_list, trains_from_prints
+    from .compare import compare_timetables
+    from .parse import read_timetable
+    from .trainlist import describe, read_train_list
+    prints = mode == "print_tt"
+    p(0.05, "Reading the files...")
+    lg(f"Reading {len(base_paths)} base file(s) and {os.path.basename(tt_path)}")
+    reader = read_attune_print if prints else read_train_list
+    results = read_jobs([(reader, b) for b in base_paths] + [(read_timetable, tt_path)])
+    other = results[-1]
+    from .parse import has_halves
+    working = has_halves(other)         # a working timetable (half minutes): compare to the half minute
+    if working:
+        lg("The timetable shows half minutes, so working times are compared to the half minute.")
+    if prints:
+        atrains = [t for r in results[:-1] for t in r]
+        for path, r in zip(base_paths, results[:-1]):
+            lg(f"{os.path.basename(path)}: {len(r)} train(s), {sum(t.public for t in r)} with public times")
+        learn_tiplocs(atrains)
+        trains, notes = trains_from_prints(atrains, working)
+        base_label, base_name = "Print", "train print(s)"
+    else:
+        lg(describe(results[0]))
+        try:
+            trains, notes = trains_from_list(results[0], working)
+        except ValueError as exc:
+            raise TimetableRunError(str(exc))
+        base_label, base_name = "Attune", "Attune train list"
+    other_label, other_name = ("NR", "Network Rail timetable") if other.identifier else ("GTR", "GTR timetable")
+    lg(f"{other_name}: {os.path.basename(tt_path)} - " + ", ".join(
+        f"{sec} {len(ts)}" for sec, ts in other.sections.items()) + " trains")
+    ident = f"{short_label(base_paths[0])} vs {other.identifier or short_label(tt_path)}"
+    base = build_base(trains, other, base_paths[0], ident, notes)
+    lg("Base: " + (", ".join(f"{sec} {len(ts)}" for sec, ts in base.sections.items()) or "no trains") + " trains")
+    if not base.sections:
+        raise TimetableRunError(f"None of the trains in the {base_name} call at a station shown in "
+                                f"{os.path.basename(tt_path)}, so there is nothing to compare.\n\n"
+                                "Check the right timetable was chosen.\n\n" + "\n".join(base.warnings))
+    p(0.45, "Matching trains...")
+    cmp = compare_timetables(other, base, base_label=base_label, other_label=other_label, base_name=base_name,
+                             other_name=other_name)
+    for w in cmp.warnings:
+        lg("WARNING: " + w)
+    return cmp

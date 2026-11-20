@@ -1,0 +1,112 @@
+"""User options for a comparison run (also persisted between sessions)."""
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, field, asdict
+from typing import Dict, List
+
+from .compare import CATEGORIES
+
+PRESET_COLOURS = {
+    "Yellow": "FFFF00",
+    "Light green": "92D050",
+    "Light blue": "9BC2E6",
+    "Orange": "FFC000",
+    "Pink": "FF99CC",
+    "Lavender": "CCC0DA",
+    "Turquoise": "66FFFF",
+    "Light red": "FF7C80",
+}
+
+
+def default_name(original: str = "", updated: str = "") -> str:
+    """Output name used when none is given: today's date and 'original vs updated' (shortened)."""
+    from rstools.naming import compare_name
+    return compare_name(original, updated)
+
+
+def default_categories() -> Dict[str, Dict[str, bool]]:
+    return {k: {"cwn": True, "show_old": has_old, "report": True}
+            for k, _lbl, has_old, _d in CATEGORIES}
+
+
+@dataclass
+class Options:
+    mode: str = "compare"            # compare | cumulative | batch | reorder | station
+    variant_order: str = "day"       # reorder mode: day (MO first ... FO, SO, Su) | time (departure time first)
+    book_station: str = ""           # station working book: station, platforms, title parts, day sheets
+    book_platforms: str = ""
+    book_list: str = ""              # several stations: 'London Kings Cross; London Bridge [10-15]; Cambridge' 
+    book_operator: str = "GTR(TLGN)"
+    book_timetable: str = ""
+    book_services: str = "Thameslink and Great Northern services only"
+    book_label: str = ""
+    book_days: List[str] = field(default_factory=lambda: ["SX", "SO", "Su"])
+    original: str = ""               # original CWN, or previous comparison CWN (cumulative)
+    updated: str = ""
+    output_type: str = "full"        # full | acwn
+    colour: str = "FFFF00"           # highlight colour for this round
+    highlight_tabs: bool = True
+    keep_links: bool = False         # headcode hyperlinks between tabs (slow to open in Excel)
+    make_report: bool = True
+    report_format: str = "xlsx"      # change report as xlsx | pdf | docx
+    output_dir: str = ""
+    output_name: str = ""            # blank -> today's date
+    ignore_spacing: bool = True      # ignore spacing / punctuation-only differences in free text
+    open_when_done: bool = False     # open the output when a run finishes (both tabs)
+    theme: str = "system"            # light | dark | contrast | system (follow Windows)
+    text_size: str = "normal"        # small | normal | large | xlarge
+    live_details_open: bool = True   # Live View: train-detail rows of train prints shown (unfolded)
+    check_updates: bool = True       # look for a newer release on GitHub when the app starts
+    notify_done: bool = True         # flash the taskbar and show a notice when a run ends in the background
+    saved: Dict[str, dict] = field(default_factory=dict)     # saved comparisons: name -> {tab, state}
+    github_token: str = ""           # read-only token for a private repository (DPAPI-protected)
+    recent: Dict[str, List[str]] = field(default_factory=dict)   # file box -> recent files
+    days: List[int] = field(default_factory=list)   # CWN days to check and output (empty = every day)
+    last_tab: int = 0                # tab shown when the app opens (0 CWN Tools, 1 Stats Pack, 2 Timetable)
+    categories: Dict[str, Dict[str, bool]] = field(default_factory=default_categories)
+
+    def cat(self, key: str, what: str) -> bool:
+        """Setting `what` (cwn / show_old / report) for change category `key` (default on)."""
+        return bool(self.categories.get(key, {}).get(what, True))
+
+    # ----- persistence (per-user, no admin rights needed) -----
+    @staticmethod
+    def settings_path() -> str:
+        from rstools.branding import settings_dir
+        return os.path.join(settings_dir(), "settings.json")
+
+    @classmethod
+    def _read_path(cls) -> str:
+        """Settings to load: the current file, or the one saved by CWN Compare 1.x before the rename."""
+        new = cls.settings_path()
+        old = os.path.join(os.path.dirname(os.path.dirname(new)), "CWNCompare", "settings.json")   # 1.x
+        return old if (not os.path.exists(new) and os.path.exists(old)) else new
+
+    def save(self):
+        from rstools.fsutil import write_json
+        write_json(self.settings_path(), asdict(self))
+
+    @classmethod
+    def load(cls) -> "Options":
+        o = cls()
+        try:
+            with open(cls._read_path(), encoding="utf-8") as fh:
+                d = json.load(fh)
+            defaults = cls()
+            for k, v in d.items():         # ignore unknown keys and values of the wrong type
+                if k != "categories" and hasattr(o, k) and isinstance(v, type(getattr(defaults, k))):
+                    setattr(o, k, v)
+            o.recent = {k: [p for p in v if isinstance(p, str)] for k, v in o.recent.items()
+                        if isinstance(k, str) and isinstance(v, list)}
+            o.saved = {k: v for k, v in o.saved.items() if isinstance(k, str) and isinstance(v, dict)
+                       and isinstance(v.get("tab"), int) and isinstance(v.get("state"), dict)}
+            cats = default_categories()
+            for k, v in (d.get("categories") or {}).items():
+                if k in cats:
+                    cats[k].update({kk: bool(vv) for kk, vv in v.items() if kk in cats[k]})
+            o.categories = cats
+        except (OSError, ValueError, TypeError):
+            pass
+        return o

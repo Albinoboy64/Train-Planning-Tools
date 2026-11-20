@@ -1,0 +1,151 @@
+"""Load any Excel CWN format into an openpyxl Workbook.
+
+Supported: .xlsx .xlsm .xltx .xltm (native), .xls (via xlrd, with basic
+formatting) and .xlsb (via pyxlsb, values only).  Whatever the input format,
+the output CWN is always written as .xlsx.
+"""
+from __future__ import annotations
+
+import datetime as _dt
+import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                      # openpyxl itself is imported only when a file is read
+    import openpyxl
+
+NATIVE_EXT = {".xlsx", ".xlsm", ".xltx", ".xltm"}
+SUPPORTED_EXT = NATIVE_EXT | {".xls", ".xlsb"}
+
+FILE_TYPES = [
+    ("Excel CWN files", "*.xlsx *.xlsm *.xls *.xlsb *.xltx *.xltm"),
+    ("All files", "*.*"),
+]
+
+
+class LoadError(Exception):
+    pass
+
+
+def load_any(path: str, read_only: bool = False) -> "openpyxl.Workbook":
+    """read_only=True is faster and lighter for files that are only read (close() it after use)."""
+    from rstools.fsutil import long_path
+    path = long_path(path)              # files in very deep folders
+    import openpyxl                     # imported here so the app window opens faster
+    ext = os.path.splitext(path)[1].lower()
+    if not os.path.exists(path):
+        raise LoadError(f"File not found: {path}")
+    try:
+        if ext in NATIVE_EXT:
+            from rstools.fsutil import check_office_file
+            check_office_file(path)     # refuse a 'zip bomb' before unpacking
+            return openpyxl.load_workbook(path, data_only=True, read_only=read_only)
+        if ext == ".xls":
+            return _load_xls(path)
+        if ext == ".xlsb":
+            return _load_xlsb(path)
+    except LoadError:
+        raise
+    except PermissionError:
+        raise LoadError(
+            f"Cannot open '{os.path.basename(path)}' - it may be open in Excel. "
+            "Close it and try again.")
+    except Exception as exc:
+        raise LoadError(f"Could not read '{os.path.basename(path)}': {exc}") from exc
+    # Unknown extension: try openpyxl then xlrd.
+    try:
+        from rstools.fsutil import check_office_file
+        check_office_file(path)     # refuse a 'zip bomb' before unpacking
+        return openpyxl.load_workbook(path, data_only=True)
+    except Exception:
+        try:
+            return _load_xls(path)
+        except Exception as exc:
+            raise LoadError(
+                f"'{os.path.basename(path)}' is not a recognised Excel file.") from exc
+
+
+def _load_xls(path: str) -> "openpyxl.Workbook":
+    import openpyxl
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    import xlrd
+
+    book = xlrd.open_workbook(path, formatting_info=True)
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    palette = book.colour_map
+
+    def rgb(idx):
+        c = palette.get(idx)
+        if not c:
+            return None
+        return "FF%02X%02X%02X" % c
+
+    for sh in book.sheets():
+        ws = wb.create_sheet(sh.name[:31])
+        for r in range(sh.nrows):
+            for c in range(sh.ncols):
+                cell = sh.cell(r, c)
+                val = cell.value
+                if cell.ctype == xlrd.XL_CELL_EMPTY or cell.ctype == xlrd.XL_CELL_BLANK:
+                    val = None
+                elif cell.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        val = xlrd.xldate.xldate_as_datetime(val, book.datemode)
+                        if val.date() == _dt.date(1899, 12, 31) or val.year < 1900:
+                            val = val.time()
+                    except Exception:
+                        pass
+                elif cell.ctype == xlrd.XL_CELL_NUMBER and float(val).is_integer():
+                    val = int(val)
+                try:
+                    xf = book.xf_list[cell.xf_index]
+                except Exception:
+                    xf = None
+                if val is None and xf is None:
+                    continue
+                oc = ws.cell(row=r + 1, column=c + 1, value=val)
+                if xf is not None:
+                    f = book.font_list[xf.font_index]
+                    oc.font = Font(name=f.name, size=f.height / 20.0, bold=bool(f.bold),
+                                   italic=bool(f.italic), strike=bool(f.struck_out),
+                                   color=rgb(f.colour_index))
+                    bg = xf.background
+                    if bg.fill_pattern == 1:
+                        col = rgb(bg.pattern_colour_index)
+                        if col:
+                            oc.fill = PatternFill("solid", fgColor=col)
+                    al = xf.alignment
+                    horiz = {1: "left", 2: "center", 3: "right"}.get(al.hor_align)
+                    oc.alignment = Alignment(horizontal=horiz, wrap_text=bool(al.text_wrapped))
+        for c, info in sh.colinfo_map.items():
+            ws.column_dimensions[get_column_letter(c + 1)].width = info.width / 256.0
+        for r, info in sh.rowinfo_map.items():
+            if info.height:
+                ws.row_dimensions[r + 1].height = info.height / 20.0
+        for (r1, r2, c1, c2) in sh.merged_cells:
+            ws.merge_cells(start_row=r1 + 1, end_row=r2, start_column=c1 + 1, end_column=c2)
+        if sh.visibility:
+            ws.sheet_state = "hidden"
+    return wb
+
+
+def _load_xlsb(path: str) -> "openpyxl.Workbook":
+    import openpyxl
+    from pyxlsb import open_workbook
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    with open_workbook(path) as book:
+        for name in book.sheets:
+            ws = wb.create_sheet(name[:31])
+            with book.get_sheet(name) as sh:
+                for row in sh.rows():
+                    for c in row:
+                        if c.v is None:
+                            continue
+                        v = c.v
+                        if isinstance(v, float) and v.is_integer():
+                            v = int(v)
+                        ws.cell(row=c.r + 1, column=c.c + 1, value=v)
+    return wb

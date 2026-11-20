@@ -1,0 +1,528 @@
+"""'Timetable Comparison' tab of the Train Planning Tools window."""
+from __future__ import annotations
+
+import json
+import os
+import queue
+import re
+import threading
+import time
+import traceback
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+
+from rstools import theme
+from rstools.branding import APP_NAME, settings_dir
+from rstools.naming import file_label
+from rstools.fsutil import write_json
+
+from .engine import MODES, TimetableRunError, default_name, run
+
+TITLE = f"{APP_NAME} - Timetable Comparison"
+MODE_TEXT = {
+    "timetables": ("GTR timetable against the Network Rail timetable", "Compare timetables"),
+    "print_tt": ("Train prints against a timetable (Attune Single Train Report)", "Check timetable"),
+    "list_tt": ("Attune train list against a timetable", "Check timetable"),
+    "prints": ("Two sets of train prints (PDF or Word)", "Compare train prints"),
+    "lists": ("Two Attune train list exports (Excel)", "Compare train lists"),
+}
+SIDES = {
+    "timetables": ("GTR timetable:", "Network Rail timetable:"),
+    "print_tt": ("Train print(s) - reference:", "Timetable to check:"),
+    "list_tt": ("Attune train list - reference:", "Timetable to check:"),
+    "prints": ("Original train print(s):", "Updated train print(s):"),
+    "lists": ("Original Attune train list:", "Updated Attune train list:"),
+}
+_XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
+_FT = {_XL: [("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
+       _PR: [("Train prints", "*.pdf *.docx"), ("PDF", "*.pdf"), ("Word", "*.docx"), ("All files", "*.*")],
+       _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")]}
+EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL), "prints": (_PR, _PR),
+        "lists": (_LI, _LI)}                       # accepted file types for the first and second box
+MULTI = {"print_tt": (True, False), "prints": (True, True)}     # boxes that take several files
+NOTES = {
+    "timetables": ("Network Rail is the reference. GTR (SN / TL / GX) trains are matched one-to-one using times, "
+                   "headcode, calling pattern and days, then every NR time at a GTR location is checked. The "
+                   "output uses the approved 'Consolidated TT Comparison' template, named after the NR timetable."),
+    "print_tt": ("The Attune 'Single Train Report' print is the reference: every train's public times are checked "
+                 "against the timetable (GTR or Network Rail layout) by the same rules, into the same template. "
+                 "Passing points, working-only stops and empty stock are not compared. Several print files can "
+                 "be chosen (hold Ctrl in the file window)."),
+    "list_tt": ("The Attune train list is the reference. A list only holds each train's origin departure and "
+                "destination arrival, so only those times are checked (use train prints to check every stop). "
+                "Empty-stock and non-passenger trains are left out. Same template as timetable against timetable."),
+    "prints": ("Each train's journey is compared location by location (times, platform, line, activities) and its "
+               "heading details. Several files can be chosen for each side (hold Ctrl in the file window)."),
+    "lists": ("The heading row is found automatically. Trains are paired by UID and days (or headcode, days and "
+              "departure time) and every column in both lists is compared."),
+}
+SEP = " ; "
+
+
+def _settings_path() -> str:
+    return os.path.join(settings_dir(), "timetable.json")
+
+
+def split_paths(text: str) -> list:
+    return [p.strip().strip('"') for p in text.split(SEP.strip()) if p.strip().strip('"')]
+
+
+def sniff_timetable(path: str) -> str:
+    """'nr' for a Network Rail timetable table, 'gtr' for a GTR timetable check workbook, '' otherwise
+    (judged from the sheet names, which is quick)."""
+    try:
+        import openpyxl
+        from rstools.fsutil import check_office_file
+        check_office_file(path)     # refuse a 'zip bomb' before unpacking
+        wb = openpyxl.load_workbook(path, read_only=True)
+        names = wb.sheetnames
+        wb.close()
+    except Exception:
+        return ""
+    if any(re.search(r"notes$", n, re.I) or re.match(r"^(OUT|RTN)_", n) for n in names):
+        return "nr"
+    if any(re.search(r"\b(OUT|RTN)\s+(SX|SO|SUO|SU)\b", n, re.I) for n in names):
+        return "gtr"
+    return ""
+
+
+class TimetableTab(ttk.Frame):
+    def __init__(self, master, app):
+        super().__init__(master, padding=(12, 8, 12, 10))
+        self.app = app
+        self.q: "queue.Queue" = queue.Queue()
+        self.running = False
+        self.outputs = []
+        self._started = 0.0
+        self._dnd = ""
+        self._last_dir = ""
+        self._build()
+        self._load_settings()
+        self._mode_changed()
+        self._poll_id = self.after(150, self._poll)
+
+    # ------------------------------------------------------------------ UI
+    def _build(self):
+        self.columnconfigure(0, weight=1, minsize=520)
+        self.columnconfigure(1, weight=1, minsize=470)
+        self.rowconfigure(2, weight=1)
+        ttk.Label(self, text="Timetable Comparison", style="Head.TLabel").grid(row=0, column=0, columnspan=2,
+                                                                              sticky="w")
+        theme.tip(ttk.Label(self, text="Checks a timetable against the Network Rail timetable, Attune train prints "
+                                       "or an Attune train list, and compares two sets of train prints or two Attune "
+                                       "train lists.", style="Small.TLabel", wraplength=1000, justify="left")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        left, right = ttk.Frame(self), ttk.Frame(self)
+        left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
+        right.grid(row=2, column=1, sticky="nsew")
+        left.columnconfigure(0, weight=1)
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(0, weight=1)
+
+        mf = ttk.LabelFrame(left, text="1. What to compare", padding=8)
+        mf.grid(row=0, column=0, sticky="ew")
+        self.mode = tk.StringVar(value="timetables")
+        for i, (key, (text, _btn)) in enumerate(MODE_TEXT.items()):
+            ttk.Radiobutton(mf, text=text, variable=self.mode, value=key, command=self._mode_changed).grid(
+                row=i, column=0, sticky="w")
+
+        ff = ttk.LabelFrame(left, text="2. Files", padding=8)
+        ff.grid(row=1, column=0, sticky="ew", pady=8)
+        ff.columnconfigure(1, weight=1)
+        self.vars = {"a": tk.StringVar(), "b": tk.StringVar()}
+        self.rows, self.clear_btns = {}, {}
+        for r, key in enumerate(self.vars):
+            lab = ttk.Label(ff, text="")
+            box = self.app.file_box(ff, self.vars[key], f"tt_{key}")
+            box.configure(postcommand=lambda b=box, side=r, k=key: b.configure(values=[    # this type's files only
+                p for p in self.app.recent(f"tt_{k}") if p.lower().endswith(EXTS[self.mode.get()][side])]))
+            btn = ttk.Button(ff, text="Browse...", command=lambda k=key: self._browse(k))
+            lab.grid(row=r, column=0, sticky="w", pady=2)
+            box.grid(row=r, column=1, sticky="ew", padx=4, pady=2)
+            btn.grid(row=r, column=2, pady=2)
+            self.rows[key] = (lab, box, btn)
+            clear = ttk.Button(ff, text="Clear", width=6, command=lambda k=key: self.vars[k].set(""))
+            clear.grid(row=r, column=3, padx=(4, 0), pady=2)
+            self.clear_btns[key] = clear
+            self.vars[key].trace_add("write", lambda *_a: self._update_name_hint())
+        ttk.Button(ff, text="Swap files", command=self._swap).grid(row=2, column=2, pady=(2, 0))
+        self.note = ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.note.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"))
+        self.dnd_hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+
+        of = ttk.LabelFrame(left, text="3. Output", padding=8)
+        of.grid(row=2, column=0, sticky="ew")
+        of.columnconfigure(1, weight=1)
+        ttk.Label(of, text="Save to folder:").grid(row=0, column=0, sticky="w")
+        self.out_dir = tk.StringVar()
+        ttk.Entry(of, textvariable=self.out_dir).grid(row=0, column=1, sticky="ew", padx=4)
+        ttk.Button(of, text="Browse...", command=self._browse_dir).grid(row=0, column=2)
+        ttk.Label(of, text="Output name:").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.out_name = tk.StringVar()
+        ttk.Entry(of, textvariable=self.out_name).grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
+        self.name_hint = ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.name_hint.grid(row=2, column=0, columnspan=3, sticky="w")
+        fmtf = ttk.Frame(of)
+        fmtf.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(fmtf, text="Save as:").grid(row=0, column=0, padx=(0, 6))
+        self.fmt_var = tk.StringVar(value="xlsx")
+        for i, (key, text) in enumerate((("xlsx", "Excel (default)"), ("pdf", "PDF"), ("docx", "Word"))):
+            ttk.Radiobutton(fmtf, text=text, variable=self.fmt_var, value=key).grid(row=0, column=i + 1,
+                                                                                  padx=(0, 10))
+
+        rf = ttk.LabelFrame(right, text="4. Run", padding=8)
+        rf.grid(row=0, column=0, sticky="nsew")
+        rf.columnconfigure(0, weight=1)
+        rf.rowconfigure(2, weight=1)
+        top = ttk.Frame(rf)
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(1, weight=1)
+        self.run_btn = ttk.Button(top, text="Compare timetables", style="Run.TButton", command=self.run)
+        self.run_btn.grid(row=0, column=0)
+        self.prog = ttk.Progressbar(top, mode="determinate", maximum=1.0)
+        self.prog.grid(row=0, column=1, sticky="ew", padx=8)
+        self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
+        self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
+        logf = ttk.Frame(rf)
+        logf.grid(row=2, column=0, sticky="nsew")
+        logf.columnconfigure(0, weight=1)
+        logf.rowconfigure(0, weight=1)
+        self.log = tk.Text(logf, height=14, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
+                           borderwidth=1, highlightthickness=1, highlightcolor="#B0B0B0",
+                           highlightbackground="#C8C8C8")
+        self.log.grid(row=0, column=0, sticky="nsew")
+        sb = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.log.configure(yscrollcommand=sb.set)
+        self.log.tag_configure("warn", foreground="#9C5700")
+        self.log.tag_configure("error", foreground="#C00000")
+        self.log.tag_configure("ok", foreground="#006100")
+        ob = ttk.Frame(rf)
+        ob.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.open_btn = ttk.Button(ob, text="Open output", state="disabled",
+                                   command=lambda: self.app.open_outputs(self.outputs, force=True))
+        self.open_btn.grid(row=0, column=0)
+        self.dir_btn = ttk.Button(ob, text="Open folder", state="disabled",
+                                  command=lambda: self.app.open_outputs([os.path.dirname(self.outputs[0])],
+                                                                        force=True))
+        self.dir_btn.grid(row=0, column=1, padx=6)
+        ttk.Checkbutton(ob, text="Open when finished", variable=self.app.open_var).grid(row=0, column=2,
+                                                                                      padx=(12, 0))
+
+    # ---------------------------------------------------- drag and drop
+    def enable_drag_and_drop(self, dnd_files: str):
+        self._dnd = dnd_files
+        self._add_drop_target(self)
+        self.dnd_hint.configure(text="Tip: drag and drop the files anywhere on this tab - the comparison type and "
+                                     "boxes are chosen from the files.")
+
+    def _add_drop_target(self, widget):
+        if not self._dnd or isinstance(widget, tk.Text):
+            return
+        key = next((k for k, (_l, box, _b) in self.rows.items() if box is widget), None)
+        try:
+            widget.drop_target_register(self._dnd)
+            widget.dnd_bind("<<Drop>>", lambda e, k=key: self._on_drop(e, k))
+        except (tk.TclError, AttributeError):
+            return
+        for child in widget.winfo_children():
+            self._add_drop_target(child)
+
+    def _on_drop(self, event, key=None):
+        paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data) if os.path.isfile(p)]
+        self.place_files(paths, key)
+        return event.action
+
+    def place_files(self, paths, key=None):
+        """Put dropped files in the right boxes, switching the comparison type when the files say so."""
+        prints = [p for p in paths if p.lower().endswith(_PR)]
+        sheets = [p for p in paths if p.lower().endswith(_LI)]
+        if not prints and not sheets:
+            messagebox.showwarning(TITLE, "Drop Excel timetables or train lists (.xlsx), or train prints (.pdf / "
+                                          ".docx).")
+            return
+        mode = self.mode.get()
+        if key:                                         # dropped on a box that takes these files: they go there
+            side = 0 if key == "a" else 1
+            fits = [p for p in paths if p.lower().endswith(EXTS[mode][side])]
+            if fits and len(fits) == len(paths):
+                many = MULTI.get(mode, (False, False))[side]
+                self.vars[key].set(self._join(self.vars[key].get(), fits) if many else fits[0])
+                if not many and len(fits) > 1:
+                    self.status.configure(text="That box takes one file - the first was used.")
+                return
+        kinds = {p: sniff_timetable(p) for p in sheets}
+        tts = sorted((p for p in sheets if kinds[p]), key=lambda p: kinds[p] != "gtr")      # GTR first
+        lists = [p for p in sheets if not kinds[p]]
+        if prints and (tts or mode == "print_tt"):
+            self._set_mode("print_tt")
+            self.vars["a"].set(self._join("" if tts else self.vars["a"].get(), prints))
+            if tts:
+                self.vars["b"].set(tts[0])
+        elif prints:
+            self._set_mode("prints")
+            files = sorted(prints, key=os.path.getmtime)        # older file(s) are the original
+            if len(files) >= 2:
+                half = len(files) // 2
+                self.vars["a"].set(SEP.join(files[:half]))
+                self.vars["b"].set(SEP.join(files[half:]))
+            else:
+                empty = [k for k in ("a", "b") if not self.vars[k].get().strip()]
+                self.vars[(empty or ["b"])[0]].set(files[0])
+        elif tts and lists:
+            self._set_mode("list_tt")
+            self.vars["a"].set(lists[0])
+            self.vars["b"].set(tts[0])
+        elif tts:
+            if mode in ("print_tt", "list_tt") and len(tts) == 1:
+                self.vars["b"].set(tts[0])
+                return
+            self._set_mode("timetables")
+            gtr = [p for p in tts if kinds[p] == "gtr"]
+            nr = [p for p in tts if kinds[p] == "nr"]
+            if gtr:
+                self.vars["a"].set(gtr[0])
+            if nr:
+                self.vars["b"].set(nr[0])
+        else:
+            if mode == "list_tt" and len(lists) == 1:
+                self.vars["a"].set(lists[0])
+                return
+            self._set_mode("lists")
+            if len(lists) >= 2:
+                older, newer = sorted(lists[:2], key=os.path.getmtime)
+                self.vars["a"].set(older)
+                self.vars["b"].set(newer)
+            else:
+                empty = [k for k in ("a", "b") if not self.vars[k].get().strip()]
+                self.vars[(empty or ["b"])[0]].set(lists[0])
+
+    @staticmethod
+    def _join(existing: str, new) -> str:
+        return SEP.join(dict.fromkeys(split_paths(existing) + list(new)))
+
+    # ------------------------------------------------------------ helpers
+    def _set_mode(self, mode):
+        if mode != self.mode.get():
+            self.mode.set(mode)
+            self._mode_changed()
+
+    def _mode_changed(self):
+        mode = self.mode.get()
+        for side, (key, text) in enumerate(zip(("a", "b"), SIDES[mode])):
+            self.rows[key][0].configure(text=text)
+            many = MULTI.get(mode, (False, False))[side]
+            self.rows[key][2].configure(text="Add..." if many else "Browse...")   # several prints: each adds
+            (self.clear_btns[key].grid if many else self.clear_btns[key].grid_remove)()
+            current = self.vars[key].get()
+            if current and not all(p.lower().endswith(EXTS[mode][side]) for p in split_paths(current)):
+                self.vars[key].set("")
+        self.note.configure(text=NOTES[mode])
+        self.run_btn.configure(text=MODE_TEXT[mode][1])
+        if not self.running:
+            self.prog["value"] = 0
+            self.status.configure(text="Ready - press F5 or Ctrl+Enter to run")
+        self._update_name_hint()
+
+    def _update_name_hint(self):
+        mode = self.mode.get()
+        if mode == "timetables":
+            hint = "Default name: '[NR timetable] Consolidated TT Comparison' (e.g. K_D26 Consolidated TT Comparison)"
+        elif mode in ("print_tt", "list_tt"):
+            hint = "Default name: '[reference] vs [timetable] Consolidated TT Comparison'"
+        else:
+            name = default_name(mode, split_paths(self.vars["a"].get()), split_paths(self.vars["b"].get()))
+            hint = f"Default name: {name}" if name else "Default name: today's date and 'original vs updated'"
+        self.name_hint.configure(text=hint + ". Leave the box blank to use it.")
+
+    def _browse(self, key):
+        mode = self.mode.get()
+        start = os.path.dirname(split_paths(self.vars[key].get())[0]) if self.vars[key].get().strip() else \
+            self._last_dir
+        side = 0 if key == "a" else 1
+        kw = dict(parent=self, title=SIDES[mode][side].rstrip(":"), filetypes=_FT[EXTS[mode][side]],
+                  initialdir=start or None)
+        if MULTI.get(mode, (False, False))[side]:          # added to the prints already in the box
+            chosen = filedialog.askopenfilenames(**kw)
+            if chosen:
+                self.vars[key].set(self._join(self.vars[key].get(), (os.path.normpath(p) for p in chosen)))
+                self._last_dir = os.path.dirname(chosen[0])
+        else:
+            chosen = filedialog.askopenfilename(**kw)
+            if chosen:
+                self.vars[key].set(os.path.normpath(chosen))
+                self._last_dir = os.path.dirname(chosen)
+
+    def _browse_dir(self):
+        d = filedialog.askdirectory(parent=self, initialdir=self.out_dir.get() or self._last_dir or None)
+        if d:
+            self.out_dir.set(os.path.normpath(d))
+
+    def _swap(self):
+        a, b = self.vars["a"].get(), self.vars["b"].get()
+        self.vars["a"].set(b)
+        self.vars["b"].set(a)
+
+    # ------------------------------------------------------------ settings
+    def _load_settings(self):
+        try:
+            with open(_settings_path(), encoding="utf-8") as fh:
+                s = json.load(fh)
+        except (OSError, ValueError):
+            return
+        if not isinstance(s, dict):
+            return
+        if s.get("mode") in MODES:
+            self.mode.set(s["mode"])
+        if s.get("fmt") in ("xlsx", "pdf", "docx"):
+            self.fmt_var.set(s["fmt"])
+        if isinstance(s.get("output_dir"), str):
+            self.out_dir.set(s["output_dir"])
+        if isinstance(s.get("last_dir"), str):
+            self._last_dir = s["last_dir"]
+
+    def _save_settings(self):
+        s = {"mode": self.mode.get(), "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get().strip(),
+             "last_dir": self._last_dir}
+        write_json(_settings_path(), s)
+
+    # ------------------------------------------------------------ saved comparisons
+    def get_state(self) -> dict:
+        return {"mode": self.mode.get(), "a": self.vars["a"].get(), "b": self.vars["b"].get(),
+                "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get(), "output_name": self.out_name.get()}
+
+    def set_state(self, s: dict):
+        if s.get("mode") in MODES:
+            self._set_mode(s["mode"])
+        for key in ("a", "b"):
+            self.vars[key].set(s.get(key, "") if isinstance(s.get(key), str) else "")
+        if s.get("fmt") in ("xlsx", "pdf", "docx"):
+            self.fmt_var.set(s["fmt"])
+        self.out_dir.set(s.get("output_dir", "") if isinstance(s.get("output_dir"), str) else "")
+        self.out_name.set(s.get("output_name", "") if isinstance(s.get("output_name"), str) else "")
+
+    @staticmethod
+    def files_in_state(s: dict) -> list:
+        return split_paths(s.get("a", "")) + split_paths(s.get("b", ""))
+
+    # ---------------------------------------------------------------- run
+    def _append(self, msg, tag=None):
+        self.log.configure(state="normal")
+        self.log.insert("end", msg + "\n", (tag,) if tag else ())
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def stop(self):
+        self.after_cancel(self._poll_id)
+
+    def run(self):
+        if self.running:
+            return
+        mode = self.mode.get()
+        sides = {k: split_paths(v.get()) for k, v in self.vars.items()}
+        for side, (key, label) in enumerate(zip(("a", "b"), SIDES[mode])):
+            what = file_label(label)
+            if not sides[key]:
+                return messagebox.showwarning(TITLE, f"Please choose the {what} file.")
+            if not MULTI.get(mode, (False, False))[side] and len(sides[key]) > 1:
+                return messagebox.showwarning(TITLE, f"Choose one file for the {what}.")
+            for p in sides[key]:
+                if not os.path.isfile(p):
+                    return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}")
+                if not p.lower().endswith(EXTS[mode][side]):
+                    return messagebox.showwarning(TITLE, f"The {what} should be a {' / '.join(EXTS[mode][side])} "
+                                                         f"file:\n{p}")
+        if set(sides["a"]) & set(sides["b"]):
+            return messagebox.showwarning(TITLE, "The same file is chosen on both sides.")
+        out_dir = self.out_dir.get().strip().strip('"') or os.path.dirname(sides["b"][0])
+        if not os.path.isdir(out_dir):
+            return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{out_dir}")
+        name = re.sub(r'[<>:"/\\|?*]', "-", self.out_name.get().strip()).strip(" .")
+        for key in ("a", "b"):
+            self.app.add_recent(f"tt_{key}", *sides[key][:1])
+        self._save_settings()
+        self.app.save_app_settings()
+        self.running = True
+        self.outputs = []
+        for b in (self.open_btn, self.dir_btn, self.run_btn):
+            b.state(["disabled"])
+        self.log.configure(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.configure(state="disabled")
+        self.prog["value"] = 0
+        self._started = time.monotonic()
+        self.app.set_busy(True)
+        threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get()),
+                         daemon=True).start()
+
+    def _work(self, mode, first, second, out_dir, name, fmt):
+        try:
+            res = run(mode, first, second, out_dir, name, fmt, progress=lambda f, m: self.q.put(("prog", f, m)),
+                      log=lambda m: self.q.put(("log", m, "warn" if m.startswith("WARNING") else None)))
+            self.q.put(("done", res))
+        except TimetableRunError as exc:
+            self.q.put(("error", str(exc)))
+        except Exception as exc:                    # parse errors carry a readable message
+            known = type(exc).__name__ in ("TimetableError", "PrintError", "TrainListError")
+            if known:
+                self.q.put(("error", str(exc)))
+                return
+            if isinstance(exc, PermissionError):
+                self.q.put(("error", "A file could not be opened or saved. Close it in Excel or Word if it is open, "
+                                     f"then try again.\n\n{exc.filename or exc}"))
+                return
+            where = ""
+            try:
+                from cwn_compare.gui import _write_error_log
+                where = _write_error_log(traceback.format_exc())
+            except Exception:
+                pass
+            self.q.put(("error", f"Unexpected error: {exc}" + (f"\n\nDetails were saved to {where}" if where else
+                                                              f"\n\n{traceback.format_exc()}")))
+
+    def _finish(self, ok: bool):
+        self.running = False
+        self.app.set_busy(False)
+        self.run_btn.state(["!disabled"])
+        self.status.configure(text=(f"Finished in {time.monotonic() - self._started:.1f} s" if ok else "Failed"))
+
+    def _poll(self):
+        try:
+            while True:
+                item = self.q.get_nowait()
+                if item[0] == "prog":
+                    self.prog["value"] = item[1]
+                    self.status.configure(text=item[2])
+                elif item[0] == "log":
+                    self._append(item[1], item[2])
+                elif item[0] == "done":
+                    res = item[1]
+                    self._finish(True)
+                    self.prog["value"] = 1.0
+                    self.outputs = [res.path]
+                    for line in res.lines:
+                        self._append(line)
+                    summary = (f"{res.differences} difference(s) found." if res.differences
+                               else "No differences found.")
+                    self._append(summary, "ok")
+                    self._append(f"Saved: {res.path}", "ok")
+                    self.open_btn.state(["!disabled"])
+                    self.dir_btn.state(["!disabled"])
+                    self.app.open_outputs(self.outputs)
+                    note = f"\n\n{len(res.warnings)} warning(s) - see the log." if res.warnings else ""
+                    from rstools.fsutil import excel_warning
+                    long_warn = excel_warning([res.path])
+                    if long_warn:
+                        self._append("WARNING: " + long_warn, "warn")
+                        note += f"\n\n{long_warn}"
+                    self.app.notify_done("Timetable Comparison finished", summary)
+                    messagebox.showinfo(TITLE, f"{summary}\n\n{res.path}{note}")
+                elif item[0] == "error":
+                    self._finish(False)
+                    self._append("ERROR: " + item[1], "error")
+                    self.app.notify_done("Timetable Comparison failed", item[1].splitlines()[0], False)
+                    messagebox.showerror(TITLE, item[1][:1500])
+        except queue.Empty:
+            pass
+        finally:
+            self._poll_id = self.after(150, self._poll)

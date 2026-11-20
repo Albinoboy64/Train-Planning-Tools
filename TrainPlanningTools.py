@@ -1,0 +1,356 @@
+"""Train Planning Tools - entry point.
+
+Double-click (or run with no arguments) to open the desktop app.
+Command-line use:
+    TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx [--acwn] [--name NAME] [--out DIR]
+    TrainPlanningTools.exe --previous PREVIOUS_OUTPUT.xlsx --updated NEW.xlsx --colour 92D050
+    TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days FO   (Friday trains only)
+    TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
+    TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15] [--sheets SX,SO,Su]
+    TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--name NAME] [--out DIR]  (day variants in order)
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO] [--output totals_days|totals|days]
+    TrainPlanningTools.exe statspack --trent "TLGN_SX.docx;TLGN_SO.docx;TLGN_SU.docx" --unit-reports washes,depots,captive
+    TrainPlanningTools.exe statspack --xml NEW.xml --trent NEW.docx --old-xml OLD.xml --old-trent OLD.docx
+    TrainPlanningTools.exe statspack --old-pack OLD.xlsx --new-pack NEW.xlsx
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-group 1W --between 07:00-10:00 --at "London Victoria"
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-from Brighton --capacity-to "London Victoria" --no-standing
+    TrainPlanningTools.exe timetable --gtr GTR.xlsx --nr NR.xlsx [--format xlsx|pdf|docx]
+    TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...]
+    TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
+    TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
+    TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
+"""
+import argparse
+import os
+import sys
+
+# A windowed (no console) build has no stdout/stderr - avoid crashes on print().
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
+
+def cli(argv):
+    from cwn_compare.engine import run
+    from cwn_compare.options import Options
+
+    ap = argparse.ArgumentParser(description="Compare two Carriage Working Notices")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--original", help="original CWN")
+    g.add_argument("--previous", help="previously generated comparison CWN (adds a new round)")
+    g.add_argument("--original-folder", help="folder of original CWNs (batch: compared with --updated as a folder)")
+    ap.add_argument("--updated", required=True, help="updated CWN (or, with --original-folder, folder of updated CWNs)")
+    ap.add_argument("--acwn", action="store_true", help="output amended trains only")
+    ap.add_argument("--colour", default=None, help="highlight colour as hex, e.g. FFFF00")
+    ap.add_argument("--name", default="", help="output name (default: today's date)")
+    ap.add_argument("--out", default="", help="output folder (default: folder of updated CWN)")
+    ap.add_argument("--no-report", action="store_true")
+    ap.add_argument("--keep-links", action="store_true",
+                    help="keep the headcode hyperlinks between tabs (output opens more slowly)")
+    ap.add_argument("--highlight-only", action="store_true", help="do not show previous values")
+    ap.add_argument("--report-format", choices=["xlsx", "pdf", "docx"], default="xlsx",
+                    help="change report as Excel (default), PDF or Word")
+    ap.add_argument("--exact-text", action="store_true",
+                    help="report differences in spacing / punctuation in destinations and notes")
+    ap.add_argument("--exclude", default="", help="comma separated categories to strip, e.g. PLATFORM,DIAGRAM")
+    ap.add_argument("--days", default="", help="check and output only trains running on these days, e.g. MO,FO")
+    a = ap.parse_args(argv)
+    o = Options()
+    o.mode = "cumulative" if a.previous else "batch" if a.original_folder else "compare"
+    o.original = a.previous or a.original or a.original_folder
+    o.updated = a.updated
+    o.output_type = "acwn" if a.acwn else "full"
+    if a.colour:
+        o.colour = a.colour.lstrip("#")
+    elif a.previous:
+        o.colour = "92D050"
+    o.output_name = a.name
+    o.output_dir = a.out
+    o.make_report = not a.no_report
+    o.keep_links = a.keep_links
+    o.ignore_spacing = not a.exact_text
+    o.report_format = a.report_format
+    if a.days:
+        from cwn_compare.days import parse_day_list
+        try:
+            o.days = sorted(parse_day_list(a.days))
+        except ValueError as exc:
+            ap.error(str(exc))
+    for k in o.categories:
+        if a.highlight_only:
+            o.categories[k]["show_old"] = False
+    for k in filter(None, (x.strip().upper() for x in a.exclude.split(","))):
+        if k in o.categories:
+            o.categories[k] = {"cwn": False, "show_old": False, "report": False}
+    if o.mode == "batch":
+        from cwn_compare.batch import pair_files, run_batch
+        pairs, left, right = pair_files(o.original, o.updated)
+        for x in left + right:
+            print("Not paired:", x)
+        if not pairs:
+            print("ERROR: no CWNs could be paired between the two folders.")
+            sys.exit(1)
+        bad = []
+
+        def done(n, total, orig, upd, res, err):
+            print(f"[{n}/{total}] {os.path.basename(upd)}: " + (f"{res['changes']} change(s) -> {res['cwn']}" if res
+                                                               else f"ERROR {err}"))
+            if not res:
+                bad.append(upd)
+        run_batch(pairs, o, done)
+        sys.exit(1 if bad else 0)
+    try:
+        res = run(o, log=print)
+    except Exception as exc:                 # readable messages from the CWN reader and engine
+        print("ERROR:", exc)
+        sys.exit(1)
+    print(res)
+
+
+def stationbook_cli(argv):
+    from rstools.stationbook import StationBookError, make_book, make_books, parse_station_list
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools stationbook",
+                                 description="Station Working Book (TRACS-RS layout) from an Attune XML")
+    ap.add_argument("--xml", required=True, help="Attune diagram XML (with every day's unit diagrams)")
+    ap.add_argument("--station", required=True, help="station name as in the XML, e.g. 'London Kings Cross'; "
+                                                     "several: 'London Kings Cross; Cambridge; London Bridge [10-15]' "
+                                                     "(a book each, made on several CPU cores)")
+    ap.add_argument("--platforms", default="", help="only these platforms, e.g. 10-15 or 1,2,4A")
+    ap.add_argument("--operator", default="GTR(TLGN)", help="for the title, e.g. GTR(TLGN)")
+    ap.add_argument("--timetable", default="", help="for the title, e.g. Dec23 (default: from the XML)")
+    ap.add_argument("--services", default="Thameslink and Great Northern services only", help="for the title")
+    ap.add_argument("--label", default="", help="sheet name before SX / SO / Su (default: station (operator))")
+    ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
+    ap.add_argument("--name", default="", help="output name")
+    ap.add_argument("--out", default="", help="output folder (default: folder of the XML)")
+    a = ap.parse_args(argv)
+    entries = parse_station_list(a.station)
+    if len(entries) > 1:
+        try:
+            results = make_books(a.xml, entries, a.out, a.operator, a.timetable, a.services,
+                                 [s.strip() for s in a.sheets.split(",") if s.strip()], log=print)
+        except StationBookError as exc:
+            print("ERROR: " + str(exc))
+            sys.exit(1)
+        for station, path, warnings, summary, error in results:
+            print(f"{station}: " + (f"ERROR {error}" if error else f"{summary} -> {path}"))
+            for w in warnings:
+                print("  WARNING:", w)
+        sys.exit(1 if any(r[4] for r in results) else 0)
+    try:
+        path, warnings, summary = make_book(a.xml, a.station, a.out, a.name, a.operator, a.timetable, a.services,
+                                            a.label, a.platforms, [s.strip() for s in a.sheets.split(",") if s.strip()],
+                                            log=print)
+    except StationBookError as exc:
+        print("ERROR: " + str(exc))
+        sys.exit(1)
+    for w in warnings:
+        print("WARNING:", w)
+    print(summary)
+
+
+def reorder_cli(argv):
+    from cwn_compare.reorder import ReorderError, reorder_cwn
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools reorder",
+                                 description="Save a copy of a multi-day CWN with each train's day variants in "
+                                             "order (MO first ... FO, then SO, Su). Nothing is changed or removed.")
+    ap.add_argument("cwn", help="the multi-day CWN")
+    ap.add_argument("--by-time", action="store_true", help="order by departure time first, then by day")
+    ap.add_argument("--name", default="", help="output name")
+    ap.add_argument("--out", default="", help="output folder (default: folder of the CWN)")
+    a = ap.parse_args(argv)
+    try:
+        res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print)
+    except ReorderError as exc:
+        print("ERROR: " + str(exc))
+        sys.exit(1)
+    if res["trains"]:
+        print(f"{res['trains']} train(s) on {res['tabs']} tab(s) had their day variants put in order.")
+
+
+def statspack_cli(argv):
+    from rstools.statspack.days import DAYS
+    from rstools.statspack.engine import (OUTPUTS, UNIT_REPORTS, PackOptions, PlanInputs, StatsPackError, build_pack,
+                                          compare_packs, compare_plans, day_availability, load_plan, unit_reports,
+                                          write_pack)
+
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools statspack", description="Rolling stock stats pack")
+    ap.add_argument("--xml", help="Attune diagram XML")
+    ap.add_argument("--trent", help="TRENT unit diagram print (.docx); several prints separated by ';' "
+                                    "(e.g. the TLGN SX, SO and SU prints)")
+    ap.add_argument("--old-xml", help="original plan XML (compare two plans)")
+    ap.add_argument("--old-trent", help="original plan TRENT print (compare two plans)")
+    ap.add_argument("--old-pack", help="original stats pack (compare two packs)")
+    ap.add_argument("--new-pack", help="updated stats pack (compare two packs)")
+    ap.add_argument("--days", default=",".join(DAYS), help="e.g. MO,TO,WO (default: every day)")
+    ap.add_argument("--operators", default="SNGX,TLGN")
+    ap.add_argument("--fleets", default="", help="comma separated fleets (default: all)")
+    ap.add_argument("--output", choices=sorted(OUTPUTS), default="totals_days",
+                    help="totals_days: totals + every day (default); totals: totals only; days: a file per day")
+    ap.add_argument("--name", default="")
+    ap.add_argument("--out", default="")
+    ap.add_argument("--no-summary", action="store_true", help="comparisons: leave out the summary of key figures")
+    ap.add_argument("--changed-tabs-only", action="store_true", help="comparisons: only tabs with differences")
+    ap.add_argument("--changed-rows-only", action="store_true", help="comparisons: only rows that changed")
+    ap.add_argument("--flag-miles", type=float, default=10.0,
+                    help="comparisons: flag mileage increases over this many miles (0 = off, default 10)")
+    ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx",
+                    help="save outputs as Excel (default), PDF or Word")
+    ap.add_argument("--unit-reports", default="",
+                    help="instead of a stats pack: unit reports, any of washes,depots,captive,fuel")
+    ap.add_argument("--per-day", action="store_true",
+                    help="unit and capacity reports: each day on its own (default: whole week)")
+    ap.add_argument("--capacity-group", "--seats-group", dest="seats_group", default="",
+                    help="capacity report for a headcode group, e.g. 1F")
+    ap.add_argument("--capacity-corridor", "--seats-corridor", dest="seats_corridor", default="",
+                    help="capacity report for this corridor (name as in the list)")
+    ap.add_argument("--no-seating", action="store_true", help="capacity report: leave out seats")
+    ap.add_argument("--no-standing", action="store_true", help="capacity report: leave out standing room")
+    ap.add_argument("--corridor-direction", choices=["forward", "reverse", "both"], default="both",
+                    help="corridor: forward (first to last station in the list), reverse, or both (default)")
+    ap.add_argument("--capacity-from", "--seats-from", dest="seats_from", default="",
+                    help="capacity report from this station (with --capacity-to)")
+    ap.add_argument("--capacity-to", "--seats-to", dest="seats_to", default="",
+                    help="capacity report to this station (with --capacity-from)")
+    ap.add_argument("--between", default="", help="capacity report: only trains between two times, e.g. 07:00-10:00")
+    ap.add_argument("--at", default="", help="capacity report: the station for --between, e.g. 'London Victoria'")
+    ap.add_argument("--direction", choices=["arriving", "departing", "both"], default="arriving",
+                    help="capacity report: count trains arriving at / departing from --at (default arriving)")
+    a = ap.parse_args(argv)
+    from rstools.statspack.compare import CompareOptions
+    cmp = CompareOptions(summary=not a.no_summary, changed_tabs_only=a.changed_tabs_only,
+                         changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
+    try:
+        from cwn_compare import __version__ as version
+        if a.old_pack or a.new_pack:
+            out, n = compare_packs(a.old_pack, a.new_pack, a.out, a.name, cmp, a.format)
+            print(n, "difference(s):", out)
+            return
+        codes = {c.strip().upper(): i for i, c in enumerate(DAYS)}
+        try:
+            days = sorted({codes[c.strip().upper()] for c in a.days.split(",") if c.strip()})
+        except KeyError as exc:
+            raise StatsPackError(f"Unknown day {exc}; use {','.join(DAYS)}")
+        o = PackOptions(days=days, operators={x.strip().upper() for x in a.operators.split(",") if x.strip()},
+                        fleets={x.strip() for x in a.fleets.split(",") if x.strip()} or None,
+                        output=a.output, output_dir=a.out, output_name=a.name, compare=cmp, fmt=a.format)
+        new = load_plan(PlanInputs(a.xml or "", a.trent), print, xml_optional=bool(a.unit_reports))
+        for m in day_availability(new, days) + new.warnings:
+            print("WARNING:", m)
+        o.days = [d for d in days if d in new.trent.days()]
+        old = None
+        seats = a.seats_group or a.seats_corridor or a.seats_from or a.seats_to
+        if (seats or a.unit_reports) and (a.old_xml or a.old_trent):
+            old = load_plan(PlanInputs(a.old_xml or "", a.old_trent), print,
+                            xml_optional=bool(a.unit_reports))                     # compare with this timetable
+            o.days = [d for d in o.days if d in old.trent.days()]
+        if seats:
+            from rstools.statspack.engine import seats_report
+            journey = a.seats_from or a.seats_to
+            window = None
+            if a.between:
+                start, _sep, end = a.between.partition("-")
+                if not a.at and not journey:
+                    raise StatsPackError("--between needs --at STATION")
+                window = (a.at, start, end)
+            kind, name = (("Station to station", "") if journey else ("Service group", a.seats_group)
+                          if a.seats_group else ("Corridor", a.seats_corridor))
+            paths, warnings, summary = seats_report(new, o, kind, name, not a.per_day, window, a.direction, old=old,
+                                                    corridor_dir=a.corridor_direction,
+                                                    journey=(a.seats_from, a.seats_to),
+                                                    seating=not a.no_seating, standing=not a.no_standing)
+            print(summary)
+        elif a.unit_reports:
+            which = [w.strip().lower() for w in a.unit_reports.split(",") if w.strip()]
+            bad = [w for w in which if w not in UNIT_REPORTS]
+            if bad:
+                raise StatsPackError(f"Unknown unit report {bad[0]!r}; use {','.join(UNIT_REPORTS)}")
+            paths, warnings = unit_reports(new, o, which, not a.per_day, old=old)
+        elif a.old_xml or a.old_trent:
+            old = load_plan(PlanInputs(a.old_xml, a.old_trent), print)
+            o.days = [d for d in o.days if d in old.trent.days()]
+            paths, warnings, n = compare_plans(old, new, o, version)
+            print(n, "difference(s)")
+        else:
+            per_day, warnings = build_pack(new, o, version)
+            if not per_day:
+                raise StatsPackError("No diagrams match the selected days, operators and fleets.")
+            paths = write_pack(per_day, o, new, version)
+        for w in warnings:
+            print("WARNING:", w)
+        for p in paths:
+            print("Saved:", p)
+    except StatsPackError as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+
+
+def timetable_cli(argv):
+    from rstools.timetable.engine import run
+
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools timetable", description="Timetable Comparison")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--gtr", help="GTR timetable check workbook (compared with --nr)")
+    g.add_argument("--prints", nargs="+", help="original train print(s), PDF or Word (compared with --vs)")
+    g.add_argument("--lists", help="original Attune train list export (compared with --vs)")
+    g.add_argument("--base-prints", nargs="+", help="Attune Single Train Report print(s) as the reference "
+                                                   "(checked against --check)")
+    g.add_argument("--base-list", help="Attune train list as the reference (checked against --check)")
+    ap.add_argument("--check", help="timetable workbook (GTR or Network Rail layout) to check")
+    ap.add_argument("--nr", help="Network Rail timetable workbook (the reference)")
+    ap.add_argument("--vs", nargs="+", help="updated train print(s) or train list")
+    ap.add_argument("--name", default="", help="output name (default chosen from the inputs)")
+    ap.add_argument("--out", default="", help="output folder (default: folder of the second input)")
+    ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
+    a = ap.parse_args(argv)
+    if a.gtr:
+        mode, first, second = "timetables", [a.gtr], [a.nr] if a.nr else []
+    elif a.base_prints or a.base_list:
+        mode = "print_tt" if a.base_prints else "list_tt"
+        first, second = (a.base_prints or [a.base_list]), [a.check] if a.check else []
+    else:
+        mode, first, second = ("prints", a.prints, a.vs or []) if a.prints else ("lists", [a.lists], a.vs or [])
+    if not second:
+        ap.error("--nr is needed with --gtr, --vs with --prints / --lists, and --check with --base-prints / "
+                 "--base-list")
+    out = a.out or os.path.dirname(os.path.abspath(second[0]))
+    try:
+        res = run(mode, first, second, out, a.name, a.format, log=print)
+    except Exception as exc:                 # readable messages from the readers and the engine
+        print("ERROR:", exc)
+        sys.exit(1)
+    for line in res.lines:
+        print(line)
+    print("Saved:", res.path)
+
+
+def selftest_cli(argv):
+    """Checks the packaged exe can read an Attune print with its fast PDF reader (used by the build)."""
+    from rstools.timetable.prints import _pdfium_lines
+    path = argv[0] if argv else ""
+    pages = _pdfium_lines(path) if path else None
+    if not pages:
+        print("ERROR: the fast PDF reader (PDFium) could not read", path or "(no file given)")
+        sys.exit(1)
+    print(f"PDFium OK: {len(pages)} page(s)")
+
+
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()   # lets the packaged exe start its helper process
+    if len(sys.argv) > 1 and sys.argv[1].lower() == "statspack":
+        statspack_cli(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1].lower() == "stationbook":
+        stationbook_cli(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1].lower() == "reorder":
+        reorder_cli(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1].lower() == "timetable":
+        timetable_cli(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1].lower() == "selftest":
+        selftest_cli(sys.argv[2:])
+    elif len(sys.argv) > 1:
+        cli(sys.argv[1:])
+    else:
+        from cwn_compare.gui import main
+        main()

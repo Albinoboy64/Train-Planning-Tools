@@ -1,0 +1,675 @@
+"""Synthetic Stats Pack tests (no real plan data needed).
+
+Builds a tiny TRENT VehicleLayout29 print (.docx) and Attune XML, then runs every Stats Pack mode.
+Run with:  python -m pytest tests
+"""
+import os
+import sys
+import tempfile
+import zipfile
+from xml.sax.saxutils import escape
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from rstools.statspack.compare import compare_pack_files, read_pack  # noqa: E402
+from rstools.statspack.engine import (PackOptions, PlanInputs, compare_plans, build_pack,  # noqa: E402
+                                      StatsPackError, day_availability, load_plan, write_pack)
+from rstools.statspack.trent import TrentFormatError, parse_vehicle_layout  # noqa: E402
+
+HEADER = "     {dep} {num:<4}{days:<7}LTP    FROM - 13/12/2026   UNTIL - 15/05/2027" + " " * 32 + "FLEET   :{fleet}"
+COLS = "              AP  DP Arr    Dep                    Route                                         Mileage"
+
+
+def move(loc, ap, dp, arr, dep, head, route, cum, miles):
+    return f"     {loc:<8}{ap:>3} {dp:>3} {arr:<5}  {dep:<5}  {head:<6}{'':21}{route:<36}{cum:>7.2f} {miles:>6.2f}"
+
+
+def act(loc, ap, arr, what):
+    return f"     {loc:<8}{ap:>3}     {arr:<5}{'':18}{what}"
+
+
+def diagram(dep, num, days, fleet, rows, loaded, empty):
+    return ([HEADER.format(dep=dep, num=num, days=days, fleet=fleet), "", "", COLS, ""] + rows +
+            ["", "", f"   Mileage:  (Loaded)  {loaded:.2f}   (Empty)   {empty:.2f}   (Total)  {loaded + empty:.2f}",
+             "", ""])
+
+
+def plan_lines(extra_miles=0.0):
+    a = diagram("BI", 1, "MO", "377/4", [
+        move("BRHM", "", "1", "", "05+00", "5A01BI", "1(1)", 10.0, 10.0),
+        move("HYWRDSH", "2", "2", "05+30", "05.40", "1A02BI", "1(1)", 50.0 + extra_miles, 40.0 + extra_miles),
+        act("VICTRIC", "15", "06.40", "STABLD"),
+    ], 40.0 + extra_miles, 10.0)
+    b = diagram("HE", 7, "MO", "700/0", [
+        move("VICTRIC", "", "9", "", "07.00", "1B03SX", "7(1)", 30.0, 30.0),
+        act("BRGHTN", "4", "08.00", "STABLD"),
+    ], 30.0, 0.0)
+    c = diagram("BI", 1, "TO", "377/4", [
+        move("BRHM", "", "1", "", "05+00", "5A01BI", "1(1)", 10.0, 10.0),
+        move("HYWRDSH", "2", "2", "05+30", "05.40", "1A02BI", "1(1)", 50.0, 40.0),
+        act("VICTRIC", "15", "06.40", "STABLD"),
+    ], 40.0, 10.0)
+    return a + b + c
+
+
+def write_docx(path, lines):
+    body = "".join(f'<w:p><w:r><w:t xml:space="preserve">{escape(t)}</w:t></w:r></w:p>' if t else "<w:p/>"
+                   for t in lines)
+    doc = ('<?xml version="1.0" encoding="utf-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/'
+           f'wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>')
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/'
+                   'package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>')
+        z.writestr("word/document.xml", doc)
+
+
+def write_xml(path):
+    def train(tid, mask, legs):
+        return (f'<train id="{tid}" trainKey="1" validFrom="2026-12-14" validUntil="2027-05-14" daysRun="{mask}" '
+                f'planType="L">' + "".join(legs) + "</train>")
+    xml = ('<diagramExchange version="1.0" plantype="L" xmlns="http://www.tracsis.com/TTVP_Interface"><trainList>'
+           + train("5A01BI", "NNYYNNNNN", ['<leg origin="BRHM" dep="05:00:00" dest="HYWRDSH" arr="05:30:00"/>'])
+           + train("1A02BI", "NNYYNNNNN", ['<leg origin="HYWRDSH" dep="05:40:00" dest="GTWK" arr="05:50:00"/>',
+                                           '<leg origin="GTWK" dep="05:52:00" dest="ECROYDN" arr="06:10:00" '
+                                           'arrStopType="P"/>',
+                                           '<leg origin="ECROYDN" dep="06:10:00" dest="VICTRIC" arr="06:40:00" '
+                                           'depStopType="P"/>'])
+           + train("1B03SX", "NNYNNNNNN", ['<leg origin="VICTRIC" dep="07:00:00" dest="BRGHTN" arr="08:00:00"/>'])
+           + '</trainList><locationList>'
+           + "".join(f'<location tiploc="{t}" longDesc="{d}"/>' for t, d in
+                     (("BRHM", "Bognor Regis"), ("HYWRDSH", "Haywards Heath"), ("GTWK", "Gatwick Airport"),
+                      ("ECROYDN", "East Croydon"), ("VICTRIC", "London Victoria"), ("BRGHTN", "Brighton")))
+           + '</locationList></diagramExchange>')
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(xml)
+
+
+def setup_plan(folder, name="a", extra_miles=0.0):
+    x, d = os.path.join(folder, f"{name}.xml"), os.path.join(folder, f"{name}.docx")
+    write_xml(x)
+    write_docx(d, plan_lines(extra_miles))
+    return load_plan(PlanInputs(x, d))
+
+
+def opts(folder, days, **kw):
+    return PackOptions(days=days, operators={"SNGX", "TLGN"}, fleets=None, output_dir=folder, **kw)
+
+
+def tab(path, name):
+    return dict(read_pack(path))[name]
+
+
+def test_parse_trent():
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "t.docx")
+        write_docx(p, plan_lines())
+        data = parse_vehicle_layout(p)
+        assert len(data.diagrams) == 3
+        assert data.days() == {0, 1}
+        assert data.fleets() == {"377/4", "700/0"}
+
+
+def test_rejects_other_layout():
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "t.docx")
+        write_docx(p, ["DIAGRAM : 1   BI   MO", "some other print"])
+        try:
+            parse_vehicle_layout(p)
+        except TrentFormatError as exc:
+            assert "VehicleLayout29" in str(exc)
+        else:
+            raise AssertionError("other TRENT layouts must be rejected")
+
+
+def test_single_day_pack():
+    with tempfile.TemporaryDirectory() as d:
+        plan = setup_plan(d)
+        o = opts(d, [0], output_name="mo")
+        per_day, warnings = build_pack(plan, o, "test")
+        paths = write_pack(per_day, o, plan, "test")
+        assert [os.path.basename(p) for p in paths] == ["mo.xlsx"]
+        miles = tab(paths[0], "Service Miles")
+        heads = [r.cells[0] for r in miles.rows if r.kind == "body"]
+        assert sorted(heads) == ["1A02BI", "1B03SX", "5A01BI"]
+        unit = {r.cells[0]: r.cells for r in tab(paths[0], "Mileage by Unit").rows}
+        assert unit["377/4"][1:4] == [10, 40, 50]           # empty, in service, total
+        assert unit["700/0"][3] == 30
+        # operator split: TLGN only keeps the HE depot diagram
+        o2 = PackOptions(days=[0], operators={"TLGN"}, fleets=None, output_dir=d, output_name="tl")
+        per_day, _w = build_pack(plan, o2, "test")
+        unit = {r.cells[0] for r in per_day[0][1][5].rows if r.kind == "body"}
+        assert unit == {"700/0"}
+
+
+def test_merged_and_split_week():
+    with tempfile.TemporaryDirectory() as d:
+        plan = setup_plan(d)
+        assert day_availability(plan, [0, 1, 2]) == ["Wednesday (WO) is not in the TRENT print or the XML."]
+        o = opts(d, [0, 1], output_name="wk")
+        per_day, _w = build_pack(plan, o, "test")
+        merged = write_pack(per_day, o, plan, "test")
+        names = [n for n, _t in read_pack(merged[0])]
+        assert "Mileage by Unit" in names and "MO Mileage by Unit" in names and "TO Mileage by Unit" in names
+        unit = {r.cells[0]: r.cells for r in tab(merged[0], "Mileage by Unit").rows}
+        assert unit["377/4"][3] == 100                      # MO + TO
+        o.output = "days"
+        split = write_pack(per_day, o, plan, "test")
+        assert sorted(os.path.basename(p) for p in split) == ["wk MO.xlsx", "wk TO.xlsx"]
+        o.output = "totals"
+        totals = write_pack(per_day, o, plan, "test")
+        names = [n for n, _t in read_pack(totals[0])]
+        assert "Mileage by Unit" in names and not any(n.startswith(("MO ", "TO ")) for n in names)
+
+
+def test_compare_plans_and_packs():
+    with tempfile.TemporaryDirectory() as d:
+        old, new = setup_plan(d, "old"), setup_plan(d, "new", extra_miles=5.0)
+        paths, _w, n = compare_plans(old, new, opts(d, [0], output_name="cmp"), "test")
+        assert n > 0
+        diffs = tab_rows(paths[0], "Differences")
+        assert any(r[0] == "Mileage by Unit" and r[1] == "377/4" and r[5] == "+5" for r in diffs)
+        # same plan twice -> no differences
+        _p, _w, n = compare_plans(old, old, opts(d, [0], output_name="same"), "test")
+        assert n == 0
+        # pack-file comparison
+        a = write_pack(build_pack(old, opts(d, [0]), "test")[0], opts(d, [0], output_name="pa"), old, "test")[0]
+        b = write_pack(build_pack(new, opts(d, [0]), "test")[0], opts(d, [0], output_name="pb"), new, "test")[0]
+        out = os.path.join(d, "packs.xlsx")
+        assert compare_pack_files(a, b, out) > 0
+        assert compare_pack_files(a, a, os.path.join(d, "same2.xlsx")) == 0
+
+
+def test_bad_files_and_mileage_check():
+    from rstools.statspack.engine import StatsPackError
+    with tempfile.TemporaryDirectory() as d:
+        plan = setup_plan(d)
+        assert not plan.warnings
+        bad_xml = os.path.join(d, "bad.xml")
+        with open(bad_xml, "w") as fh:
+            fh.write('<diagramExchange xmlns="http://www.tracsis.com/TTVP_Interface"><trainList><train id="1A01"')
+        for xml, docx in ((bad_xml, plan.trent.path), (plan.attune.path, bad_xml)):
+            try:
+                load_plan(PlanInputs(xml, docx))
+            except StatsPackError:
+                pass
+            else:
+                raise AssertionError("unreadable files must give a clear error")
+        broken = os.path.join(d, "broken.docx")
+        with zipfile.ZipFile(broken, "w") as z:
+            z.writestr("word/document.xml", "<w:document")
+        try:
+            parse_vehicle_layout(broken)
+        except TrentFormatError:
+            pass
+        else:
+            raise AssertionError("a damaged .docx must give a clear error")
+        # a print whose rows don't add up to the printed total is flagged
+        lines = plan_lines()
+        lines = [ln.replace("(Total)  50.00", "(Total)  80.00") for ln in lines]
+        short = os.path.join(d, "short.docx")
+        write_docx(short, lines)
+        assert any("do not add up" in w for w in parse_vehicle_layout(short).warnings)
+
+
+def test_coupled_across_depots():
+    """TRENT gives coupled units by diagram number only; the partner may be at another depot."""
+    from rstools.statspack.fleet import FleetTable
+    from rstools.statspack.model import build_day
+    from rstools.statspack.stats import build_tables
+    lines = (diagram("BI", 1, "MO", "377/4", [
+                 move("BRHM", "", "1", "", "05+00", "5A01BI", "1(1)", 10.0, 10.0),
+                 move("HYWRDSH", "2", "2", "05+30", "05.40", "1A02BI", "1(1)\\312(2)", 50.0, 40.0),
+                 act("VICTRIC", "15", "06.40", "STABLD")], 40.0, 10.0)
+             + diagram("SU", 312, "MO", "377/3", [
+                 move("HYWRDSH", "", "2", "", "05.40", "1A02BI", "1(1)\\312(2)", 40.0, 40.0),
+                 act("VICTRIC", "15", "06.40", "STABLD")], 40.0, 0.0))
+    with tempfile.TemporaryDirectory() as d:
+        x, p = os.path.join(d, "a.xml"), os.path.join(d, "a.docx")
+        write_xml(x)
+        write_docx(p, lines)
+        plan = load_plan(PlanInputs(x, p))
+        model = build_day(plan.trent, plan.attune, FleetTable.load(), 0, {"SNGX", "TLGN"})
+        part = next(pt for t in model.trains if t.headcode == "1A02BI" for pt in t.parts)
+        assert part.formation == ("BI1", "SU312")
+        forms = {r.cells[0] for r in next(t for t in build_tables(model, {}) if t.name == "Mileage by Formation").rows}
+        assert "377/3+377/4" in forms and not any("?" in f for f in forms)
+
+
+def test_comparison_options():
+    from rstools.statspack.compare import CompareOptions
+    with tempfile.TemporaryDirectory() as d:
+        old, new = setup_plan(d, "old"), setup_plan(d, "new", extra_miles=5.0)
+        o = opts(d, [0], output_name="trim", compare=CompareOptions(changed_tabs_only=True, changed_rows_only=True))
+        path = compare_plans(old, new, o, "test")[0][0]
+        rows = tab_rows(path, "Differences")
+        summary = {r[0]: r for r in rows if r[0] and r[0].startswith("Unit miles")}
+        assert summary["Unit miles - total"][3] == "+5", summary
+        names = [n for n, _t in read_pack(path)]
+        assert "Mileage by Unit" in names and "Vehicle Counts at Stops" not in names    # unchanged tab left out
+        unit = tab(path, "Mileage by Unit")
+        assert [r.cells[0] for r in unit.rows] == ["377/4", "Total"]                  # unchanged 700/0 row hidden
+
+
+def test_mileage_flags_and_names():
+    from rstools.naming import today
+    from rstools.statspack.compare import CompareOptions
+    with tempfile.TemporaryDirectory() as d:
+        old = setup_plan(d, "old")
+        for extra, expect in ((5.0, False), (15.0, True)):
+            new = setup_plan(d, f"new{int(extra)}", extra_miles=extra)
+            path = compare_plans(old, new, opts(d, [0], compare=CompareOptions(flag_miles=10)), "test")[0][0]
+            rows = tab_rows(path, "Differences")
+            head = next(r for r in rows if r[0] and str(r[0]).startswith("Mileage increases over 10 miles"))
+            flagged = int(str(head[0]).rsplit(":", 1)[1])
+            assert (flagged > 0) == expect, (extra, flagged)
+        # default names
+        packs = write_pack(build_pack(old, opts(d, [0]), "test")[0], opts(d, [0]), old, "test")
+        assert os.path.basename(packs[0]) == "Stats pack for DEC26 MO.xlsx", packs
+        both = write_pack(build_pack(old, opts(d, [0, 1]), "test")[0], opts(d, [0, 1]), old, "test")
+        assert os.path.basename(both[0]) == "Stats pack for DEC26.xlsx", both
+        cmp = compare_plans(old, new, opts(d, [0]), "test")[0][0]
+        assert os.path.basename(cmp).startswith("old vs new15 MO"), cmp     # '(2)' if the name is taken
+        from rstools.naming import compare_name
+        assert compare_name("C:/x/DEC26 CWN Proof 1.xlsx", "DEC26 CWN Proof 2 (1).xlsx") == \
+            f"{today()} DEC26 Proof 1 vs Proof 2"
+
+
+def test_unit_reports():
+    """Units followed with an XML next-day working (BI1 -> BI2) and by inference (SX7 -> SX8);
+    washes / CETs counted, depot returns classified, the captive unit found."""
+    from rstools.statspack.units import Depots, captive_reports, depot_reports, follow_units, wash_cet_reports
+    lines = (diagram("BI", 1, "MO", "377/4", [
+                 move("LOVRSWS", "", "1", "", "05+00", "5A01BI", "1(1)", 10.0, 10.0),
+                 act("BRGHTN", "4", "05.30", "WASH"),
+                 move("BRGHTN", "", "4", "", "05.40", "1A02BI", "1(1)", 50.0, 40.0),
+                 act("HOVEY36", "1", "06+40", "STABLD")], 40.0, 10.0)
+             + diagram("BI", 2, "TO", "377/4", [
+                 move("HOVEY36", "", "1", "", "05+00", "5A03BI", "2(1)", 10.0, 10.0),
+                 act("LOVRSWS", "2", "05+30", "CET")], 0.0, 10.0)
+             + diagram("SX", 7, "MO", "700/0", [
+                 move("BRGHTN", "", "1", "", "07.00", "1B03SX", "7(1)", 30.0, 30.0),
+                 act("EBOUSID", "4", "08+00", "STABLD")], 30.0, 0.0)
+             + diagram("SX", 8, "TO", "700/0", [
+                 move("EBOUSID", "", "1", "", "07+00", "5B04SX", "8(1)", 30.0, 30.0),
+                 act("BRGHTN", "4", "08+00", "STABLD")], 0.0, 30.0))
+    xml = ('<diagramExchange plantype="L" xmlns="http://www.tracsis.com/TTVP_Interface"><trainList>'
+           '<train id="5A01BI" daysRun="NNYNNNNNN" planType="L"><leg origin="LOVRSWS" dep="05:00:00" dest="BRGHTN" '
+           'arr="05:30:00"/></train></trainList><locationList>'
+           '<location tiploc="LOVRSWS" longDesc="Lovers Walk T&amp;R.S.M.D"/><location tiploc="BRGHTN" longDesc="Brighton"/>'
+           '<location tiploc="HOVEY36" longDesc="Hove Yard Sidings 3-6"/><location tiploc="EBOUSID" '
+           'longDesc="Eastbourne Sidings"/></locationList><diagramList>'
+           '<unitDiagram id="1" daysrun="NNYNNNNNN"><depot id="BI"/><details><diagStatic legno="9" loc="HOVEY36">'
+           '<activity id=" "><text>BI2 05+00TO (F)</text></activity></diagStatic></details></unitDiagram>'
+           '<unitDiagram id="2" daysrun="NNNYNNNNN"><depot id="BI"/><details><diagStatic legno="9" loc="LOVRSWS">'
+           '<activity id=" "><text>Stabld</text></activity></diagStatic></details></unitDiagram>'
+           '</diagramList></diagramExchange>')
+    with tempfile.TemporaryDirectory() as d:
+        x, p = os.path.join(d, "u.xml"), os.path.join(d, "u.docx")
+        with open(x, "w", encoding="utf-8") as fh:
+            fh.write(xml)
+        write_docx(p, lines)
+        plan = load_plan(PlanInputs(x, p))
+        depots = Depots.load(plan.attune.locations, os.path.join(d, "none.csv"))
+        units, per_day, warnings = follow_units(plan.trent, plan.attune, [0, 1], depots)
+        chains = {u.diagrams[0].key: ([x.key for x in u.diagrams], u.links, u.washes, u.cets) for u in units}
+        assert chains["BI1"] == (["BI1", "BI2"], ["XML"], 1, 1), chains
+        assert chains["SX7"] == (["SX7", "SX8"], ["inferred"], 0, 0), chains
+        washes = wash_cet_reports(units, per_day, True)[0]
+        assert [r[3] for r in washes.rows] == [1, 0]                       # washes per unit
+        moves = {(r[0], r[1]): r[3] for r in depot_reports(per_day, depots, plan.attune.locations)[0].rows}
+        assert moves[("MO", "BI1")] == "Leaves depot" and moves[("TO", "BI2")] == "Back to depot"
+        assert moves[("MO", "SX7")] == "Away from depot"
+        captive = captive_reports(units, per_day, depots, plan.attune.locations, True, [0, 1])[0]
+        assert [(r[0], r[3]) for r in captive.rows] == [("MO SX7", "Yes")], captive.rows
+        assert depots.depot_of("LOVRSWS") == "Lovers Walk" and depots.depot_of("EBOUSID") == ""
+        # every format writes
+        from rstools.statspack.engine import unit_reports
+        for fmt in ("xlsx", "pdf", "docx"):
+            path = unit_reports(plan, opts(d, [0, 1], fmt=fmt), ["washes", "depots", "captive"], True)[0][0]
+            assert path.endswith("." + fmt) and os.path.getsize(path) > 1000
+
+
+def test_operators():
+    from rstools.statspack.model import operator_of
+    assert [operator_of(d) for d in ("BI", "SU", "SL", "HE", "TB")] == ["SNGX"] * 3 + ["TLGN"] * 2
+    assert operator_of("XX", "TLGN") == "TLGN"       # unknown depot: by the stock's operator
+    assert operator_of("XX") == "Other"
+
+
+def test_fleet_table_upgrade():
+    import csv
+    from rstools.statspack import fleet
+    with tempfile.TemporaryDirectory() as d:
+        old = os.path.join(d, "RollingStockTools", "fleet.csv")
+        os.makedirs(os.path.dirname(old))
+        with open(old, "w", newline="", encoding="cp1252") as fh:     # a 2.x copy, re-saved by Excel
+            fh.write("Class Name,Power Type,Vehicles per Unit,Units Available,Unit Length (metres)\n"
+                     "377/4,EMU,4,130,80.77\n717/0,Unknown,6,21,\nMy class \xa3,EMU,4,1,\n")
+        env = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = d
+        try:
+            table = fleet.FleetTable.load()
+        finally:
+            if env is None:
+                del os.environ["LOCALAPPDATA"]
+            else:
+                os.environ["LOCALAPPDATA"] = env
+        assert table.get("377/4").available == 130              # the user's value is kept
+        assert table.get("717/0").power == "EMU" and table.get("717/0").operator == "TLGN"
+        assert table.get("700/1").length == 242.6                # new classes added
+        assert table.get("My class \xa3") is not None
+        new = os.path.join(d, "TrainPlanningTools", "fleet.csv")     # copied across from the 2.x folder
+        with open(new, encoding="utf-8-sig") as fh:
+            assert next(csv.reader(fh)) == fleet.COLUMNS
+        with open(old, encoding="cp1252") as fh:                     # the old copy is left as it was
+            assert fh.readline().startswith("Class Name,Power Type")
+
+
+def tab_rows(path, sheet):
+    """Plain cell values of a sheet by name (rows below the title)."""
+    import re
+    from rstools.statspack.compare import _sheet_cells
+    z = zipfile.ZipFile(path)
+    wb = z.read("xl/workbook.xml").decode()
+    names = re.findall(r'<sheet [^>]*name="([^"]+)"', wb)
+    idx = names.index(sheet) + 1
+    sst = []
+    if "xl/sharedStrings.xml" in z.namelist():
+        sst = [re.sub(r"<[^>]+>", "", s) for s in
+               re.findall(r"<si>(.*?)</si>", z.read("xl/sharedStrings.xml").decode(), re.S)]
+    rows = _sheet_cells(z.read(f"xl/worksheets/sheet{idx}.xml"), sst)
+    return [[rows[r].get(c) for c in range(1, 7)] for r in sorted(rows) if r > 2]
+
+
+
+def test_seats_report(monkeypatch):
+    """Seats per train from the fleet data, by corridor or service group, with a time window at a station
+    (arriving / departing), passes shown as passes, and the engine writing the report."""
+    from rstools.statspack.fleet import FleetTable
+    from rstools.statspack.model import build_day
+    from rstools.statspack.seats import Group, Window, load_groups, run_seats, DEFAULT_GROUPS
+    with tempfile.TemporaryDirectory() as d:
+        plan = setup_plan(d)
+        fleet = FleetTable.load()
+        model = build_day(plan.trent, plan.attune, fleet, 0, {"SNGX", "TLGN"})
+        names = plan.attune.locations
+        bml = Group("Corridor", "Main line", ["Haywards Heath", "Gatwick Airport", "East Croydon"])
+        reports, found, _w = run_seats([model], fleet, bml, None, False, names, [])
+        assert [s.train.headcode for s in found] == ["1A02BI"]
+        assert found[0].cap.seats == 20 + 223 and found[0].cap.standing == 145
+        summary = reports[0].rows[0]
+        assert summary[:2] == ["Monday", 1] and summary[6] == 243
+        # arriving at London Victoria 06:00-07:00 (1A02 arrives 06:40); 1B03 departs at 07:00
+        win = Window("London Victoria", 6 * 3600, 7 * 3600, "arriving")
+        _r, found, _w = run_seats([model], fleet, bml, win, False, names, [])
+        assert [(s.train.headcode, s.at_time) for s in found] == [("1A02BI", 6 * 3600 + 40 * 60)]
+        both = Group("Service group", "Victoria - Brighton", ["London Victoria", "Brighton"])
+        dep = Window("London Victoria", 6 * 3600, 7 * 3600 + 1800, "departing")
+        _r, found, _w = run_seats([model], fleet, both, dep, False, names, [])
+        assert [s.train.headcode for s in found] == ["1B03SX"] and found[0].cap.seats == 52 + 427
+        # East Croydon is passed by 1A02
+        pas = Window("East Croydon", 6 * 3600, 7 * 3600, "both")
+        reports, found, _w = run_seats([model], fleet, bml, pas, False, names, [])
+        assert found[0].stops is False and reports[2].rows[0][7] == "Passes"
+        # fleet and headcode rules
+        assert not run_seats([model], fleet, Group("Service group", "x", bml.route, fleets=["-377/4"]), None,
+                             False, names, [])[1]
+        assert not run_seats([model], fleet, Group("Service group", "x", bml.route, headcodes=["2"]), None,
+                             False, names, [])[1]
+        # the built-in list loads, and the engine writes a report for a listed corridor
+        groups = load_groups(DEFAULT_GROUPS)
+        assert groups and all(g.kind == "Corridor" and len(g.route) >= 2 for g in groups)
+        monkeypatch.setenv("LOCALAPPDATA", d)                 # the editable list is created in a scratch folder
+        import openpyxl
+        from rstools.statspack.engine import seats_report
+        paths, _w, summary = seats_report(plan, opts(d, [0]), "Corridor", "Brighton Main Line (East Croydon - Brighton)",
+                                          True, ("East Croydon", "06:00", "07:00"), "both")
+        assert os.path.isfile(paths[0]) and summary.startswith("1 train(s), 388 total capacity")
+        assert openpyxl.load_workbook(paths[0]).sheetnames == ["Capacity Summary", "Capacity by Hour", "Capacity by Train", "Notes"]
+
+
+def test_unit_and_seats_reports_compare_two_timetables(monkeypatch):
+    """With a second (original) timetable, unit and seats reports show what changed: summaries side by side,
+    detail rows only where they differ, rows in one timetable only flagged."""
+    import copy
+    import openpyxl
+    from rstools.statspack.engine import seats_report, unit_reports
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        new = setup_plan(d)
+        old = copy.deepcopy(new)
+        old.trent.diagrams = [x for x in old.trent.diagrams if not (x.depot == "BI" and 0 in x.days)]  # no MO 377/4
+        paths, _w, summary = seats_report(new, opts(d, [0]), "Corridor",
+                                          "Brighton Main Line (East Croydon - Brighton)", True, old=old)
+        assert summary.endswith("0 -> 1 train(s), 0 -> 388 total capacity (+388).")
+        wb = openpyxl.load_workbook(paths[0])
+        assert wb.sheetnames == ["Comparison Summary", "Capacity Summary", "Capacity by Hour", "Capacity by Train", "Notes"]
+        rows = [r for r in wb["Capacity by Train"].iter_rows(values_only=True) if r[0] == "Monday"]
+        assert rows == [("Monday", "1A02BI", "(whole row)", "-", "Present", "Only in the updated", None)]
+        seats = {r[1]: r[2:5] for r in wb["Capacity Summary"].iter_rows(values_only=True) if r[0] == "Monday"}
+        assert seats["Total seats"] == (0, 243, 243)
+        paths, _w = unit_reports(new, opts(d, [0, 1]), ["washes", "depots"], False, old=old)
+        wb = openpyxl.load_workbook(paths[0])
+        assert wb.sheetnames[0] == "Comparison Summary" and "Depot Moves by Day" in wb.sheetnames
+        same, _w = unit_reports(new, opts(d, [0, 1]), ["washes"], False, old=new)
+        summary_rows = list(openpyxl.load_workbook(same[0])["Comparison Summary"].iter_rows(min_row=4, values_only=True))
+        assert summary_rows and all(r[2] == 0 and r[3] == 0 and r[4] == 0 for r in summary_rows)
+
+
+def test_seats_headcode_groups_directions_and_station_to_station(monkeypatch):
+    from rstools.statspack.fleet import FleetTable
+    from rstools.statspack.model import build_day
+    from rstools.statspack.seats import (Group, Window, headcode_group, headcode_groups, journey_group,
+                                         network_stations, run_seats)
+    from rstools.statspack.engine import seats_report
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        plan = setup_plan(d)
+        fleet = FleetTable.load()
+        model = build_day(plan.trent, plan.attune, fleet, 0, {"SNGX", "TLGN"})
+        names = plan.attune.locations
+        # headcode groups from the XML (empty stock 5A01 left out)
+        assert [c for c, _d in headcode_groups(plan.attune)] == ["1A", "1B"]
+        assert "London Victoria" in network_stations(plan.attune)
+        found = run_seats([model], fleet, headcode_group("1A"), None, True, names, [])[1]
+        assert [s.train.headcode for s in found] == ["1A02BI"]
+        # corridor directions: 1A02 runs Haywards Heath -> Victoria, 1B03 Victoria -> Brighton
+        line = Group("Corridor", "Main line", ["London Victoria", "East Croydon", "Gatwick Airport", "Haywards Heath",
+                                               "Brighton"])
+        heads = {k: [s.train.headcode for s in run_seats([model], fleet, line.with_direction(k), None, True, names,
+                                                         [])[1]] for k in ("forward", "reverse", "both")}
+        assert heads == {"forward": ["1B03SX"], "reverse": ["1A02BI"], "both": ["1A02BI", "1B03SX"]}
+        assert line.with_direction("reverse").direction_text == "Brighton to London Victoria"
+        # station to station: stops at both, in that order (East Croydon is only passed by 1A02)
+        trips = lambda a, b, w=None: [s.train.headcode for s in run_seats([model], fleet, journey_group(a, b), w,
+                                                                          True, names, [])[1]]
+        assert trips("Haywards Heath", "London Victoria") == ["1A02BI"]
+        assert trips("London Victoria", "Haywards Heath") == []
+        assert trips("East Croydon", "London Victoria") == []
+        assert trips("Haywards Heath", "London Victoria", Window("", 6 * 3600, 6 * 3600 + 600)) == []
+        paths, _w, summary = seats_report(plan, opts(d, [0]), "Station to station", "", True,
+                                          ("", "05:00", "06:00"), journey=("Haywards Heath", "London Victoria"))
+        assert summary.startswith("1 train(s), 388 total capacity - Haywards Heath to London Victoria, 05:00-06:00 "
+                                  "departing")
+        paths, _w, summary = seats_report(plan, opts(d, [0]), "Service group", "1B   anything", True)
+        assert summary.startswith("1 train(s), 1,202 total capacity - Service group: 1B")
+
+
+def test_fuel_check_48_hours():
+    """Diesel units must be fuelled at least every 48 hours; a whole-week unit wraps to the next week."""
+    from rstools.statspack.units import DayDiagram, UnitWeek, fuel_reports
+
+    def unit(n, fuel_days, days=range(7), fleet="171/7"):
+        return UnitWeek([DayDiagram(d, f"SU{n}", fleet, "SLHRSTD", 300, "SLHRSTD", 1400, 0, 0,
+                                    int(d in fuel_days), [1380] if d in fuel_days else []) for d in days])
+    rep = fuel_reports([unit(801, (0, 2, 4, 6)), unit(802, (0, 4)), unit(803, (), range(3)),
+                        unit(804, (), fleet="377/4")], {"171/7"}, list(range(7)))[0]
+    res = {r[0]: (r[4], r[5], r[8]) for r in rep.rows}
+    assert set(res) == {"MO SU801", "MO SU802", "MO SU803"}                # the 377/4 is not checked
+    assert res["MO SU801"] == (4, "48:00", "OK")                           # Su 23:00 -> TO 23:00 is exactly 48 h
+    assert res["MO SU802"] == (2, "96:00", "Over 48 hours (2 gap(s))")      # MO -> FO and FO -> next MO
+    assert res["MO SU803"][2] == "No fuel"
+    assert rep.rows[-1][8] == "OK"                                         # problems listed first
+
+
+def test_capacity_report_seating_and_standing_toggles(monkeypatch):
+    """Seating capacity and standing room can each be shown on their own, or both with the total."""
+    import openpyxl
+    from rstools.statspack.engine import StatsPackError, seats_report
+    import pytest
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        plan = setup_plan(d)
+        heads = lambda p: [c.value for c in openpyxl.load_workbook(p)["Capacity Summary"][3]]
+        both, _w, s_both = seats_report(plan, opts(d, [0]), "Service group", "1A", True)
+        seats, _w, s_seat = seats_report(plan, opts(d, [0]), "Service group", "1A", True, standing=False)
+        stand, _w, s_stand = seats_report(plan, opts(d, [0]), "Service group", "1A", True, seating=False)
+        assert heads(both[0])[-1] == "Total capacity (seats + standing)" and "Standing" in heads(both[0])
+        assert "Standing" not in heads(seats[0]) and "Total seats" in heads(seats[0])
+        assert "Total seats" not in heads(stand[0]) and "Standing" in heads(stand[0])
+        assert s_seat.startswith("1 train(s), 243 seats") and s_stand.startswith("1 train(s), 145 standing room")
+        assert s_both.startswith("1 train(s), 388 total capacity")
+        assert os.path.basename(both[0]).startswith("Capacity 1A")
+        with pytest.raises(StatsPackError):
+            seats_report(plan, opts(d, [0]), "Service group", "1A", True, seating=False, standing=False)
+
+
+# --------------------------------------------------------------------------- #
+# TLGN unit diagram print (tab separated, station names, 4-character headcodes, next-day links)
+# --------------------------------------------------------------------------- #
+def tlgn_lines(num, days, rows, forms=""):
+    t = "\t" * 8
+    out = ["", f"\t\t\t\t\t\tHE {num}\t{days}\tFROM - 19/12/2026\tUNTIL - 15/05/2027\tFLEET    :379/0", "\t\t4-car",
+           "\t\t\tOff (Previous Day)\t", "\t\t\t\t\t\t\tArrives Departs\tRoute\tMileage", ""]
+    out += [t + "\t".join(r) for r in rows]
+    out += ["", f"\t\t\tForms (Next Day)\t{forms}", "", t + "Mileage:\t(Loaded)\t20.00\t(Empty)\t2.00\t(Total)\t22.00"]
+    return out
+
+
+def write_tlgn(folder):
+    so = tlgn_lines("303", "SO", [
+        ("Hornsey E.M.U.D.", "", "05+00\xa0", "5T01", "", "303(1)", "  2.00"),
+        ("London Kings Cross", "05+29\xa0", "05.54\xa0", "1T02", "", "303(1)", " 12.00"),
+        ("Cambridge", "07.00\xa0", "07.10\xa0", "1T17", "", "303(1)", " 22.00"),
+        ("Hornsey E.M.U.D.", "08.00\xa0", "", "WASH", "", "", ""),
+        ("HRNSYMD", "", "", "STABLD", "", "", "")], forms="316")
+    su = tlgn_lines("316", "Su", [
+        ("Hornsey E.M.U.D.", "", "06+00\xa0", "5T05", "", "303(1)", "  2.00"),
+        ("London Kings Cross", "06+29\xa0", "06.54\xa0", "1T06", "", "303(1)", " 22.00"),
+        ("Hornsey E.M.U.D.", "08.00\xa0", "", "STABLD", "", "", "")])
+    a, b = os.path.join(folder, "SO.docx"), os.path.join(folder, "SU.docx")
+    write_docx(a, so)
+    write_docx(b, su)
+    return a, b
+
+
+def test_tlgn_print_and_unit_reports():
+    from rstools.statspack.engine import unit_reports
+    from rstools.statspack.trent import parse_vehicle_layout
+    from rstools.statspack.units import follow_units
+    with tempfile.TemporaryDirectory() as d:
+        a, b = write_tlgn(d)
+        t = parse_vehicle_layout(a)
+        (dg,) = t.diagrams
+        assert dg.key == "HE303" and dg.next_num == "316" and dg.fleet == "379/0"
+        assert [r.headcode for r in dg.rows if r.headcode] == ["5T01", "1T02", "1T17"]
+        assert [r.miles for r in dg.rows if r.headcode] == [2.0, 10.0, 10.0]     # running miles -> per move
+        assert dg.rows[-1].loc == "Hornsey E.M.U.D."                              # the STABLD TIPLOC named
+        try:
+            load_plan(PlanInputs("", f"{a} ; {b}"))                              # stats pack: XML needed
+            raise AssertionError("the XML is needed unless it is optional")
+        except StatsPackError:
+            pass
+        plan = load_plan(PlanInputs("", f"{a} ; {b}"), xml_optional=True)
+        assert plan.trent.days() == {5, 6}
+        units, _per_day, _w = follow_units(plan.trent, None, [5, 6])
+        (u,) = units
+        assert [x.key for x in u.diagrams] == ["HE303", "HE316"] and u.links == ["TRENT"]
+        o = opts(d, [5, 6])
+        (out,), _warn = unit_reports(plan, o, ["washes", "depots", "captive"], week=True)
+        rows = tab_rows(out, "Washes and CETs by Unit")
+        assert any(r[0] == "SO HE303" and r[2] == 2 for r in rows)          # one unit over both days
+        dep = tab_rows(out, "Depot Moves by Depot")
+        assert any(r[:3] == ["Hornsey", "Hornsey", "Return"] for r in dep)
+
+
+def test_tlgn_headcodes_and_names_match_the_xml():
+    from rstools.statspack.model import _short_index, _tiplocs
+    from rstools.statspack.attune import AttuneData
+    x = AttuneData(path="x", plan="", start="", end="", locations={"KNGX": "London Kings Cross",
+                   "HRNSYMD": "Hornsey E.M.U.D."}, trains={"1T02GR": [], "1T17GR": []}, diagram_days=set(),
+                   warnings=[])
+    assert _short_index(x)["1T02"] == ["1T02GR"]
+    assert _tiplocs(x, "London Kings Cross") == {"KNGX"} and _tiplocs(x, "Hornsey EMUD") == "Hornsey EMUD"
+    assert _tiplocs(x, "hornsey e.m.u.d.") == {"HRNSYMD"} and _tiplocs(x, "KNGX") == "KNGX"
+
+
+def test_corridor_station_spellings():
+    from rstools.statspack.seats import Stations, load_groups, shown
+    st = Stations({"STPXBOX": "St Pancras Low Level", "FRNDNLT": "Farringdon"})
+    assert st.find("London St Pancras|St Pancras Low Level") == {"STPXBOX"} and not st.missing
+    assert st.find("Nowhere|Elsewhere") == set() and st.missing == {"Nowhere|Elsewhere"}
+    names = [g.name for g in load_groups(os.path.join(os.path.dirname(__import__("rstools.statspack.seats",
+                                         fromlist=["x"]).__file__), "groups_default.csv"))]
+    assert "Thameslink Core (St Pancras - Blackfriars)" in names and "Fen Line (Cambridge - Kings Lynn)" in names
+    assert shown("London Blackfriars|Blackfriars") == "London Blackfriars"
+
+
+def test_attune_day_masks():
+    from rstools.statspack.days import days_of_mask
+    assert days_of_mask("NNYYYYYNN") == {0, 1, 2, 3, 4}
+    assert days_of_mask("NNNNNNNYN") == {5}
+    assert days_of_mask("NYNNNNNNN") == {6}                  # Sunday is the 2nd character
+    assert days_of_mask("NNNYYYYYN") == {1, 2, 3, 4, 5}      # Tue-Sat (after-midnight trains of Mon-Fri)
+
+
+def test_tlgn_print_with_xml_uses_tiplocs():
+    """A TLGN print names places; with the XML each move gets the XML's TIPLOCs - by name, or where TRENT
+    and Attune name a place differently, by the matching time (Sunday XML mask, 4-character headcodes)."""
+    from rstools.statspack.fleet import FleetTable
+    from rstools.statspack.model import build_day
+    with tempfile.TemporaryDirectory() as d:
+        _so, su = write_tlgn(d)
+        xml = os.path.join(d, "tl.xml")
+        legs = {"5T05GR": '<leg origin="HRNSYMD" dep="06:00:00" dest="KNGX" arr="06:29:00"/>',
+                "1T06GR": '<leg origin="KNGX" dep="06:54:00" dest="HRNSDRS" arr="08:00:00"/>'}
+        with open(xml, "w", encoding="utf-8") as fh:
+            fh.write('<diagramExchange version="1.0" plantype="L" xmlns="http://www.tracsis.com/TTVP_Interface">'
+                     '<trainList>' + "".join(f'<train id="{t}" trainKey="1" daysRun="NYNNNNNNN" planType="L">{l}'
+                                             '</train>' for t, l in legs.items())
+                     + '</trainList><locationList><location tiploc="HRNSYMD" longDesc="Hornsey E.M.U.D."/>'
+                     '<location tiploc="KNGX" longDesc="London Kings Cross"/>'
+                     '<location tiploc="HRNSDRS" longDesc="Hornsey Down Reversing Sidings"/></locationList>'
+                     '</diagramExchange>')
+        plan = load_plan(PlanInputs(xml, su))
+        m = build_day(plan.trent, plan.attune, FleetTable.load(), 6, {"TLGN"}, None)
+        moves = [(mv.headcode, mv.origin, mv.dest) for dg in m.diagrams for mv in dg.moves]
+        assert ("5T05", "HRNSYMD", "KNGX") in moves
+        assert ("1T06", "KNGX", "HRNSDRS") in moves         # 'Hornsey E.M.U.D.' in TRENT, another name in Attune
+
+
+def test_379_seats_replace_old_placeholders_only(monkeypatch):
+    """The 379/0's figures replace the zeros earlier versions shipped, never figures the user entered."""
+    import csv
+    from rstools.statspack import fleet as F
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "fleet.csv")
+        _h, rows = F._read_csv(F.DEFAULT_CSV)
+        for r in rows:
+            if r["Class Name"] == "379/0":
+                for c in F._SEAT_COLS:
+                    r[c] = "0"                                  # as shipped before 3.11.1
+            if r["Class Name"] == "717/0":
+                r["Standing Capacity"] = "500"                  # the user's own figure
+        F._write(path, rows)
+        F._upgrade(path)
+        got = {r["Class Name"]: r for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
+        assert [got["379/0"][c] for c in F._SEAT_COLS] == ["20", "189", "136", "325"]
+        assert got["717/0"]["Standing Capacity"] == "500"
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print("ok", name)

@@ -1,0 +1,46 @@
+Train Planning Tools - third-party software
+===========================================
+
+Train Planning Tools is built with the open-source software below, included in TrainPlanningTools.exe.
+Each is the copyright of its authors and used under its own licence, summarised here. The full licence
+texts are at the project pages listed.
+
+Python - Python Software Foundation License
+  https://www.python.org/  (licence: https://docs.python.org/3/license.html)
+
+Tcl/Tk and tkinter - BSD-style Tcl/Tk licence
+  https://www.tcl.tk/  (licence: https://www.tcl.tk/software/tcltk/license.html)
+
+openpyxl - MIT License
+  https://foss.heptapod.net/openpyxl/openpyxl
+
+et_xmlfile - MIT License
+  https://foss.heptapod.net/openpyxl/et_xmlfile
+
+xlrd - BSD License
+  https://github.com/python-excel/xlrd
+
+pyxlsb - GNU Lesser General Public License v3 or later (LGPL-3.0-or-later)
+  https://github.com/willtrnr/pyxlsb
+  pyxlsb is used unmodified to read Excel binary (.xlsb) workbooks. Its source code is available at the
+  address above; the source code of Train Planning Tools, including how pyxlsb is used, is on GitHub, so
+  the program can be rebuilt with a different or modified version of pyxlsb.
+
+tkinterdnd2 - MIT License, with the tkdnd library - BSD-style licence
+  https://github.com/Eliav2/tkinterdnd2   https://github.com/petasis/tkdnd
+
+ReportLab - BSD License
+  https://www.reportlab.com/
+
+pypdf - BSD 3-Clause License
+  https://github.com/py-pdf/pypdf
+
+pypdfium2 - BSD 3-Clause / Apache 2.0, with PDFium - BSD 3-Clause / Apache 2.0
+  https://github.com/pypdfium2-team/pypdfium2   https://pdfium.googlesource.com/pdfium/
+
+Pillow - MIT-CMU License (HPND)
+  https://python-pillow.org/
+
+PyInstaller bootloader - GPL 2.0 with the PyInstaller exception (programs made with it may be distributed
+under any licence)
+  https://pyinstaller.org/

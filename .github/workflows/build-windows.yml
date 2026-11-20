@@ -1,0 +1,160 @@
+name: Build portable Windows app
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a release with this tag (e.g. v1.01). Leave blank to just build."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      # Code signing (optional). Add these repository secrets to sign the exe automatically:
+      #   SIGNING_CERT_PFX_BASE64  - the code-signing certificate (.pfx) encoded as base64
+      #   SIGNING_CERT_PASSWORD    - the .pfx password
+      HAS_SIGNING_CERT: ${{ secrets.SIGNING_CERT_PFX_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pillow
+
+      - name: Install PyInstaller with a freshly compiled bootloader
+        # A bootloader built from source is not shared with other PyInstaller apps,
+        # which greatly reduces false antivirus / Defender warnings.
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: "1"
+        run: pip install --no-binary pyinstaller pyinstaller
+
+      - name: Run tests
+        run: python -m pytest -q tests
+
+      - name: Build TrainPlanningTools.exe (single portable file)
+        run: |
+          python packaging/make_version_file.py version_info.txt
+          pyinstaller --noconfirm packaging/TrainPlanningTools.spec
+          "TrainPlanningTools.exe size: {0:N1} MB" -f ((Get-Item dist\TrainPlanningTools.exe).Length / 1MB)
+
+      - name: Sign TrainPlanningTools.exe (only if a signing certificate secret is set)
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_B64))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /fd SHA256 /f $pfx /p $env:PFX_PASSWORD `
+            /tr http://timestamp.digicert.com /td SHA256 /d "Train Planning Tools" dist\TrainPlanningTools.exe
+          if ($LASTEXITCODE -ne 0) { throw "signing failed" }
+          & $signtool.FullName verify /pa dist\TrainPlanningTools.exe
+          Remove-Item $pfx
+
+      - name: Smoke test the exe (command-line mode)
+        shell: pwsh
+        run: |
+          python -c "import sys; sys.path.insert(0,'tests'); import test_compare as t, os; d=os.path.abspath('smoke'); os.makedirs(d, exist_ok=True); t.make(os.path.join(d,'a.xlsx'), t.BTN_ORIG, t.VIC_ORIG); b,v=t._upd_rows(); t.make(os.path.join(d,'b.xlsx'), b, v)"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--out','smoke','--name','smoke' -Wait -PassThru
+          if (!(Test-Path smoke\smoke.xlsx)) { throw "exe did not produce output" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_statspack as t; t.write_xml('smoke/sp.xml'); t.write_docx('smoke/sp.docx', t.plan_lines())"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp' -Wait -PassThru
+          if (!(Test-Path smoke\sp.xlsx)) { throw "exe did not produce a stats pack" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp','--format','pdf' -Wait -PassThru
+          if (!(Test-Path smoke\sp.pdf)) { throw "exe did not produce a PDF stats pack" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units','--unit-reports','washes,depots,captive,fuel','--format','docx' -Wait -PassThru
+          if (!(Test-Path smoke\units.docx)) { throw "exe did not produce a Word unit report" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','seats','--capacity-corridor','"Brighton Main Line (East Croydon - Brighton)"','--corridor-direction','reverse','--between','06:00-09:00','--at','"East Croydon"','--direction','both' -Wait -PassThru
+          if (!(Test-Path smoke\seats.xlsx)) { throw "exe did not produce a capacity report" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--old-xml','smoke\sp.xml','--old-trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_cmp','--unit-reports','washes,depots' -Wait -PassThru
+          if (!(Test-Path smoke\units_cmp.xlsx)) { throw "exe did not produce a unit report comparison" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_xml('smoke/swb.xml')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\swb.xml','--station','Alpha','--out','smoke','--name','swb' -Wait -PassThru
+          if (!(Test-Path smoke\swb.xlsx)) { throw "exe did not produce a station working book" }
+          python -c "import sys, os; sys.path.insert(0,'tests'); import test_timetable as t; t._books(os.path.abspath('smoke'))"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--gtr','smoke\gtr.xlsx','--nr','smoke\nr.xlsx','--out','smoke' -Wait -PassThru
+          if (!(Test-Path "smoke\K_D26 Consolidated TT Comparison.xlsx")) { throw "exe did not produce a timetable comparison" }
+          python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=['Location','Arr','Dep']; write_pdf('smoke/p1.pdf', 'P', [S('Train 1A00  UID C12340  SX', h, [['Brighton','','0500'],['London Bridge','0553','']])]); write_docx('smoke/p2.docx', 'P', [S('Train 1A00  UID C12340  SX', h, [['Brighton','','0502'],['London Bridge','0555','']])])"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--out','smoke','--name','prints' -Wait -PassThru
+          if (!(Test-Path smoke\prints.xlsx)) { throw "exe did not produce a train print comparison" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--base-prints','smoke\attune.pdf','--check','smoke\tt_check.xlsx','--out','smoke','--name','print_tt' -Wait -PassThru
+          if (!(Test-Path smoke\print_tt.xlsx)) { throw "exe did not produce a print-against-timetable comparison" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'selftest','smoke\attune.pdf' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "the exe could not read an Attune print with PDFium" }
+          python -c "import sys, os; sys.path.insert(0,'tests'); import test_compare as t; [os.makedirs(f'smoke/{d}', exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make(f'smoke/bo/{n} Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make(f'smoke/bu/{n} Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original-folder','smoke\bo','--updated','smoke\bu','--out','smoke\bout' -Wait -PassThru
+          if ((Get-ChildItem smoke\bout -Filter *Proof*.xlsx | Where-Object { $_.Name -notlike '*Change Report*' }).Count -ne 2) { throw "exe batch comparison did not produce two CWNs" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'reorder','smoke\multi.xlsx','--out','smoke','--name','reordered' -Wait -PassThru
+          if (!(Test-Path smoke\reordered.xlsx)) { throw "exe did not put day variants in order" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item dist\TrainPlanningTools.exe package\
+          Copy-Item README.md package\README.md
+          Compress-Archive -Path package\* -DestinationPath TrainPlanningTools-portable.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrainPlanningTools-portable
+          path: |
+            dist/TrainPlanningTools.exe
+            TrainPlanningTools-portable.zip
+
+      - name: Release notes (this version's entry in the README version history)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        shell: python
+        env:
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          import os, re
+          text = open("README.md", encoding="utf-8").read()
+          version = os.environ["TAG"].lstrip("vV")
+          m = re.search(r"^\*\*" + re.escape(version) + r"\*\*\n(.*?)(?=^\*\*\d|^## )", text, re.S | re.M)
+          changes = m.group(1).strip() if m else "See the README for the version history."
+          intro = ("Portable Windows app for GTR train planning: CWN Tools (compare Carriage Working Notices, put "
+                   "day variants in order and make TRACS-RS style station working books), Stats Pack (rolling "
+                   "stock stats packs, unit and capacity reports from an Attune XML and the TRENT unit diagram "
+                   "prints), Timetable Comparison (GTR against Network Rail timetables, train prints and Attune "
+                   "train lists) and a Live View to browse any comparison train by train. No installation or "
+                   "admin rights needed.\n\nDownload **TrainPlanningTools.exe** (or the zip, which also "
+                   "contains the README) and double-click it. Already have 3.11.1 or later? Use Options > Check "
+                   "for updates. Copies of 3.11.0 or earlier cannot update themselves to this repository: "
+                   "download the exe once by hand and replace the old one (settings are kept).")
+          import hashlib
+          digest = hashlib.sha256(open("dist/TrainPlanningTools.exe", "rb").read()).hexdigest().upper()
+          ident = (f"\n\n**For IT allow-listing:** TrainPlanningTools.exe SHA-256 `{digest}` (publisher "
+                   "'GTR Train Planning' in Properties > Details).")
+          open("release_notes.md", "w", encoding="utf-8").write(
+              f"{intro}{ident}\n\n## What's new in {version}\n\n{changes}\n")
+
+      - name: Publish release (version tags, or manual run with a release tag)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: Train Planning Tools ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          body_path: release_notes.md
+          files: |
+            dist/TrainPlanningTools.exe
+            TrainPlanningTools-portable.zip

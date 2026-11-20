@@ -1,0 +1,592 @@
+TIPLOC,Name
+ALDTON,Aldrington
+ANGMRNG,Angmering
+ARUNDLJ,Arundel Jn
+BALCMTJ,Balcombe Tunnel Jn
+BALHAM,Balham
+BATRSPJ,Battersea Pier Jn.
+BDHMPTN,Bedhampton
+BOGNORR,Bognor Regis
+BOGNS14,Bognor Signal BR14
+BOGNSID,Bognor Sidings
+BOSHAM,Bosham
+BOTLEY,Botley
+BRCKLAJ,Bricklayers Arms Jn
+BRGHTN,Brighton
+BRHM,Barnham
+BURGESH,Burgess Hill
+CHCHSTR,Chichester
+CHCHSTY,Chichester Reception
+CLPHMJC,Clapham Junction (C)
+COSHAM,Cosham
+COSHAMJ,Cosham Jn
+CPYHLDJ,Copyhold Jn
+DRNGTOS,Durrington-on-Sea
+EARLSWD,Earlswood (Surrey)
+ECROYDN,East Croydon
+ELGH,Eastleigh
+ELGHSJN,Eastleigh South Jn
+EMSWTH,Emsworth
+EWRTHNG,East Worthing
+FAREHAM,Fareham
+FARENJN,Fareham North Jn
+FORD,Ford
+FRATTNE,Fratton East
+FRATTON,Fratton
+FRLNGTJ,Farlington Jn
+FSHBORN,Fishbourne(Sussex)
+FSHRSGT,Fishersgate
+GORNGBS,Goring-by-Sea
+GTWK,Gatwick Airport
+HASOCKS,Hassocks
+HAVANT,Havant
+HILSEA,Hilsea
+HMBLE,Hamble
+HORLEY,Horley
+HOVE,Hove
+HYWRDSH,Haywards Heath
+KEYMERJ,Keymer Jn
+LNCG,Lancing
+LNDNASJ,Abbey Street Junction
+LNDNBDC,London Bridge (C)
+LOVRSWS,Lovers Walk T&R.S.M.D
+LTLH11,Littlehampton Signal LH11
+LTLHMJN,Littlehampton Junction
+LTLHMPT,Littlehampton
+LTLHOSH,Littlehampton Outside
+LTLHSHD,Littlehampton Shed
+LTLHUPS,Littlehampton Up Sdgs 1&2
+LTLHWSR,Littlehampton Wash Road
+NETLEY,Netley
+NEWXGTE,New Cross Gate
+NORWDFJ,Norwood Fork Jn.
+NORWDJ,Norwood Junction
+NTHMJN,Northam Jn
+NUTBORN,Nutbourne
+PCHESTR,Portchester
+PCRKJN,Portcreek Jn
+PHBR,Portsmouth Harbour
+POUPRTJ,Pouparts Jn
+PRSP,Preston Park
+PSEA,Portsmouth & Southsea
+PSLDAWH,Portslade
+PURLEY,Purley
+SBOURNE,Southbourne
+SBRMNSJ,South Bermondsey Jn
+SELHRST,Selhurst
+SHOLING,Sholing
+SHRHMBS,Shoreham-by-Sea
+SNSTJN,Stoats Nest Jn.
+SOTON,Southampton Central
+SOTPKWY,Southampton Airport
+SPAROAD,Spa Road Jn
+STDENYS,St. Denys
+STHWICK,Southwick
+STRENJN,Streatham North Jn
+SWNWICK,Swanwick
+SYDENHM,Sydenham
+THBDGS,Three Bridges
+VICTRIC,London Victoria (C)
+WNDMLBJ,Windmill Bridge Jn
+WOLSTON,Woolston
+WORTHNG,Worthing
+WRBLNGT,Warblington
+WVLSFLD,Wivelsfield
+WWRTHNG,West Worthing
+ABWD,Abbey Wood
+ALEXNDP,Alexandra Palace
+AMLY,Amberley
+ANERLEY,Anerley
+APDR,Appledore (Kent)
+ARLSEY,Arlesey
+ARUNDEL,Arundel
+ASHD,Ashtead
+ASHFKY,Ashford International ASHF
+ASHUJN,Ashurst Jn
+ASHURST,Ashurst
+ASHWELC,Ashwell & Morden
+BALCOMB,Balcombe
+BALDOCK,Baldock
+BANSTED,Banstead
+BATABAL,Bat & Ball
+BATRPHS,Battersea Pier C.H.S.
+BATRSPK,Battersea Park
+BAYF891,Ponsbourne Tunnel Sig K891
+BAYF894,Ponsbourne Tunnel Sig K894
+BAYFORD,Bayford
+BCKNHMH,Beckenham Hill
+BCKNHMJ,Beckenham Junction
+BCKNMJC,Beckenham Junction (C)
+BEDF601,Bedford South Signal WH601
+BEDFCW2,Bedford Cauldwell Sig CW02
+BEDFDCD,Bedford Cauldwell Depot
+BEDFDCS,Bedford C S
+BEDFDJS,Bedford Jowett Sdgs
+BEDFDM,Bedford
+BEDFDNS,Bedford North Sidings
+BEDFDS,Bedford South Jn.
+BEDFDWR,Bedford Wash Road
+BEDFJRR,Bedford Jowett Run Round
+BELM,Belmont
+BELNGHM,Bellingham
+BELNGMS,Bellingham Siding
+BERWICK,Berwick
+BEXHILL,Bexhill
+BICKLEY,Bickley
+BICKLYJ,Bickley Jn
+BIGLSWD,Biggleswade
+BILSHST,Billingshurst
+BIRKBCK,Birkbeck
+BLCMJN,Blackham Jn.
+BLFR,London Blackfriars
+BLFRJN,Blackfriars Jn
+BLKHTH,Blackheath
+BLUANCR,Blue Anchor (X)
+BOGNMR,Bognor Middle Road
+BOGNS55,Bognor Regis Signal BR55
+BOPEEPJ,Bopeep Jn S.B.
+BOWERRL,Bowes Park R.R.L.
+BOWESPK,Bowes Park
+BOXHAWH,Box Hill & Westhumble
+BRAGJN,Bragbury Junction
+BRENTX,Brent Cross West
+BRGH280,Brighton Signal T1280
+BRGHLRD,London Road (Brighton)
+BRGHRC,Brighton Reception Road
+BRGHTTY,Brighton Down Siding
+BRGHWS,Brighton Wall Siding
+BRHM115,Barnham Signal BH115
+BRIXTON,Brixton
+BRKMNPK,Brookmans Park
+BRNHPSJ,Perry Street Fork Jn
+BRNHRST,Barnehurst
+BROCKLY,Brockley
+BROMLYS,Bromley South
+BSSN,Bishopstone
+BURSLDN,Bursledon
+BXTD,Buxted
+CAMB163,Cambridge CA163
+CAMB177,Cambridge Signal 177
+CAMB853,Cambridge Sig CA853
+CAMBCSN,Cambridge Carriage Sidings
+CAMBCSS,Cambridge Carriage Sidings
+CAMBDGE,Cambridge
+CAMBDNJ,Mill Road Jn
+CAMBNTH,Cambridge North
+CAMBSTH,Cambridge South
+CAMBTRS,Cambridge Reception Sdgs
+CANRDJ,Canterbury Road Jn
+CATE361,Caterham Signal T1361
+CATECHS,Caterham Sidings
+CATERHM,Caterham
+CATFORD,Catford
+CBGH,Crowborough
+CBRIJN,Cambria Jn
+CFPK,Crofton Park
+CFTNRJN,Crofton Road Jn
+CHATHAM,Chatham
+CHEAM,Cheam
+CHRSTSH,Christ's Hospital
+CHSD,Chipstead
+CLDHDGL,Coldham Lane Down Goods Lo
+CLDHMLJ,Coldham Lane Jn
+CNNGSJN,Conington South Jn.
+CODNBCH,Cooden Beach
+COKSBDG,Cooksbridge
+COLSDNS,Coulsdon South
+COLSTWN,COULSDON TOWN
+COWDEN,Cowden
+CRAWLEY,Crawley
+CRBTLNJ,Corbetts Lane Junction
+CRFDCKJ,Crayford Creek Jn
+CRFDSPA,Crayford Spur A
+CRHL,Crews Hill
+CRKLDAE,Cricklewood A to E Sidings
+CRKLDNJ,Cricklewood Dep North Con
+CRKLDPS,Cricklewood South Sidings
+CRKLREC,Cricklewood North Rec Line
+CRKLWD,Cricklewood
+CRKLWRL,Cricklewood Wash Line
+CRLN,Charlton
+CRSHLTB,Carshalton Beeches
+CRSHLTN,Carshalton
+CRYS167,Crystal Palace Vc167
+CRYSBRJ,Bromley Jn
+CRYSTLP,Crystal Palace
+CSEAH,Imperial Wharf
+CTMSLNK,City Thameslink
+CTNG,Collington
+CTRDJN,Carlton Road Jn
+CUFFLEY,Cuffley
+DARTFD,Dartford
+DARTFDJ,Dartford Jn
+DENMRKH,Denmark Hill
+DEPTFD,Deptford
+DIGSWEL,Digswell Jn.
+DOKJNSP,Dock Jn North
+DOKJSSP,Dock Jn South
+DOLEHAM,Doleham
+DORK35,DORKING SIGNAL CBK35
+DORKDSG,Dorking Down Siding
+DORKING,Dorking
+DORMANS,Dormans
+DOWNHAM,Downham Market
+DRYP,Drayton Park
+EBOU501,Eastbourne Signal EB501
+EBOUCS,Eastbourne C.S.
+EBOURNE,Eastbourne
+EBOUSID,Eastbourne Sidings
+EDNB,Edenbridge
+EDNT,Edenbridge Town
+EDULWCH,East Dulwich
+EGRNSID,East Grinstead Sidings
+EGRNSTD,East Grinstead
+ELPHNAC,Elephant & Castle
+ELTHAM,Eltham
+ELTR,Elstree
+ELYY,Ely
+ELYYDLN,Ely Dock Jn
+ELYYNJN,Ely North Jn
+ENFC,Enfield Chase
+EPSDNS,Epsom Downs
+EPSM,Epsom
+EPSMDS,Epsom - Down Sidings
+EPSMUS,Epsom - Up Sidings
+ERIDGE,Eridge
+ESSEXRD,Essex Road
+ESTFLDS,Mitcham Eastfields
+EWELLE,Ewell East
+EYNSFD,Eynsford
+FACTRYJ,Factory Jn
+FAMR,Falmer
+FAYGATE,Faygate
+FLETTON,Fletton Jn.
+FLITWCJ,Flitwick Jn
+FLITWCK,Flitwick
+FNPK,Finsbury Park
+FORESTH,Forest Hill
+FOXTON,Foxton
+FRNDNLT,Farringdon
+GIPSYH,Gipsy Hill
+GLNGDEP,Gillingham E.M.U.D.
+GLNGHMK,Gillingham (Kent)
+GLNGREC,Gillingham Reception Road
+GLYNDE,Glynde
+GNHT,Greenhithe
+GNWH,Greenwich
+GODSTON,Godstone
+GORDONH,Gordon Hill
+GRNHJN,Greenhurst Jn
+GRPK,Grange Park
+GRVRBGJ,Grosvenor Bridge Jn
+GRVSEND,Gravesend
+GTWKACS,Gatwick Airport C.H.S.
+HADLYWD,Hadley Wood
+HASTING,Hastings
+HASTPSD,Hastings Park Sidings
+HATFILD,Hatfield
+HDON,Hendon
+HERNEH,Herne Hill
+HERNHSD,Herne Hill Siding
+HEVER,Hever
+HFDN,Hertford North
+HFDNCHS,Hertford Nth C.H.S.
+HGHI,Highbury and Islington
+HGHIBVJ,Highbury Vale Jn
+HIGM,Higham
+HITCHIN,Hitchin
+HKBG,Hackbridge
+HLMW,Holmwood
+HLWY326,Holloway South Sig K326
+HLWYSJ,Holloway Sth. Jn.
+HMPDNPK,Hampden Park
+HMST,Ham Street
+HNTNGDN,Huntingdon
+HOLME,Holme Jn.
+HONROPK,Honor Oak Park
+HOOJ,Hoo Junction
+HORS401,Horsham T1401
+HORS410,Horsham Signal 1410
+HORS837,Horsham T837
+HORSBS,Horsham Down Sidings North
+HORSDS,Horsham Carriage Sidings
+HORSHAM,Horsham
+HORSMS,Horsham Down Sidings South
+HORSTLS,Horsham Thameslink Sidings
+HORSUS,Horsham Up Sidings South
+HOVEY36,Hove Yard Sidings 3-6
+HRGY,Harringay
+HRGYURV,Harringay Up Rev Sdgs
+HRLG,Harlington
+HRLGSSJ,Sundon South Jn
+HRNS176,Hornsey EMUD Signal HY176
+HRNS440,Hornsey Sig K440
+HRNS453,Wood Green Sig. K453
+HRNSDRS,Hornsey Dn Reversing Sdgs
+HRNSY,Hornsey
+HRNSYMD,Hornsey E.M.U.D.
+HROW,Harrow & Wealdstone
+HRPNDN,Harpenden
+HRPNDNJ,Harpenden Jn
+HRSTGRN,Hurst Green
+HYDNSRD,Haydons Road
+HYWRDSN,Haywards Heath Dn Sdg Nth
+IFIELD,Ifield
+KENOLYM,Kensington (Olympia)
+KENTHOS,Kent House
+KGWD,Kingswood
+KLYNN,Kings Lynn
+KLYNN36,Kings Lynn Signal KL36
+KLYNN43,Kings Lynn Signal 43
+KLYNN45,Kings Lynn Signal KL45
+KLYNNCS,Kings Lynn CS
+KLYNNJN,Kings Lynn Jn
+KLYNNSS,Kings Lynn Stabling Siding
+KNEBWTH,Knebworth
+KNGX,London Kings Cross
+KNGXBEL,Belle Isle
+KNLY,Kenley
+KNTSHTN,Kentish Town
+LBGHJN,Loughborough Jn
+LEAGRVE,Leagrave
+LEAGRVJ,Leagrave Jn
+LEIGHK,Leigh (Kent)
+LETHRHD,Leatherhead
+LEWES,Lewes
+LEWISHM,Lewisham
+LHVN,Littlehaven
+LINGFLD,Lingfield
+LNDNBDE,London Bridge (E)
+LNGHDGJ,Longhedge Jn
+LNGYJN,Langley Jn
+LNGYSJN,Langley Sth Jn
+LTCE,Letchworth Garden City
+LTCEADL,Letchworth A/D Line
+LTCEMUS,Letchworth C.S.D
+LTCEREC,Letchworth CS Reception
+LTCHMRJ,Latchmere Jn
+LTLPL22,Littleport L22 Signal
+LTLPORT,Littleport
+LUTOAPY,Luton Airport Parkway
+LUTON,Luton
+LUTONNJ,Luton North Jn
+MAZEH,Maze Hill
+MELDRTH,Meldreth
+MERSTHM,Merstham
+MITCHMJ,Mitcham Junction
+MLHB,Mill Hill Broadway
+MLSECMB,Moulsecoomb
+MOLEJN,Molewood Junction
+MORDENS,Morden South
+MRGT,Moorgate (GN)
+MTRBDGJ,Mitre Bridge Jn
+MTRPLTJ,Metropolitan Jn
+NBARNET,New Barnet
+NDULWCH,North Dulwich
+NEWHVNH,Newhaven Harbour
+NEWHVNM,Newhaven Marine (Old Stn)
+NEWHVNT,Newhaven Town
+NEWSGAT,New Southgate
+NKENTEJ,North Kent East Jn
+NORBURY,Norbury
+NPLE813,North Pole Signal VC813
+NPLE816,North Pole Sig VC816
+NPLE818,North Pole Signal VC818
+NRMNSBY,Normans Bay
+NRTHFLT,Northfleet
+NUNHEAD,Nunhead
+NUTFILD,Nutfield
+NWCROSS,New Cross
+OCKLYAC,Ockley
+OKLGHPK,Oakleigh Park
+OLDKRDJ,Old Kent Road Junction
+OLDST,Old Street
+OREE,Ore
+OREESDG,Ore Up Siding
+ORPNDSG,Orpington Down Sdgs
+ORPNGTN,Orpington
+OTFORD,Otford
+OTFORDJ,Otford Jn
+OXTE306,Oxted Signal 306
+OXTED,Oxted
+PALMRSG,Palmers Green
+PBRO,Peterborough
+PBRO458,Spital South Junction P458
+PBRO78,P'bro Sig P78
+PBRO84,Peterborough Eastfield Sig
+PBROE44,Peterborough Eastfield Sig
+PBROEFL,P'Boro Eastfield Jn
+PBRONCS,Peterboro Nene C.H.S
+PBROSTL,Peterborough Spital Sdgs
+PBROWSR,Peterborough Washer Road
+PCKHMQD,Queens Rd Peckham
+PCKHMRY,Peckham Rye (E)
+PENEW,Penge West
+PETSWD,Petts Wood
+PETSWDJ,Petts Wood Jn
+PKHMRYC,Peckham Rye (C)
+PLMPTON,Plumpton
+PLMS,Plumstead
+PNSHRST,Penshurst
+POLGATE,Polegate
+POTRSBR,Potters Bar
+PRSPSDG,Preston Park Sidings
+PULBRO,Pulborough
+PURLEYO,Purley Oaks
+PVNSYAW,Pevensey & Westham
+PVNSYBY,Pevensey Bay
+RADLETJ,Radlett Jn
+RADLETT,Radlett
+RAINHMK,Rainham (Kent)
+RBRN,Ravensbourne
+RCHT,Rochester
+RCHTBDJ,Rochester Bridge Jn
+RCHTDL,Rochester Down Loop
+RDLSDWN,Riddlesdown
+REDHILL,Redhill
+REDHUGL,Redhill Up Tonbridge Sidin
+REEDHMS,Reedham
+REIGATE,Reigate
+ROYSTON,Royston
+RYEE,Rye
+SALFDS,Salfords
+SBRMNDS,South Bermondsey
+SCROYDN,South Croydon
+SDSD,Sanderstead
+SEAFORD,Seaford
+SELHGRJ,Selhurst Gloucester Rd Jn
+SESA17,Southease Signal TLW17
+SESA20,Southease Signal TLW20
+SESARDM,Southease
+SHLIER,St Helier
+SHPDSB,Shepherd's Bush
+SHPRTBJ,Shepreth Branch Jn
+SHPRTH,Shepreth
+SHRMKT,Shoreham (Kent)
+SHRTLND,Shortlands
+SLADEGN,Slade Green
+SLHDGUL,Selhurst Depot Gullet Road
+SLHDSRX,Selhurst Depot Selhurst Ex
+SLHDTRB,Selhurst Depot Tennison Ro
+SLHDYRD,Selhurst Depot Yard Roads
+SLHRSTD,Selhurst T&R.S.M.D
+SLHRSTF,Selhurst Depot Field Sidin
+SLKSTRJ,Silkstream Junction
+SMERTON,South Merton
+SNDY,Sandy
+SOTODGL,Southampton Down Goods Lp
+SOTOUGL,Southampton Up Goods Loop
+SPHEADJ,Springhead Junction (CTRL)
+STALBCS,St. Albans Centre Sidings
+STALBCY,St. Albans
+STCR,Stone Crossing
+STEVNGE,Stevenage
+STHRHMJ,Southerham Jn
+STJOHNS,St. John's
+STLN42,St. Leonards Signal BJ42
+STLN64,St. Leonards Signal BJ64
+STLNDEM,St. Leonards Rly Eng Ltd
+STLNRWS,St. Leonards Warrior Sq
+STMRYC,St. Mary Cray
+STMRYCJ,St. Mary Cray Jn.
+STNEOTS,St. Neots
+STPX,London St. Pancras
+STPXBOX,St Pancras Low Level
+STRESJN,Streatham South Jn
+STRETHM,Streatham
+STRH658,Streatham Hill Signal 658
+STRHCOM,Streatham Common
+STRHDS,Streatham Hill Down Siding
+STRHILL,Streatham Hill
+STRHSH,Streatham Hill Shed
+STRHUSE,Streatham Hill Up Siding E
+STRHUSW,Streatham Hill Up Siding W
+STROOD,Strood
+STWTBS,Stewarts Lane Berthing Sid
+STWTJN,Stewarts Lane Jn
+STWTTMD,Stewarts Lane T&RSMD
+SURRCNJ,Surrey Canal Junction
+SUTT195,Sutton Signal TVC195
+SUTTON,Sutton (Surrey)
+SUTTONC,Sutton Common
+SVNOAKS,Sevenoaks
+SVNOCHS,Sevenoaks C.H.S
+SVNOGUS,Sevenoaks Gusset Siding
+SWKBDGJ,Southwark Bridge Junction
+SWLY,Swanley
+SWNSCMB,Swanscombe
+TADWTH,Tadworth
+TATNCHS,Tattenham Corner C.H.S.
+TATNHMC,Tattenham Corner
+THBD127,3 Bridges Dn Dep Sig TD127
+THBD165,3 Bridges Up Dep Sig TD165
+THBD200,Three Bridges Signal T1200
+THBD288,Three Bridges Signal T288
+THBDBRD,Three Bridges Back Road
+THBDDTE,3Bdgs Dn TL Sdg Entry/Exit
+THBDHSD,Three Bridges Horsham Sdg
+THBDNCS,3Bdgs Down Thameslink Sdgs
+THBDTGE,Tilgate Sidings Entry/Exit
+THBDTGS,Three BridgesTilgate Sdgs
+THBDUSN,Three Bridges Up Sdg North
+THBDUTD,THREE BRIDGES TL UP DEPOT
+THBDUTE,Three Bridges Up TLD NX
+THOK,Three Oaks
+THTH,Thornton Heath
+TNSLYGJ,Tinsley Green
+TONBDG,Tonbridge
+TONBPMY,Tonbridge Jubilee Sidings
+TOOTING,Tooting
+TULS165,Tulse Hill Sig VC165
+TULSEH,Tulse Hill
+TULSLJ,Leigham Junction
+UCKFILD,Uckfield
+UWRLNGH,Upper Warlingham
+VICTCS,Victoria C.H.S.
+VICTRIE,London Victoria
+VOLTRDJ,Voltaire Road Jn.
+WADDON,Waddon
+WALNGTN,Wallington
+WANDCMN,Wandsworth Common
+WARNHAM,Warnham
+WATBECH,Waterbeach
+WATFDJ,Watford Junction
+WATLGTN,Watlington
+WATLMR2,Watlington Signal MR2
+WATONAS,Watton-at-Stone
+WBRMPTN,West Brompton
+WCOMBEP,Westcombe Park
+WCROYDN,West Croydon
+WCROYTB,West Croydon Turnback
+WDMNSTR,Woodmansterne
+WDONWJ,Wimbledon West Jn
+WELHAMG,Welham Green
+WELHMXO,Marshmoor Crossover
+WHMPSJN,West Hampstead South Jn
+WHMPSTM,West Hampstead Thameslink
+WHYTELF,Whyteleafe
+WHYTLFS,Whyteleafe South
+WILDJN,Willingdon Jn
+WIMBLDN,Wimbledon (C)
+WIMLCHS,Wimbledon Chase
+WINCHLS,Winchelsea
+WIXAMS,Wixams
+WLDNGHM,Woldingham
+WLMRGRN,Woolmer Green Jn.
+WLSDBSJ,Wembley Yard South Jn
+WLSDNBJ,Willesden Sudbury Jn
+WLSDNN7,Willesden No7
+WLSDWLJ,Willesden West Londn Jn
+WLWY040,Welwyn Gdn City Sig YB2040
+WLWYCSD,Welwyn G.C.C.S.D.
+WLWYNGC,Welwyn Garden City
+WLWYNN,Welwyn North
+WLWYREV,Welwyn G.C. Rev. Sdgs.
+WMBY,Wembley Central
+WNMHILL,Winchmore Hill
+WNORWDJ,West Norwood Junction
+WNORWOD,West Norwood
+WOLS803,Woolston Signal E803
+WOLWCHA,Woolwich Arsenal
+WSUTTON,West Sutton
+WWRTMS,West Worthing Middle Sdg

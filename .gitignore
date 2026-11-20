@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+.venv/
+# never commit real CWN data
+*.xlsx
+*.xls
+*.xlsb
+*.xlsm
+# ...or real plan data (Attune XML, TRENT prints)
+/*.xml
+*.docx
+!packaging/TrainPlanningTools.spec
+!rstools/timetable/template.xlsx
