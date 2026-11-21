@@ -342,6 +342,12 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.22.0** - built with a newer Python: faster and supported for longer
+* **Python 3.14**: the app is now built with Python 3.14.6 instead of 3.12. Python 3.12 is past its bug-fix years and now only gets security fixes; 3.14 gets fixes until 2030.
+* **Faster**: in testing, a CWN comparison ran about 18% faster and a full week's stats pack about 28% faster. The outputs are exactly the same.
+* **Self-check**: the build's self-check of the exe now also opens a window and loads drag and drop, as well as reading an Attune print.
+* Nothing else changes: same look, same settings, still no installation or admin rights.
+
 **3.21.3** - no more resizing the window after moving between displays
 * **Nothing cut off**: after moving to a display with other scaling, the window grows if its content needs more room (never beyond the display), and is moved back fully onto the display if it now sticks out past an edge. It used to keep only its physical size and stay where it was, so a window near the edge could end up partly off the screen, or too small for the content.
 * **Smaller minimum size on small screens**: the window's minimum size never exceeds the display it is on (a large minimum on a small, high-scaling laptop screen could force part of the window off it).
