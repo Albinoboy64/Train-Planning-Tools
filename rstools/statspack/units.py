@@ -169,7 +169,9 @@ def xml_links(attune: Optional[AttuneData]) -> Tuple[Dict[Tuple[int, str], Tuple
     stabled, covered = set(), set()
     if attune is None:
         return links, stabled, covered
-    for ud in attune.unit_diagrams:
+    from .model import PLAN_PRIORITY
+    # where an LTP and an STP version of a diagram both run on a day, the STP one (read last) is used
+    for ud in sorted(attune.unit_diagrams, key=lambda u: PLAN_PRIORITY.get(u.plan.upper(), 0)):
         covered |= ud.days
         for day in ud.days:
             for note in ud.notes:

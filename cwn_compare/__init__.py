@@ -1,2 +1,2 @@
 """Train Planning Tools - CWN Tools, Stats Pack, Timetable Comparison and Live View."""
-__version__ = "3.14.0"
+__version__ = "3.15.0"

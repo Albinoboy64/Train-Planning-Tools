@@ -127,12 +127,13 @@ def headcode_group(code: str) -> Group:
 
 
 def default_headcode_groups() -> List[Tuple[str, str]]:
-    """[(code, main routes)] from the built-in list of GTR (SNGX and TLGN) headcode groups, shown until an
-    XML is chosen."""
+    """[(code, description)] from the built-in list of GTR (SNGX and TLGN) headcode groups, worded as in Network
+    Rail's Timetable Planning Rules (headcode tables of the Sussex, Kent, East Midlands and LNE rules); shown
+    until an XML is chosen, and used to describe the XML's own groups."""
     import csv
     try:
         with open(os.path.join(HERE, "service_groups_default.csv"), encoding="utf-8-sig") as fh:
-            return [(r["Headcode group"].strip(), r["Main routes"].strip()) for r in csv.DictReader(fh)
+            return [(r["Headcode group"].strip(), r["Description"].strip()) for r in csv.DictReader(fh)
                     if (r.get("Headcode group") or "").strip()]
     except (OSError, KeyError):
         return []
@@ -143,8 +144,9 @@ def journey_group(origin: str, dest: str) -> Group:
 
 
 def headcode_groups(attune) -> List[Tuple[str, str]]:
-    """[(code, description)] for each passenger headcode group in the XML, e.g. ('1F', 'London Victoria -
-    Eastbourne; London Victoria - Ore (43 trains)'). Empty stock (classes 0, 3, 5) is left out."""
+    """[(code, description)] for each passenger headcode group in the XML, e.g. ('1F', 'London Victoria / London
+    Bridge and Eastbourne / Hastings / Ore / Seaford (43 trains)'): the built-in description, else the group's
+    two commonest routes in the XML. Empty stock (classes 0, 3, 5) is left out."""
     from collections import Counter
     if attune is None:
         return []
@@ -161,10 +163,11 @@ def headcode_groups(attune) -> List[Tuple[str, str]]:
                 a, b = names.get(t.legs[0].origin, t.legs[0].origin), names.get(t.legs[-1].dest, t.legs[-1].dest)
                 a, b = (re.sub(r"\s*\(C\)$", "", x) for x in (a, b))
                 routes[code][" - ".join(sorted((a, b)))] += 1
+    official = dict(default_headcode_groups())       # Network Rail's description of the group, where known
     out = []
     for code in sorted(seen):
         top = [r for r, _n in routes[code].most_common(2)]
-        out.append((code, "; ".join(top) + f" ({len(seen[code])} trains)"))
+        out.append((code, (official.get(code) or "; ".join(top)) + f" ({len(seen[code])} trains)"))
     return out
 
 
@@ -228,9 +231,26 @@ def load_groups(path: Optional[str] = None) -> List[Group]:
 # --------------------------------------------------------------------------- #
 # stations
 # --------------------------------------------------------------------------- #
+_ABBREV = {"jn": "junction", "jct": "junction", "sq": "square", "rd": "road", "st": "st", "pk": "park",
+           "intl": "international"}
+
+
 def _norm(s: str) -> str:
-    s = s.casefold().replace("&", " and ").replace(".", " ").replace("'", "")
-    return " ".join(s.split())
+    s = s.casefold().replace("&", " and ").replace(".", " ").replace("'", "").replace("\u2019", "")
+    s = s.replace("(", " ").replace(")", " ")
+    return " ".join(_ABBREV.get(w, w) for w in s.split())
+
+
+def _loose_names(name: str):
+    """Looser forms of a station name, most specific first."""
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()
+    seen = {_norm(name)}
+    for cand in (base, re.sub(r"\s+(City|International|Town|Central)$", "", base, flags=re.I),
+                 re.split(r"\s+(?:&|and)\s+", base)[0]):
+        key = _norm(cand)
+        if key and key not in seen:
+            seen.add(key)
+            yield key
 
 
 class Stations:
@@ -244,6 +264,7 @@ class Stations:
             for key in self._keys(desc):
                 self.by_name[key].add(tip)
         self.tiplocs = {t.upper() for t in names}
+        self.desc = dict(names)
         self.missing: Set[str] = set()
 
     @staticmethod
@@ -253,6 +274,9 @@ class Stations:
         base = re.sub(r"\s*\([^)]*\)$", "", desc).strip()          # 'London Victoria (C)'
         if base != desc:
             yield _norm(base)
+            side = re.search(r"\((C|E)\)$", desc.strip())             # ...also 'London Victoria (Central)'
+            if side:
+                yield _norm(f"{base} {'Central' if side.group(1) == 'C' else 'Eastern'}")
         m = re.match(r"^(.*\S)\s+[A-Z]{3,5}$", desc.strip())        # 'Ashford International ASHF'
         if m:
             yield _norm(m.group(1))
@@ -265,6 +289,16 @@ class Stations:
             hit = self.by_name.get(_norm(alt), set())
             if hit:
                 return hit
+        # other spellings of the same station: 'London Victoria (Central)' for 'London Victoria (C)', 'St Albans
+        # City' for 'St. Albans', 'Elstree & Borehamwood' for 'Elstree' (Network Rail's names against Attune's)
+        for alt in (a.strip() for a in spec.split("|") if a.strip()):
+            side = re.search(r"\((Central|C|Eastern|E)\)\s*$", alt, re.I)
+            other = None if not side else ("(E)" if side.group(1)[0].upper() == "C" else "(C)")
+            for loose in _loose_names(alt):
+                hit = {t for t in self.by_name.get(loose, set())          # not the other side of the station
+                       if not (other and self.desc.get(t, "").strip().upper().endswith(other))}
+                if hit:
+                    return hit
         self.missing.add(spec)
         return set()
 
@@ -612,7 +646,9 @@ def seats_reports(found: List[TrainSeats], days: Sequence[int], group: Group, wi
                   "smallest formation between the two stations" + (f"; the time window is the departure from "
                   f"{g.journey[0]}." if window else ".")]]
     elif not g.route:
-        notes = [[f"Service group {g.name}: every passenger train whose headcode starts with {g.name}."]]
+        about = dict(default_headcode_groups()).get(g.name.upper())
+        notes = [[f"Service group {g.name}{f' ({about})' if about else ''}: every passenger train whose headcode "
+                  f"starts with {g.name}."]]
     else:
         notes = [[f"{g.kind} '{g.name}'{' (' + g.direction_text + ')' if g.direction_text else ''}: trains calling "
                   f"at or passing at least {min(g.minimum, len(g.route))} of: {'; '.join(map(shown, g.route))}."]]

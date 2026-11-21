@@ -62,6 +62,7 @@ class UnitDiagram:
     days: Set[int]
     notes: List[str] = field(default_factory=list)
     activities: Dict[str, int] = field(default_factory=dict)
+    plan: str = ""              # 'L' (LTP) / 'S' (STP): an XML can hold both versions of a diagram for a day
 
     @property
     def key(self) -> str:
@@ -121,7 +122,7 @@ def parse_attune_xml(path: str) -> AttuneData:
                 elif tag == "unitDiagram":
                     days = days_of_mask(el.get("daysrun", ""))
                     diagram_days |= days
-                    cur_unit = UnitDiagram("", el.get("id", "").strip(), days)
+                    cur_unit = UnitDiagram("", el.get("id", "").strip(), days, plan=el.get("type", ""))
                 elif tag == "coupled":
                     in_coupled += 1
                 continue
