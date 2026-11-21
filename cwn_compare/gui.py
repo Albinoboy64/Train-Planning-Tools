@@ -269,6 +269,24 @@ class App(tk.Tk):
                 x, y, w, h = theme.place_window(self.winfo_x(), self.winfo_y(), w, h, need_w, need_h, area, frame)
                 self.geometry(f"{w}x{h}+{x}+{y}")
                 self.update_idletasks()             # lay the window out at its new size while painting is held
+        if self.state() != "zoomed":
+            self.after_idle(self._keep_on_screen)   # check again once painting is back on (Windows can delay
+                                                    # or adjust a move made while it was held)
+
+    def _keep_on_screen(self):
+        """Move the window back fully onto its display if any part of it is off the edge."""
+        try:
+            area = theme.screen_area(self)
+            frame = (max(0, 2 * (self.winfo_rootx() - self.winfo_x())),
+                     max(0, self.winfo_rooty() - self.winfo_y() + (self.winfo_rootx() - self.winfo_x())))
+            w, h = self.winfo_width(), self.winfo_height()
+            x, y, w2, h2 = theme.place_window(self.winfo_x(), self.winfo_y(), w, h, 0, 0, area, frame)
+            if (w2, h2) != (w, h):
+                self.geometry(f"{w2}x{h2}+{x}+{y}")
+            elif (x, y) != (self.winfo_x(), self.winfo_y()):
+                self.geometry(f"+{x}+{y}")
+        except tk.TclError:
+            pass
 
     # ------------------------------------------------------------ settings shared by both tabs
     def apply_theme(self, mode: str):

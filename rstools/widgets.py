@@ -68,6 +68,7 @@ class Tooltip:
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self.hide, add="+")
         widget.bind("<ButtonPress>", self.hide, add="+")
+        widget.bind("<Destroy>", self.hide, add="+")       # no pending tip left to fire after the widget goes
 
     def _schedule(self, _e=None):
         self._cancel()

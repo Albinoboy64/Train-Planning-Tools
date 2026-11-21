@@ -958,11 +958,47 @@ def test_rescale_waits_for_the_drag_to_end_then_fits_the_window(monkeypatch):
                 app.update()
                 time.sleep(0.02)
             assert app.dpi == base * 2
+            end = time.time() + 2                   # the final check runs once painting is back on
+            while time.time() < end and not (area[0] <= app.winfo_x() and area[1] <= app.winfo_y()):
+                app.update()
+                time.sleep(0.02)
             app.update()
             need_w, need_h = app._needed_size()
-            assert app.winfo_x() >= area[0] and app.winfo_x() + app.winfo_width() <= area[2] + 1
-            assert app.winfo_y() >= area[1] and app.winfo_y() + app.winfo_height() <= area[3] + 1
+            where = (f"window {app.winfo_x()},{app.winfo_y()} {app.winfo_width()}x{app.winfo_height()}, "
+                     f"screen area {area}, needed {need_w}x{need_h}, {app.state()}")
+            assert app.winfo_x() >= area[0] and app.winfo_x() + app.winfo_width() <= area[2] + 1, where
+            assert app.winfo_y() >= area[1] and app.winfo_y() + app.winfo_height() <= area[3] + 1, where
             assert app.winfo_width() >= min(need_w, area[2] - area[0]) - 2
             assert app.winfo_height() >= min(need_h, area[3] - area[1]) - 60
+        finally:
+            app._on_close()
+
+
+def test_window_partly_off_screen_is_moved_back(monkeypatch):
+    import time
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    from rstools import theme
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        monkeypatch.setenv("TPT_COMPACT", "0")
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        try:
+            area = theme.screen_area(app)
+            w = min(1000, area[2] - area[0] - 40)
+            app.geometry(f"{w}x600+{area[0] - 150}+{area[1] + 10}")        # sticking out past the left edge
+            app.update()
+            app._keep_on_screen()
+            end = time.time() + 2
+            while app.winfo_x() < area[0] and time.time() < end:
+                app.update()
+                time.sleep(0.02)
+            assert app.winfo_x() >= area[0], (app.winfo_x(), area)
+            assert app.winfo_x() + app.winfo_width() <= area[2] + 1
         finally:
             app._on_close()
