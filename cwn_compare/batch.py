@@ -13,8 +13,17 @@ from typing import Callable, Dict, List, Optional, Tuple
 from .loader import SUPPORTED_EXT
 from .options import Options
 
-_NOISE = re.compile(r"\b(proof|draft|issue|iss|version|ver|rev|v|p)\s*\.?\s*\d+[a-z]?\b|\b(final|copy|new|old|"
-                    r"updated|original|amended|cwn)\b|\(\d+\)|\b\d{1,2}[-./]\d{1,2}[-./]\d{2,4}\b", re.I)
+# Underscores and hyphens are read as spaces first: they are word characters to a regular expression, so
+# 'BTN_CWN_v1.2' or '..._14-12-2026' would otherwise keep their version or date and never pair.
+_SEPARATORS = re.compile(r"[_\-]+")
+_NOISE = re.compile(
+    r"\b(?:version|ver|v)\s*\.?\s*\d+(?:[. ]\d+)*[a-z]?\b"            # v2, v1.2, V1_2, Version 3
+    r"|\b(?:proof|draft|issue|iss|rev|p|d)\s*\.?\s*\d+(?:\.\d+)*[a-z]?\b"  # Proof 2, Issue 2a, rev2, P2, D12
+    r"|\b(?:final|copy|new|old|updated|original|amended|cwn)\b"
+    r"|\(\d+\)"                                                          # Windows' ' (1)' copies
+    r"|\b\d{1,2}[-./ ]\d{1,2}[-./ ]\d{2,4}\b"                             # 14-12-2026, 14_12_2026, 14.12.26
+    r"|\b(?:\d{6}|\d{8})\b",                                              # date stamps: 260918, 20260918
+    re.I)
 
 
 def _stem(path: str) -> str:
@@ -23,7 +32,7 @@ def _stem(path: str) -> str:
 
 def _key(path: str) -> str:
     """'BTN CWN Proof 2 (1).xlsx' -> 'btn' : the part of the name that says which CWN it is."""
-    text = _NOISE.sub(" ", _NOISE.sub(" ", _stem(path)).replace("_", " ").replace("-", " "))
+    text = _NOISE.sub(" ", _SEPARATORS.sub(" ", _stem(path)))
     return " ".join(text.split()).casefold()
 
 

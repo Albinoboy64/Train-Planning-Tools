@@ -220,9 +220,10 @@ def statspack_cli(argv):
                     help="capacity report to this station (with --capacity-from)")
     ap.add_argument("--between", default="", help="capacity report: only trains between two times, e.g. 07:00-10:00")
     ap.add_argument("--at", default="", help="capacity report: the station for --between, e.g. 'London Victoria'")
-    ap.add_argument("--direction", choices=["arriving", "departing", "both"], default="arriving",
+    ap.add_argument("--direction", choices=["arriving", "departing", "both"], default=None,
                     help="capacity report: count trains arriving at / departing from --at (default arriving)")
     a = ap.parse_args(argv)
+    window = _capacity_window(a)              # checked before the (slow) timetable is read
     from rstools.statspack.compare import CompareOptions
     cmp = CompareOptions(summary=not a.no_summary, changed_tabs_only=a.changed_tabs_only,
                          changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
@@ -253,15 +254,10 @@ def statspack_cli(argv):
         if seats:
             from rstools.statspack.engine import seats_report
             journey = a.seats_from or a.seats_to
-            window = None
-            if a.between:
-                start, _sep, end = a.between.partition("-")
-                if not a.at and not journey:
-                    raise StatsPackError("--between needs --at STATION")
-                window = (a.at, start, end)
             kind, name = (("Station to station", "") if journey else ("Service group", a.seats_group)
                           if a.seats_group else ("Corridor", a.seats_corridor))
-            paths, warnings, summary = seats_report(new, o, kind, name, not a.per_day, window, a.direction, old=old,
+            paths, warnings, summary = seats_report(new, o, kind, name, not a.per_day, window,
+                                                    a.direction or "arriving", old=old,
                                                     corridor_dir=a.corridor_direction,
                                                     journey=(a.seats_from, a.seats_to),
                                                     seating=not a.no_seating, standing=not a.no_standing)
@@ -289,6 +285,36 @@ def statspack_cli(argv):
     except StatsPackError as exc:
         print("ERROR:", exc)
         sys.exit(1)
+
+
+def _capacity_window(a):
+    """--between / --at / --direction checked up front: (station, from, to) for the capacity report, or None.
+    Mistakes stop the run straight away with a plain message instead of being ignored."""
+    from rstools.statspack.engine import StatsPackError
+    from rstools.statspack.seats import SeatsError, parse_time
+    capacity = a.seats_group or a.seats_corridor or a.seats_from or a.seats_to
+    journey = a.seats_from or a.seats_to
+    try:
+        if (a.between or a.at or a.direction) and not capacity:
+            raise StatsPackError("--between, --at and --direction are for a capacity report: add --capacity-group, "
+                                 "--capacity-corridor or --capacity-from and --capacity-to.")
+        if (a.at or a.direction) and not a.between:
+            raise StatsPackError("--at and --direction go with --between, e.g. --between 07:00-10:00 --at Brighton.")
+        if not a.between:
+            return None
+        start, sep, end = (part.strip() for part in a.between.partition("-"))
+        if not (sep and start and end):
+            raise StatsPackError(f"--between needs two times, e.g. 07:00-10:00 (not '{a.between}').")
+        parse_time(start), parse_time(end)
+        if journey and a.at:
+            raise StatsPackError("--at is not used with --capacity-from / --capacity-to: the window is the departure "
+                                 "from the first station. Leave out --at.")
+        if not journey and not a.at:
+            raise StatsPackError("--between needs --at STATION (the station the window is at).")
+    except (StatsPackError, SeatsError) as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+    return (a.at, start, end)
 
 
 def timetable_cli(argv):

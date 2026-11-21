@@ -433,9 +433,10 @@ class Window:
 
 def parse_time(text: str) -> int:
     m = re.fullmatch(r"\s*(\d{1,2})[:.]?(\d{2})\s*", text or "")
-    if not m or int(m.group(1)) > 24 or int(m.group(2)) > 59:
-        raise SeatsError(f"'{text}' is not a time - use 24-hour HH:MM, e.g. 07:00.")
-    return (int(m.group(1)) * 3600 + int(m.group(2)) * 60) % (DAY_SECONDS + 1)
+    # 24:00 is the end of the day; 24:30 is not a time (it was read as 00:29 before)
+    if not m or int(m.group(2)) > 59 or int(m.group(1)) * 60 + int(m.group(2)) > 24 * 60:
+        raise SeatsError(f"'{text}' is not a time - use 24-hour HH:MM from 00:00 to 24:00, e.g. 07:00.")
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60
 
 
 def _hhmm(sec: Optional[int]) -> str:

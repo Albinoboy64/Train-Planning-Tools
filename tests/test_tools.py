@@ -85,8 +85,14 @@ def test_help_text_lookup():
     import pytest
     pytest.importorskip("tkinter")
     from rstools.help_text import lookup
-    assert lookup("Browse...") and lookup("Mon") == "Include trains running on Mondays."
-    assert lookup("377/4").startswith("Class 377/4") and lookup("SNGX (BI, SU, SL)").startswith("Include the fleets")
+    # help that adds something is kept: formats, examples, what blank means, what is copied
+    assert "never overwritten" in lookup("Output name:") and "10-15" in lookup("Platforms (optional):")
+    assert "48 hours" in lookup("Fuel check (171s)") and lookup("Other depots")
+    # no pop-ups on the menu bar, and none that only repeat the control's own words
+    for redundant in ("Options", "Save/Load", "Help", "Browse...", "Clear", "Swap files", "Create stats pack",
+                      "Open report", "All days", "Weekdays", "Mon", "MO", "377/4", "SNGX (BI, SU, SL)",
+                      "Original Attune XML:", "Changed rows only"):
+        assert lookup(redundant) is None, redundant
     assert lookup("nothing like this") is None
 
 
@@ -537,3 +543,53 @@ def test_help_menu_opens_the_error_log(monkeypatch):
             assert opened == [errorlog.log_path()]
         finally:
             app._on_close()
+
+
+def test_batch_pairing_ignores_versions_and_dates_written_with_underscores(tmp_path):
+    """Underscores are word characters to a regular expression, so 'BTN_CWN_v1.2' or '_14-12-2026' kept their
+    version or date and never paired. GTR's 'D12' drafts and '260918_' date stamps are ignored too."""
+    from cwn_compare.batch import _key, pair_files
+    assert {_key(n) for n in ("BTN_CWN_v1.2.xlsx", "BTN_CWN_v2.0.xlsx", "BTN_CWN_V1_2.xlsx", "BTN_CWN_Proof_2.xlsx",
+                              "BTN-CWN-Proof-4.xlsx", "BTN_CWN_14-12-2026.xlsx", "BTN_CWN_14_12_2026.xlsx",
+                              "BTN_CWN_D12.xlsx", "BTN CWN Proof 3 (1).xlsx")} == {"btn"}
+    assert _key("Line_2_CWN_Proof_1.xlsx") == "line 2"                 # a number that is part of the name stays
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(), b.mkdir()
+    for day in ("SX", "SO", "Su"):
+        (a / f"260918_-_GTRTLGN_Dec26_D12_Draft_CWN_-_{day}.xlsx").write_bytes(b"")
+        (b / f"261002_-_GTRTLGN_Dec26_D13_Draft_CWN_-_{day}.xlsx").write_bytes(b"")
+    pairs, left, right = pair_files(str(a), str(b))
+    assert not left and not right
+    assert sorted(os.path.basename(o)[-7:] + os.path.basename(u)[-7:] for o, u in pairs) == [
+        "SO.xlsxSO.xlsx", "SX.xlsxSX.xlsx", "Su.xlsxSu.xlsx"]
+
+
+def test_between_flag_is_checked_before_reading():
+    """--between / --at / --direction mistakes stop the run at once with a plain message - never ignored."""
+    import contextlib
+    import io
+    import TrainPlanningTools as cli
+    base = ["--xml", "missing.xml", "--trent", "missing.docx"]
+    for args, says in ((["--capacity-group", "1A", "--between", "07:00", "--at", "Brighton"], "two times"),
+                       (["--capacity-group", "1A", "--between", "23:00-24:30", "--at", "Brighton"], "'24:30'"),
+                       (["--between", "07:00-10:00", "--at", "Brighton"], "are for a capacity report"),
+                       (["--capacity-group", "1A", "--at", "Brighton"], "go with --between"),
+                       (["--capacity-group", "1A", "--between", "07:00-10:00"], "needs --at"),
+                       (["--capacity-from", "Brighton", "--capacity-to", "Victoria", "--between", "07:00-10:00",
+                         "--at", "Brighton"], "Leave out --at")):
+        out, code = io.StringIO(), None
+        with contextlib.redirect_stdout(out):
+            try:
+                cli.statspack_cli(base + args)
+            except SystemExit as exc:
+                code = exc.code
+        assert code == 1 and says in out.getvalue(), (args, code, out.getvalue())
+
+
+def test_window_times_stop_at_24_00():
+    import pytest
+    from rstools.statspack.seats import SeatsError, parse_time
+    assert parse_time("07:00") == 7 * 3600 and parse_time("0700") == 7 * 3600 and parse_time("24:00") == 86400
+    for bad in ("24:30", "24:59", "07:60", "7", ""):
+        with pytest.raises(SeatsError):
+            parse_time(bad)

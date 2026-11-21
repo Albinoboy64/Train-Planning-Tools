@@ -854,7 +854,7 @@ class App(tk.Tk):
         # --- categories
         cf = self.cats_frame = ttk.LabelFrame(right, text="3. Changes to include", padding=8)
         cf.grid(row=0, column=0, sticky="nsew")
-        heads = [("Change type", "Hover over a change type for what it covers."),
+        heads = [("Change type", ""),
                  ("Show in\nCWN", "Highlight this type of change in the output CWN. For cancelled trains: "
                                   "re-insert them struck through; untick to remove them entirely."),
                  ("Show previous\nvalue / note", "Show the old value struck through above the new one, and add "
@@ -863,7 +863,8 @@ class App(tk.Tk):
         for i, (h, help_text) in enumerate(heads):
             lab = ttk.Label(cf, text=h, font="AppBold", justify="center")
             lab.grid(row=0, column=i, padx=4, sticky="w" if i == 0 else "")
-            Tooltip(lab, help_text)
+            if help_text:
+                Tooltip(lab, help_text)
         self.cat_vars = {}
         for r, (key, label, has_old, desc) in enumerate(CATEGORIES, start=1):
             lab = ttk.Label(cf, text=label)

@@ -91,7 +91,7 @@ For each type you can:
 ### Comparing two folders of CWNs (batch)
 
 Choose **Compare two folders of CWNs (batch)** under *1. CWN comparison* (or drop two folders on the tab), then choose the folder of original CWNs and the folder of updated CWNs.
-* Each updated CWN is paired with its original: the same file name first, then the same name ignoring proof / version numbers, dates and words such as *final* or *CWN*, then the clearly most similar name. The pairs found are shown under the folders, and you confirm the list before it starts. Files that can't be paired are listed and left out.
+* Each updated CWN is paired with its original: the same file name first, then the same name ignoring proof, draft and version numbers (*Proof 2*, *v1.2*, *V1_2*, *D12*), dates (*14-12-2026*, *14_12_2026*, a *260918_* stamp) and words such as *final* or *CWN*, then the clearly most similar name. Underscores and hyphens count as spaces, so `260918_-_GTRTLGN_Dec26_D12_Draft_CWN_-_SX` pairs with `261002_-_GTRTLGN_Dec26_D13_Draft_CWN_-_SX`. The pairs found are shown under the folders, and you confirm the list before it starts. Files that can't be paired are listed and left out.
 * Every pair gets the same options (output type, colour, report, change types) and its own comparison CWN and change report, named as usual.
 * Several pairs are compared at once, one per CPU core with one core left free for the window, and only as many as fit in free memory. One file that can't be read doesn't stop the others; it is shown in the log.
 * The day tickboxes are not used for folders: every day is checked.
@@ -328,6 +328,12 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.19.3** - fewer pop-ups, folder pairing and --between fixed
+* **Hover help trimmed**: no pop-ups on the menu bar (*Options*, *Save/Load*, *Help*), and none that only repeat a control's own words (e.g. *Clear*, *Swap files*, *Open report*, *Start (F5)* on run buttons, the day, class and operator tick boxes, *All days* / *Weekdays*, *The Attune diagram export (.xml) of the original plan*). Pop-ups that add something - formats, examples, what a blank box means, what is copied or never overwritten, the fuel-check rule, what each change type covers - are kept (64 of 145).
+* **Comparing two folders of CWNs**: versions and dates written with underscores or hyphens are now ignored when pairing files (they were kept, because a regular expression treats an underscore as part of a word). *BTN_CWN_v1.2* pairs with *BTN_CWN_v2.0*, *..._14_12_2026* with *..._02_01_2027*, and GTR's draft files *260918_-_GTRTLGN_Dec26_D12_Draft_CWN_-_SX / SO / Su* with their *D13* versions (none of the three paired before). A number that is part of the name, such as *Line 2*, still keeps files apart.
+* **Command line `--between`**: checked before the timetable is read, with a plain message for each mistake - one time only (*--between 07:00*), a time after 24:00, `--between` without a capacity report, `--at` or `--direction` without `--between`, `--at` missing for a service group or corridor, or `--at` given for station to station. Before, most of these were ignored (a full stats pack was made instead of the capacity report) or failed only after reading the plan.
+* **Time windows end at 24:00**: a time such as 24:30 is refused, in the app and on the command line (it was read as 00:29 and counted the wrong trains).
 
 **3.19.2** - next-day workings never paired with an unrelated one
 * **Stock Tools**: when several next-day working lines change, each is now paired with the same berth road, then the same unit position *(n)*. Lines for different unit positions are reported as one removed and one added, never as an unrelated *changed from ... to ...* (before, the first left-over line was used, which could cross units (1) and (2)).
