@@ -20,7 +20,7 @@ ignore = [
 "tests/*" = ["E702"]          # compact one-line test set-up
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 platform = "win32"          # the app is built for Windows (ctypes.windll, winreg)
 ignore_missing_imports = true
 warn_unused_configs = true

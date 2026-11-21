@@ -406,7 +406,8 @@ def berthing_cli(argv):
 
 
 def selftest_cli(argv):
-    """Checks the packaged exe can read an Attune print with its fast PDF reader (used by the build)."""
+    """Checks the packaged exe (used by the build): its fast PDF reader reads an Attune print, and a window
+    opens with drag and drop (the tkdnd files bundled must match the exe's Tcl/Tk)."""
     from rstools.timetable.prints import _pdfium_lines
     path = argv[0] if argv else ""
     pages = _pdfium_lines(path) if path else None
@@ -414,6 +415,21 @@ def selftest_cli(argv):
         print("ERROR: the fast PDF reader (PDFium) could not read", path or "(no file given)")
         sys.exit(1)
     print(f"PDFium OK: {len(pages)} page(s)")
+    import tkinter as tk
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        print("SKIPPED window check (no display):", exc)
+        return
+    try:
+        from tkinterdnd2 import TkinterDnD
+        version = TkinterDnD._require(root)
+        print(f"Window OK: Tcl/Tk {root.tk.call('info', 'patchlevel')}, drag and drop (tkdnd {version})")
+    except Exception as exc:
+        print("ERROR: drag and drop could not be loaded:", exc)
+        sys.exit(1)
+    finally:
+        root.destroy()
 
 
 if __name__ == "__main__":

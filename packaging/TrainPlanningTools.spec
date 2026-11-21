@@ -43,10 +43,16 @@ elif sys.platform == "darwin":
     DND_DIR = "osx-arm64" if platform.machine() == "arm64" else "osx-x64"
 else:
     DND_DIR = "linux-arm64" if platform.machine() in ("aarch64", "arm64") else "linux-x64"
+try:                                    # tkinterdnd2 has separate builds for Tcl/Tk 9 ('win-x64-tcl9'...)
+    import tkinter
+    if int(str(tkinter.Tcl().eval("info tclversion")).split(".")[0]) >= 9:
+        DND_DIR += "-tcl9"
+except Exception:
+    pass
 
 
 def _keep_dnd(dest):
-    """Keep tkinterdnd2's Python files and only this platform's Tcl-8.6 tkdnd binaries."""
+    """Keep tkinterdnd2's Python files and only the tkdnd binaries for this platform and Tcl/Tk version."""
     parts = dest.replace("\\", "/").split("/")
     if "tkdnd" not in parts:
         return True

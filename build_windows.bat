@@ -1,12 +1,12 @@
 @echo off
 REM Optional: build TrainPlanningTools.exe yourself on a Windows PC (no admin rights needed).
-REM Mirrors the release build (.github\workflows\build-windows.yml): Python 3.12, the same pinned packages
+REM Mirrors the release build (.github\workflows\build-windows.yml): Python 3.14, the same pinned packages
 REM (packaging\build-requirements.txt), lint, type-check, tests, build and a smoke test of the exe.
 REM One deliberate difference: the release compiles PyInstaller's bootloader from source (fewer false virus
 REM warnings), which needs a C compiler; this script uses PyInstaller's ready-made bootloader instead.
-REM Requires Python 3.12 installed for the current user (python.org installer, "Install for me only").
-python -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)" || (
-    echo Python 3.12 is needed - the release is built with 3.12 and the pinned packages are for it.
+REM Requires Python 3.14 installed for the current user (python.org installer, "Install for me only").
+python -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 14) else 1)" || (
+    echo Python 3.14 is needed - the release is built with 3.14 and the pinned packages are for it.
     goto :failed
 )
 REM a clean environment each time, so nothing left from an earlier build changes this one
