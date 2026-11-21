@@ -688,3 +688,42 @@ def test_rules_in_use_line(monkeypatch, tmp_path):
     monkeypatch.setattr(rules, "active_set_info", lambda: {"name": "2027 EAS v4", "to": "2027-12-11"})
     assert rules.in_use(datetime.date(2027, 1, 10)) == ("Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4", False)
     assert rules.in_use(datetime.date(2028, 1, 10))[1]                       # both past their last date
+
+
+def test_display_watcher_only_watches_the_main_window(monkeypatch):
+    """Child widgets resizing never run the display watcher; a move within the same display schedules nothing;
+    moving to a display with other scaling rescales once, soon after."""
+    import time
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        seen, rescaled = [], []
+        try:
+            app.update()
+            shown = {"dpi": app.dpi}
+            monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
+            real_moved = app._moved
+            app.bind_class("TPTMain", "<Configure>", lambda e: (seen.append(e.widget), real_moved(e)))
+            monkeypatch.setattr(app, "dpi_changed", lambda dpi: rescaled.append(dpi))
+            app.geometry("1300x850")
+            app.update()
+            assert seen and all(w is app for w in seen)          # only the main window's own events
+            assert app._dpi_after is None and not rescaled       # same display: nothing to do
+            shown["dpi"] = app.dpi * 2
+            app.geometry("1310x850")
+            app.update()
+            assert app._dpi_after is not None
+            end = time.time() + 2
+            while not rescaled and time.time() < end:
+                app.update()
+                time.sleep(0.02)
+            assert rescaled == [shown["dpi"]]
+        finally:
+            app._on_close()

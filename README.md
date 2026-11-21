@@ -342,6 +342,11 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.20.2** - quicker when moving between displays
+* **Rescaling starts sooner**: the app now notices a display with different scaling while the window is being moved and rescales a moment after (it used to wait until the window had been still for 0.3 s).
+* **One clean repaint on Windows**: painting is held while the text, spacing and window size change, then the window is redrawn once, instead of visibly redrawing piece by piece.
+* **Less work each time**: the display check only watches the main window (it ran for every widget, several hundred times per rescale and per resize step), and a scaling change keeps the theme's colours instead of recolouring every control. Measured: about 20% less time per rescale, and window resizing is lighter too.
+
 **3.20.1** - rules indicator, pairing and build fixes
 * **Rules in use** (new): the header shows which Timetable Planning Rules and Section 4 rule set the app is using, e.g. *Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4*. It turns orange with *(check)* when a set is past its last date or no Section 4 set has been added; click it to open Rules and reference data.
 * **Next-day workings (Stock Tools)**: after matching by berth road and unit position, a left-over line is paired with another only when it cannot be a guess (one each, neither with a unit position). Two unrelated lines are no longer shown as one *changed from ... to ...*.

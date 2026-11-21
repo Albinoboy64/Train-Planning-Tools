@@ -184,7 +184,10 @@ class App(tk.Tk):
         attach(self)                                             # help when the mouse rests on a control
         theme.watch_focus_cues(self)                             # focus outlines only for keyboard use
         self._dpi_after = None
-        self.bind("<Configure>", self._moved, add="+")            # a different display: rescale to its scaling
+        # a different display: rescale to its scaling. Bound to the main window alone (its own bind tag): a
+        # binding on the root would run for every widget's resize too (hundreds per resize or rescale)
+        self.bind_class("TPTMain", "<Configure>", self._moved)
+        self.bindtags(("TPTMain",) + self.bindtags())
 
     def _fit_to_screen(self):
         """Open big enough to show a whole tab without scrolling, but never larger than the screen."""
@@ -205,13 +208,15 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------ moving between displays
     def _moved(self, event):
-        """The window moved or resized: once it settles, check whether it is now on a display with other
-        scaling (nothing else is done, so moving the window costs nothing)."""
+        """The window moved or resized: if it is now on a display with other scaling, rescale as soon as it
+        settles (a moment later). Moving within a display only reads its scaling - one quick system call."""
         if event.widget is not self:
             return
         if self._dpi_after:
             self.after_cancel(self._dpi_after)
-        self._dpi_after = self.after(300, self._check_dpi)
+            self._dpi_after = None
+        if theme.window_dpi(self) != self.dpi:
+            self._dpi_after = self.after(80, self._check_dpi)
 
     def _check_dpi(self):
         self._dpi_after = None
@@ -224,31 +229,34 @@ class App(tk.Tk):
         the same physical size."""
         ratio = dpi / self.dpi
         self.dpi, self.dpi_scale = dpi, dpi / theme.BASE_DPI
-        self.tk.call("tk", "scaling", dpi / 72.0)
-        width, height = self.winfo_width(), self.winfo_height()
-        self.set_text_size(self.size_var.get(), fit=False, save=False)
-        self._set_minsize()
-        if self.state() != "zoomed":
-            w, h = theme.rescaled_size(width, height, ratio, theme.work_area(self))
-            self.geometry(f"{w}x{h}")
+        with theme.freeze_redraw(self):             # Windows: one repaint at the end, not piece by piece
+            self.tk.call("tk", "scaling", dpi / 72.0)
+            width, height = self.winfo_width(), self.winfo_height()
+            self.set_text_size(self.size_var.get(), fit=False, save=False, rescale_only=True)
+            self._set_minsize()
+            if self.state() != "zoomed":
+                w, h = theme.rescaled_size(width, height, ratio, theme.work_area(self))
+                self.geometry(f"{w}x{h}")
+            self.update_idletasks()                 # lay everything out while painting is held
 
     # ------------------------------------------------------------ settings shared by both tabs
-    def apply_theme(self, mode: str):
+    def apply_theme(self, mode: str, recolour: bool = True):
         self.opts.theme = mode if mode in theme.MODES else "system"
-        self.palette = theme.apply(self, self.opts.theme)
+        self.palette = theme.apply(self, self.opts.theme, recolour=recolour)
         self.theme_var.set(self.opts.theme)
         live = getattr(self, "live_tab", None)
-        if live is not None:
+        if live is not None and recolour:
             live.retheme(self.palette)
 
-    def set_text_size(self, size: str, fit: bool = True, save: bool = True):
-        """Resize all text in the window (and table rows) to one of theme.TEXT_SIZES."""
+    def set_text_size(self, size: str, fit: bool = True, save: bool = True, rescale_only: bool = False):
+        """Resize all text in the window (and table rows) to one of theme.TEXT_SIZES. `rescale_only` (a move to
+        a display with other scaling): the colours are unchanged, so only sizes are re-applied."""
         size = size if size in theme.TEXT_SIZES else "normal"
         self.size_var.set(size)
         self.opts.text_size = size
         scale = theme.setup_fonts(self, size)
         self.ui_scale = scale * self.dpi_scale
-        self.apply_theme(self.opts.theme)
+        self.apply_theme(self.opts.theme, recolour=not rescale_only)
         self._show_logo()
         self._size_columns(self.ui_scale)
         live = getattr(self, "live_tab", None)

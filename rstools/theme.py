@@ -12,6 +12,7 @@ the whole window at once.
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 import tkinter as tk
 from typing import Dict, Literal, Tuple
 from tkinter import ttk
@@ -136,6 +137,32 @@ def window_dpi(root) -> int:
         return BASE_DPI
 
 
+@contextmanager
+def freeze_redraw(root):
+    """On Windows, hold the window's painting while it is rescaled and repaint it once at the end, so it does
+    not redraw piece by piece. Does nothing elsewhere, and painting is always switched back on."""
+    hwnd = 0
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)            # GA_ROOT: the frame
+            if hwnd:
+                ctypes.windll.user32.SendMessageW(hwnd, 0x000B, 0, 0)            # WM_SETREDRAW off
+        except (AttributeError, OSError, tk.TclError):
+            hwnd = 0
+    try:
+        yield
+    finally:
+        if hwnd:
+            try:
+                import ctypes
+                ctypes.windll.user32.SendMessageW(hwnd, 0x000B, 1, 0)            # WM_SETREDRAW on
+                # RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW
+                ctypes.windll.user32.RedrawWindow(hwnd, None, None, 0x1 | 0x4 | 0x80 | 0x400 | 0x100)
+            except (AttributeError, OSError):
+                pass
+
+
 def px(widget, n: float) -> int:
     """n pixels at 100% scaling and normal text size, as pixels on the window's display at the chosen text size
     (the main window keeps the factor as `ui_scale`)."""
@@ -249,8 +276,10 @@ def _dark_title_bar(root: tk.Tk, dark: bool):
 CURRENT: dict = {}             # the palette in use (for widgets made later, e.g. suggestion lists)
 
 
-def apply(root: tk.Tk, mode: str) -> dict:
-    """Style the whole window for a theme setting; returns the palette in use."""
+def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
+    """Style the whole window for a theme setting; returns the palette in use. `recolour=False` (only the
+    display's scaling changed): the ttk styles, sizes included, are set again, but plain tk widgets are not
+    recoloured one by one, as their colours are the same."""
     name = resolve(mode)
     p = dict(PALETTES[name], name=name)
     p.setdefault("select_fg", p["fg"])
@@ -259,7 +288,9 @@ def apply(root: tk.Tk, mode: str) -> dict:
     hc = name == "contrast"
     style = ttk.Style(root)
     native = name == "light" and sys.platform.startswith("win") and "vista" in style.theme_names()
-    style.theme_use("vista" if native else "clam")
+    wanted = "vista" if native else "clam"
+    if style.theme_use() != wanted:             # switching to the same theme again would restyle every widget
+        style.theme_use(wanted)
 
     if not native:
         style.configure(".", background=p["bg"], foreground=p["fg"], fieldbackground=p["field"],
@@ -350,8 +381,9 @@ def apply(root: tk.Tk, mode: str) -> dict:
     root.option_add("*TCombobox*Listbox.selectBackground", p["select"])
     root.option_add("*TCombobox*Listbox.selectForeground", p["select_fg"])
     root.configure(background=p["bg"])
-    _recolour(root, p)
-    _dark_title_bar(root, name != "light")
+    if recolour:
+        _recolour(root, p)
+        _dark_title_bar(root, name != "light")
     if hasattr(root, "_focus_shown"):
         focus_cues(root, root._focus_shown)
     return p
