@@ -132,15 +132,22 @@ def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units
             for s in by_loc.get(loc, []):
                 exact = [k for k in pools if k[0] == loc and ANY not in k[1] and s.plat in k[1]]
                 wild = [k for k in pools if k[0] == loc and ANY in k[1]]
+                roads = [k for k in pools if k[0] == loc]
                 if exact or wild:
                     wanted[(exact or wild)[0]].append(s)
+                elif not s.plat and roads:              # no road in the XML: the location's berths in turn
+                    every = (loc, ("",))
+                    pools[every] = sorted({i for k in roads for i in pools[k]})
+                    wanted[every].append(s)
                 else:
                     other[(loc, s.plat)].append(s)
         for key, stays in wanted.items():
             _assign(sheet, pools[key], stays, units)
         for (loc, plat), stays in sorted(other.items()):
-            blk = Block(f"Other - {loc} {'platform/road ' + plat if plat else '(no platform)'}")
+            blk = Block(f"Other - {loc} {'platform/road ' + plat if plat else '(no platform)'}",
+                        section=max([b.section for b in sheet.blocks] + [-1]) + 1)   # its own place, at the bottom
             sheet.blocks.append(blk)
+            sheet.sections = list(sheet.sections) + [blk.label]
             _assign(sheet, [len(sheet.blocks) - 1], stays, units)
             warnings.append(f"{sheet.name}: {len(stays)} unit(s) berth at {loc} "
                             f"{'platform/road ' + plat if plat else 'with no platform in the XML'}, which is not a "

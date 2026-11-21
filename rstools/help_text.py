@@ -81,8 +81,9 @@ TIPS = {
         "Spacing slips and the old 'L' marker do not count.",
     "STP XML (optional):": "For an STP chart: each day's STP diagrams replace the LTP ones, and STP trains are shown "
                            "in bold on lavender.",
-    "Layout from chart:": "An earlier berthing chart. Its sheets, berths, capacities and notes are kept; the units "
-                          "come from the XML. Old formulas and counting rows are left out.",
+    "Layout from chart (optional):": "Leave blank to use the app's built-in layout (from the Dec 26 Proof 2 chart). "
+                                     "Or choose an earlier berthing chart: its sheets, berths, capacities and notes "
+                                     "are kept and the units come from the XML.",
     "Berthing chart:": "The chart to add this round's changes to.",
     "Original XML:": "The XML the chart was made from. For an STP chart: the LTP and STP XMLs, separated by ';'.",
     "Updated XML:": "The changed XML. For an STP chart: the LTP and STP XMLs, separated by ';'.",

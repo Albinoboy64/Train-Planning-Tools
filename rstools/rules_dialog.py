@@ -57,6 +57,12 @@ class RulesDialog(tk.Toplevel):
                                f"{_d(s4.get('to', ''))}." + (" Out of date: add the new Section 4 PDFs below." if stale
                                                               else ""),
                       wraplength=px(self, 740), justify="left").grid(row=len(rules.BUILT_IN), column=0, sticky="w")
+        from rstools.berthing.layout import default_info
+        lay = default_info()
+        if lay is not None:
+            ttk.Label(bf, text=f"Berthing chart layout - used for a new berthing chart when no chart is chosen to take "
+                               f"the layout from: {lay['sheets']} sheets, from {lay['source']}.",
+                      wraplength=px(self, 740), justify="left").grid(row=len(rules.BUILT_IN) + 1, column=0, sticky="w")
         sf = ttk.LabelFrame(self, text="Section 4 rule sets", padding=8)
         sf.grid(row=2, column=0, sticky="nsew", **pad)
         sf.columnconfigure(0, weight=1)

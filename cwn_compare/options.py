@@ -49,6 +49,7 @@ class Options:
     book_days: List[str] = field(default_factory=lambda: ["SX", "SO", "Su"])
     berth_files: Dict[str, List[str]] = field(default_factory=dict)   # berthing chart mode -> its file boxes
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
+    berth_counts: bool = False       # berthing chart: unit counts under each siding location
     original: str = ""               # original CWN, or previous comparison CWN (cumulative)
     updated: str = ""
     output_type: str = "full"        # full (highlighted and noted) | highlight (highlighted only) | acwn

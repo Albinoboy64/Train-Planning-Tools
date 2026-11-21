@@ -4,14 +4,25 @@ sections) - and a Notes sheet with anything that needs checking."""
 from __future__ import annotations
 
 import datetime
-from typing import Callable, List, Optional, Sequence
+import re
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .chart import fix_text
-from .layout import DAY_COLUMNS, DEPOT_DAYS, CoverRow, DepotSheet, GridSheet, Layout
+from .layout import (COUNTS_END, COUNTS_HEAD, DAY_COLUMNS, DEPOT_DAYS, SECTION_LINE, Block, CoverRow, DepotSheet,
+                     GridSheet, Layout)
 
 FONT = "Arial"
 HEADER_FILL = "FFFF00"
-DAY_WIDTH = 15.5
+SIDING_FILL = "CCFFFF"          # the siding names and capacities, light blue as on the original charts
+NOTE_COLOUR = "FF0000"          # notes about the sidings: red bold
+NIGHT_LINE = "595959"           # the line between nights (before each FINISH column)
+COUNT_FILL = "EDEDED"
+OVER_FILL = "FFC7CE"            # more cars than the siding location holds
+DAY_WIDTH = 17.0
+ROW_HEIGHT = 15.0
+MIN_ROWS = 3                    # rows in every berth's box, at least
+LONG_NOTE = 40                  # a note longer than this goes on its own full-width row under the location
+LONG_DATA_NOTE = 18             # ... and a note in the day columns longer than this (it would spill over the boxes)
 
 
 def _styles():
@@ -29,28 +40,32 @@ def _fill(colour: str):
     return PatternFill("solid", fgColor="FF" + colour) if colour else PatternFill(fill_type=None)
 
 
-def _border(left: str = "", right: str = "", bottom: str = ""):
+def _border(left: str = "", right: str = "", bottom: str = "", left_colour: str = "", bottom_colour: str = "",
+            top: str = ""):
     Border, _F, _P, Side = _styles()
-    side = lambda s: Side(style=s) if s else Side()
-    return Border(left=side(left), right=side(right), bottom=side(bottom))
+
+    def side(style: str, colour: str = ""):
+        return Side(style=style, color=("FF" + colour) if colour else None) if style else Side()
+    return Border(left=side(left, left_colour), right=side(right), bottom=side(bottom, bottom_colour), top=side(top))
 
 
 def write(layout: Layout, path: str, cover: Callable[[str], str] = lambda t: t,
-          legend: Sequence[str] = (), notes: Sequence[str] = ()):
+          legend: Sequence[str] = (), notes: Sequence[str] = (), counts: bool = False):
     """Save the chart. `cover` rewrites each cover line (issue, dates); `legend` lines are added to the cover;
-    `notes` go on a Notes sheet at the end."""
+    `notes` go on a Notes sheet at the end; `counts` adds the unit counts of each siding location."""
     import openpyxl
     from cwn_compare.xlsxfix import save_workbook
     from rstools.fsutil import plain_text
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     _cover(wb.create_sheet(layout.cover_name[:31] or "Cover"), layout.cover, cover, legend)
+    widths = _siding_widths(layout)
     for sheet in layout.sheets:
         ws = wb.create_sheet(sheet.name[:31])
         if isinstance(sheet, DepotSheet):
             _depot(ws, sheet)
         else:
-            _grid(ws, sheet)
+            _grid(ws, sheet, widths, counts)
         if sheet.hidden:
             ws.sheet_state = "hidden"
         if sheet.tab:
@@ -99,70 +114,244 @@ def _cover(ws, rows: List[CoverRow], rewrite: Callable[[str], str], legend: Sequ
     ws.sheet_view.showGridLines = False
 
 
-def _grid(ws, sheet: GridSheet):
+def _siding_widths(layout: Layout) -> Tuple[float, float]:
+    """Columns A and B (siding, capacity) one width on every sheet: wide enough for the longest label or short
+    note."""
+    a = b = 0
+    for sheet in layout.sheets:
+        if not isinstance(sheet, GridSheet):
+            continue
+        for blk in sheet.blocks:
+            a = max(a, len(blk.label))
+            b = max(b, len(blk.capacity))
+            for na, nb in blk.notes.values():
+                if len(na) <= LONG_NOTE:
+                    a = max(a, len(na))
+                if len(nb) <= LONG_NOTE:
+                    b = max(b, len(nb))
+    return max(14.0, min(a * 1.15 + 3, 30.0)), max(10.0, min(b * 1.15 + 3, 18.0))
+
+
+def _short_notes(blk: Block) -> Tuple[List[Tuple[str, str]], List[str]]:
+    """A berth's notes: the short ones, in order, for the rows under its label (gaps closed up), and the long
+    ones, which go on their own row under its siding location."""
+    short: List[Tuple[str, str]] = []
+    long: List[str] = []
+    for off in sorted(blk.notes):
+        if off == 0:
+            continue                                    # beside the label, in column B
+        a, b = blk.notes[off]
+        long += [t for t in (a, b) if len(t) > LONG_NOTE]
+        a = a if len(a) <= LONG_NOTE else ""
+        b = b if len(b) <= LONG_NOTE else ""
+        if a or b:
+            short.append((a, b))
+    return short, long
+
+
+def _rows_needed(blk: Block) -> int:
+    short, _long = _short_notes(blk)
+    used = [o for o, row in blk.units.items() if any(row)] + [o for o, _i in blk.data_notes]
+    return max([MIN_ROWS, 1 + len(short)] + [o + 1 for o in used])
+
+
+def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), counts: bool = False):
+    from openpyxl.styles import Alignment
     from openpyxl.utils import get_column_letter
     from rstools.fsutil import clean_cell
+    fit = Alignment(horizontal="center", vertical="center", shrink_to_fit=True)    # a long unit shrinks, never spills
     r = 0
     for a, b in sheet.preface:
         r += 1
-        _note_row(ws, r, a, b)
+        _note_row(ws, r, a, b, siding=True)
     r += 1
     hdr = r
-    head = [sheet.corner[0] or "Siding", sheet.corner[1]] + DAY_COLUMNS
+    head = [sheet.corner[0] or "Siding", sheet.corner[1] or "Capacity"] + DAY_COLUMNS
     for c, text in enumerate(head, start=1):
         cell = ws.cell(r, c, text or None)
-        cell.font = _font()
-        cell.fill = _fill(HEADER_FILL)
-        cell.border = _border(left="thin" if c >= 4 and c % 2 == 0 else ("medium" if c == 2 else ""),
-                              right="medium" if c == 2 else "", bottom="medium")
+        cell.font = _font(10, True)
+        cell.fill = _fill(SIDING_FILL if c <= 2 else HEADER_FILL)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = _line(c, bottom="medium")
+    ws.row_dimensions[r].height = 27
     for a, b in sheet.lead:
         r += 1
-        _note_row(ws, r, a, b)
-        _frame(ws, r, last=False)
-    for blk in sheet.blocks:
-        for off in range(max(1, blk.height)):
+        if len(a) > LONG_NOTE or len(b) > LONG_NOTE:
+            _wide_note(ws, r, " ".join(t for t in (a, b) if t))
+            continue
+        _note_row(ws, r, a, b, siding=True)
+        _frame(ws, r)
+    height = max([_rows_needed(b) for b in sheet.blocks] + [MIN_ROWS])      # every box on the sheet the same
+    sections = sorted({b.section for b in sheet.blocks})
+    for sec in sections:
+        blocks = [b for b in sheet.blocks if b.section == sec]
+        long_notes: List[str] = []
+        for blk in blocks:
+            short, long = _short_notes(blk)
+            long_notes += long + [t for t in blk.data_notes.values() if len(t) > LONG_DATA_NOTE]
+            for off in range(height):
+                r += 1
+                if off == 0:
+                    side = blk.notes[0][1] if 0 in blk.notes else ""
+                    _siding(ws, r, fix_text(blk.label), blk.capacity, side)
+                else:
+                    a, b = short[off - 1] if off - 1 < len(short) else ("", "")
+                    _note_row(ws, r, a, b, siding=True)
+                cells = blk.units.get(off, [None] * 16)
+                for i in range(16):
+                    cell = ws.cell(r, 3 + i)
+                    unit = cells[i] if i < len(cells) else None
+                    if unit is not None and unit.text:
+                        cell.value = clean_cell(unit.text)
+                        cell.font = _font(10, unit.bold, unit.colour, unit.italic)
+                        cell.fill = _fill(unit.fill)
+                    elif (off, i) in blk.data_notes and len(blk.data_notes[(off, i)]) <= LONG_DATA_NOTE:
+                        cell.value = fix_text(blk.data_notes[(off, i)])
+                        cell.font = _font(10, True, NOTE_COLOUR)
+                    cell.alignment = fit
+                _frame(ws, r, bottom="thin" if off == height - 1 else "")
+                ws.row_dimensions[r].height = ROW_HEIGHT
+        for text in long_notes:                         # long notes: a full-width row under the location
             r += 1
-            a, b = (fix_text(blk.label), blk.capacity) if off == 0 else blk.notes.get(off, ("", ""))
-            if off == 0 and 0 in blk.notes:
-                b = b or blk.notes[0][1]
-            _note_row(ws, r, a, b, bold_a=off == 0)
-            cells = blk.units.get(off, [None] * 16)
-            for i in range(16):
-                cell = ws.cell(r, 3 + i)
-                unit = cells[i] if i < len(cells) else None
-                if unit is not None and unit.text:
-                    cell.value = clean_cell(unit.text)
-                    cell.font = _font(10, unit.bold, unit.colour, unit.italic)
-                    cell.fill = _fill(unit.fill)
-                elif (off, i) in blk.data_notes:
-                    cell.value = fix_text(blk.data_notes[(off, i)])
-                    cell.font = _font(10, True)
-            _frame(ws, r, last=off == max(1, blk.height) - 1)
-    widths = {1: max(12.0, min(sheet.widths.get(1, 18), 30)), 2: max(9.0, min(sheet.widths.get(2, 10), 18))}
+            _wide_note(ws, r, text)
+        if counts:
+            name = sheet.sections[sec] if sec < len(sheet.sections) else ""
+            r = _counts(ws, r, name, blocks)
+        if len(sections) > 1 or counts:
+            for c in range(1, 19):                      # the line under each siding location
+                cell = ws.cell(r, c)
+                old = cell.border
+                cell.border = _border(left=old.left.style or "", right=old.right.style or "", bottom="medium",
+                                      left_colour=_colour_of(old.left), bottom_colour=SECTION_LINE)
+    a_width, b_width = widths
     for c in range(1, 19):
-        day = max(DAY_WIDTH, min(sheet.widths.get(c, DAY_WIDTH), 20))
-        ws.column_dimensions[get_column_letter(c)].width = widths.get(c, day)
-    ws.freeze_panes = ws.cell(hdr + 1, 3)
+        ws.column_dimensions[get_column_letter(c)].width = {1: a_width, 2: b_width}.get(c, DAY_WIDTH)
+    ws.freeze_panes = f"C{hdr + 1}"
     ws.print_title_rows = f"{hdr}:{hdr}"
     ws.print_area = f"A1:R{max(r, hdr)}"
     _print(ws)
 
 
-def _note_row(ws, r: int, a: str, b: str, bold_a: bool = False):
-    if a:
-        ws.cell(r, 1, fix_text(a)).font = _font(10, bold_a)
-    if b:
-        ws.cell(r, 2, fix_text(b)).font = _font()
+def _wide_note(ws, r: int, text: str):
+    """A long note about the sidings on its own row, across the whole sheet, in red bold on the siding blue."""
+    from openpyxl.styles import Alignment
+    cell = ws.cell(r, 1, fix_text(text))
+    cell.font = _font(10, True, NOTE_COLOUR)
+    cell.alignment = Alignment(wrap_text=True, vertical="center")
+    for c in range(1, 19):
+        ws.cell(r, c).fill = _fill(SIDING_FILL)
+        ws.cell(r, c).border = _border(bottom="thin", right="medium" if c == 18 else "")
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=18)
+    ws.row_dimensions[r].height = ROW_HEIGHT * max(1, -(-len(text) // 170))
 
 
-def _frame(ws, r: int, last: bool):
-    """The borders on a body row: a box round columns B, a line before each day's START, and a line under
-    each berth."""
-    bottom = "thin" if last else ""
+def _colour_of(side) -> str:
+    try:
+        rgb = side.color.rgb if side is not None and side.color is not None else ""
+        return rgb[-6:] if isinstance(rgb, str) else ""
+    except AttributeError:
+        return ""
+
+
+_TYPE = re.compile(r"^\s*L?\s*\(?\s*(\d{1,2})\s*(\d{3})")
+
+
+def unit_type(text: str) -> Optional[Tuple[int, str]]:
+    """(cars, class) of a unit on the chart - '4 387 02+02', '(4 377)', 'L4 377 Berth', '12700 0228TLK' - or None
+    for anything else ('TLK' continuation rows, 'SPARE', notes)."""
+    m = _TYPE.match(text or "")
+    return (int(m.group(1)), m.group(2)) if m else None
+
+
+def _counts(ws, r: int, name: str, blocks: List[Block]) -> int:
+    """The unit counts of one siding location under its berths: a row per unit type (cars and class) with the
+    number of units each night's FINISH and START, and a Cars row, red where it is over the location's
+    capacity. Returns the last row used."""
+    from openpyxl.styles import Alignment
+    per: Dict[str, List[int]] = {}
+    cars = [0] * 16
+    for blk in blocks:
+        for row in blk.units.values():
+            for i, unit in enumerate(row[:16]):
+                t = unit_type(unit.text) if unit is not None else None
+                if t is None:
+                    continue
+                per.setdefault(f"{t[0]} {t[1]}", [0] * 16)[i] += 1
+                cars[i] += t[0]
+    caps = [re.match(r"\s*(\d+)", b.capacity) for b in blocks]
+    capacity = sum(int(m.group(1)) for m in caps if m) if caps and all(caps) else 0
+    centre = Alignment(horizontal="center", vertical="center")
+    r += 1
+    middle = Alignment(vertical="center")
+    head = ws.cell(r, 1, f"{COUNTS_HEAD} – {name}" if name else COUNTS_HEAD)
+    head.font = _font(10, True)
+    head.alignment = middle
+    for c in range(1, 19):
+        ws.cell(r, c).fill = _fill(COUNT_FILL)
+        ws.cell(r, c).border = _line(c, top="thin")
+    ws.row_dimensions[r].height = ROW_HEIGHT
+    rows = sorted(per.items(), key=lambda kv: (kv[0].split()[1], int(kv[0].split()[0])))
+    for key, values in rows + [(COUNTS_END, cars)]:
+        r += 1
+        label = ws.cell(r, 1, key)
+        label.font, label.alignment = _font(10, True), middle
+        if key == COUNTS_END and capacity:
+            cap = ws.cell(r, 2, f"of {capacity}")
+            cap.font, cap.alignment = _font(10, True), Alignment(horizontal="center", vertical="center")
+        for c in range(1, 19):
+            ws.cell(r, c).fill = _fill(COUNT_FILL)
+            ws.cell(r, c).border = _line(c)
+        for i, v in enumerate(values):
+            cell = ws.cell(r, 3 + i, v or None)
+            cell.font = _font(10, key == COUNTS_END)
+            cell.alignment = centre
+            if key == COUNTS_END and capacity and v > capacity:
+                cell.fill = _fill(OVER_FILL)
+        ws.row_dimensions[r].height = ROW_HEIGHT
+    return r
+
+
+def _siding(ws, r: int, label: str, capacity: str, side_note: str):
+    """A berth's first row in columns A and B: its name, and its capacity (or a note, in red)."""
+    from openpyxl.styles import Alignment
+    a = ws.cell(r, 1, label or None)
+    a.font = _font(10, True)
+    a.fill = _fill(SIDING_FILL)
+    a.alignment = Alignment(vertical="center")
+    b = ws.cell(r, 2, fix_text(capacity or side_note) or None)
+    b.font = _font(10, True, "" if capacity else NOTE_COLOUR)
+    b.fill = _fill(SIDING_FILL)
+    b.alignment = Alignment(horizontal="center" if capacity else "left", vertical="center")
+
+
+def _line(c: int, bottom: str = "", top: str = ""):
+    """The vertical lines of column `c`: a box round the siding columns, a darker line between nights (before
+    each FINISH) and a thin one between a night's FINISH and START."""
+    right = "medium" if c == 18 else ""
+    if c == 2:
+        return _border(left="medium", right="medium", bottom=bottom, top=top)
+    if c >= 3 and c % 2 == 1:
+        return _border(left="medium", left_colour=NIGHT_LINE, right=right, bottom=bottom, top=top)
+    if c >= 4:
+        return _border(left="thin", right=right, bottom=bottom, top=top)
+    return _border(bottom=bottom, top=top)
+
+
+def _note_row(ws, r: int, a: str, b: str, bold_a: bool = False, siding: bool = False):
+    """A row's columns A and B: notes about the sidings in red bold, on the siding columns' blue."""
+    for col, text in ((1, a), (2, b)):
+        cell = ws.cell(r, col, fix_text(text) if text else None)
+        if siding:
+            cell.fill = _fill(SIDING_FILL)
+        if text:
+            cell.font = _font(10, True, NOTE_COLOUR) if siding else _font(10, bold_a)
+
+
+def _frame(ws, r: int, bottom: str = ""):
+    """The borders on a body row (see _line), with a line under the last row of each berth."""
     for c in range(1, 19):
         cell = ws.cell(r, c)
-        cell.border = _border(left="medium" if c == 2 else ("thin" if c >= 4 and c % 2 == 0 else ""),
-                              right="medium" if c == 2 else "", bottom=bottom)
+        cell.border = _line(c, bottom=bottom)
         if cell.font is None or cell.font.name != FONT:
             cell.font = _font()
 

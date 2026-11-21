@@ -255,3 +255,88 @@ def test_bad_inputs_give_plain_messages(data):
         engine.generate([str(data / "missing.xml")], str(data / "chart.xlsx"), str(data))
     with pytest.raises(BerthingError, match="same file"):
         engine.compare_charts(str(data / "chart.xlsx"), str(data / "chart.xlsx"), "FFFF00", str(data))
+
+
+def _fill(cell):
+    return cell.fill.fgColor.rgb[-6:] if cell.fill is not None and cell.fill.fill_type == "solid" else ""
+
+
+def test_original_style_formatting_sections_and_counts(data):
+    """Siding names and capacities on light blue, notes in red bold, every berth's box the same height, a coloured
+    line between siding locations (from the old Start/Finish counting rows) and, as an option, unit counts per
+    location with the cars red where they are over its capacity."""
+    from rstools.berthing.layout import read_chart
+    from rstools.berthing.mapping import load
+    from rstools.berthing.writer import NOTE_COLOUR, OVER_FILL, SIDING_FILL, SECTION_LINE
+    lay = read_chart(str(data / "chart.xlsx"), load())
+    bri = next(s for s in lay.sheets if s.name == "Brighton")
+    assert [(b.label, b.section) for b in bri.blocks] == [("Plat 1", 0), ("Plat 7", 1)]   # split by the old counts
+    wb = openpyxl.load_workbook(str(data / "chart.xlsx"))
+    wb["Brighton"]["B8"] = 2                                 # Plat 7 holds 2 cars: BI4's 4 cars are too many
+    wb.save(str(data / "chart2.xlsx"))
+    plain = engine.generate([str(data / "plan.xml")], str(data / "chart2.xlsx"), str(data), "plain", "Proof 2")
+    counted = engine.generate([str(data / "plan.xml")], str(data / "chart2.xlsx"), str(data), "counts", "Proof 2",
+                              counts=True)
+    ws = openpyxl.load_workbook(plain.chart)["Brighton"]
+    labels = {ws.cell(r, 1).value: r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value}
+    p1, p7 = labels["Plat 1"], labels["Plat 7"]
+    assert _fill(ws.cell(p1, 1)) == _fill(ws.cell(p1, 2)) == SIDING_FILL and ws.cell(p1, 1).font.b
+    note = ws.cell(labels["NO ATTACH"], 1)
+    assert note.font.b and note.font.color.rgb[-6:] == NOTE_COLOUR and _fill(note) == SIDING_FILL
+    assert ws.cell(p7 - 1, 1).border.bottom.color.rgb[-6:] == SECTION_LINE      # line under the first location
+    other = labels[next(k for k in labels if str(k).startswith("Other -"))]
+    assert ws.cell(other - 1, 1).value == "OUT OF USE UNTIL FURTHER NOTICE"     # a long note: its own wide row
+    assert p7 - p1 == other - 1 - p7                          # every box on the sheet the same height
+    assert len({ws.column_dimensions[c].width for c in "CDEFGHIJKLMNOPQR"}) == 1
+    assert not any(str(v).startswith("Unit counts") for v in labels)            # counts only when asked for
+    ws = openpyxl.load_workbook(counted.chart)["Brighton"]
+    rows = {ws.cell(r, 1).value: r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value}
+    heads = [k for k in rows if str(k).startswith("Unit counts")]
+    assert heads == ["Unit counts – Plat 1", "Unit counts – Plat 7", "Unit counts – Other - BRGHTN platform/road 2"] \
+        or heads[:2] == ["Unit counts – Plat 1", "Unit counts – Plat 7"]
+    cars7 = [r for r in range(rows["Unit counts – Plat 7"], ws.max_row + 1) if ws.cell(r, 1).value == "Cars"][0]
+    assert ws.cell(cars7, 2).value == "of 2"
+    mon_finish = 9                                            # column I
+    assert ws.cell(cars7, mon_finish).value == 4 and _fill(ws.cell(cars7, mon_finish)) == OVER_FILL
+    unit_row = [r for r in range(rows["Unit counts – Plat 7"], cars7) if ws.cell(r, 1).value == "4 377"][0]
+    assert ws.cell(unit_row, mon_finish).value == 1
+    for path in (plain.chart, counted.chart):                # charts made by the app read back the same
+        again = next(s for s in read_chart(path, load()).sheets if s.name == "Brighton")
+        assert [(b.label, b.section) for b in again.blocks][:2] == [("Plat 1", 0), ("Plat 7", 1)]
+        assert not any(b.label in ("4 377", "Cars") or b.label.startswith("Unit counts") for b in again.blocks)
+    round_ = engine.add_round(counted.chart, [str(data / "plan.xml")], [str(data / "plan.xml")], "92D050",
+                              str(data), "round", counts=True)
+    assert round_.summary.startswith("0 change")
+
+
+def test_built_in_default_layout(data, monkeypatch):
+    """With no chart chosen, the chart is made in the app's built-in layout (no trains stored in it); the layout
+    file can be remade from a chart and reads back the same."""
+    import gzip
+    import json
+    from rstools.berthing import layout as L
+    info = L.default_info()
+    assert info and info["sheets"] >= 20 and info["source"].lower().endswith(".xlsx")
+    data_ = json.load(gzip.open(L.DEFAULT_FILE, "rt", encoding="utf-8"))
+    blocks = [b for sh in data_["sheets"] for b in sh.get("blocks", [])]
+    assert blocks and not any("units" in b or "cells" in b for b in blocks)              # no trains stored
+    r = engine.generate([str(data / "plan.xml")], "", str(data), "default", "Proof 3")
+    wb = openpyxl.load_workbook(r.chart)
+    assert "Brighton" in wb.sheetnames and "Three Bridges" in wb.sheetnames
+    assert any("built-in layout" in str(c.value) for c in wb["Notes"]["A"])
+    tb = next(s for s in L.load_default().sheets if s.name == "Three Bridges")
+    assert [b.label for b in tb.blocks][-5:] == [f"Tilgate No {n}" for n in range(1, 6)]
+    out = data / "layout.json.gz"
+    made = L.save_default(str(data / "chart.xlsx"), str(out))
+    assert made["sheets"] == 2
+    monkeypatch.setattr(L, "DEFAULT_FILE", str(out))
+    L._default_cache.clear()
+    try:
+        again = L.load_default()
+        first = L.read_chart(str(data / "chart.xlsx"), None)
+        assert [s.name for s in again.sheets] == [s.name for s in first.sheets]
+        assert [[(b.label, b.capacity, b.section) for b in s.blocks] for s in again.sheets] == \
+            [[(b.label, b.capacity, b.section) for b in s.blocks] for s in first.sheets]
+        assert all(not b.units for s in again.sheets for b in s.blocks)
+    finally:
+        L._default_cache.clear()

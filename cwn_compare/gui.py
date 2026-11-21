@@ -40,9 +40,10 @@ HAS_OLD = {k: has_old for k, _label, has_old, _desc in CATEGORIES}
 # berthing charts: mode -> (radio button, [(file box label, kind)], run button, intro)
 BERTH_MODES = {
     "berth_make": ("Make a berthing chart from an Attune XML",
-                   [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"), ("Layout from chart:", "xlsx")],
-                   "Make berthing chart", "Makes a berthing chart from an Attune XML, laid out like a chart you "
-                   "choose. Attach the STP XML too for an STP chart."),
+                   [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"),
+                    ("Layout from chart (optional):", "xlsx")],
+                   "Make berthing chart", "Makes a berthing chart from an Attune XML, in the app's built-in layout "
+                   "(or laid out like a chart you choose). Attach the STP XML too for an STP chart."),
     "berth_round": ("Add a round of changes to a berthing chart",
                     [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml")],
                     "Add changes to chart", "Remakes a berthing chart from an updated Attune XML and highlights "
@@ -1152,9 +1153,15 @@ class App(tk.Tk):
         self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
         ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths).grid(row=4, column=2,
                                                                                     pady=(6, 0))
+        self.berth_counts = tk.BooleanVar(value=False)
+        counts_cb = ttk.Checkbutton(bf, text="Show unit counts for each siding location", variable=self.berth_counts)
+        counts_cb.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): the number "
+                           "of units of each type every night's FINISH and START, and the cars, shown in red where "
+                           "they are more than the location holds.")
         self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
                                     "Tips")
-        self.berth_hint.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self.berth_hint.grid(row=6, column=0, columnspan=3, sticky="w", pady=(4, 0))
         for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue]:
             var.trace_add("write", lambda *_a: self._update_name_hint())
 
@@ -1245,12 +1252,13 @@ class App(tk.Tk):
             try:
                 if mode == "berth_make":
                     res = engine.generate([p for p in files[:2] if p], files[2], o.output_dir, o.output_name,
-                                          o.berth_issue, log)
+                                          o.berth_issue, log, counts=o.berth_counts)
                 elif mode == "berth_round":
                     res = engine.add_round(files[0], split(files[1]), split(files[2]), o.colour, o.output_dir,
-                                           o.output_name, o.berth_issue, log)
+                                           o.output_name, o.berth_issue, log, counts=o.berth_counts)
                 else:
-                    res = engine.compare_charts(files[0], files[1], o.colour, o.output_dir, o.output_name, log)
+                    res = engine.compare_charts(files[0], files[1], o.colour, o.output_dir, o.output_name, log,
+                                                counts=o.berth_counts)
                 self.q.put(("berth_done", res))
             except BerthingError as exc:
                 self.q.put(("error", str(exc)))
@@ -1269,6 +1277,7 @@ class App(tk.Tk):
                 var.set(saved_files[i] if isinstance(saved_files, list) and i < len(saved_files)
                         and isinstance(saved_files[i], str) else "")
         self.berth_issue.set(o.berth_issue)
+        self.berth_counts.set(bool(o.berth_counts))
         for k, var in self.book_vars.items():
             var.set(getattr(o, f"book_{k}", "") or "")
         for dt, v in self.book_day_vars.items():
@@ -1302,6 +1311,7 @@ class App(tk.Tk):
         o.merge_berth_diagrams = bool(self.merge_bdiag_var.get())
         o.berth_files = {m: self._berth_paths(m) for m in BERTH_MODES}
         o.berth_issue = self.berth_issue.get().strip()
+        o.berth_counts = bool(self.berth_counts.get())
         util = o.mode in ("reorder", "station")
         o.original = (self.util if util else self.orig).get().strip().strip('"')
         o.updated = "" if util else self.upd.get().strip().strip('"')
@@ -1567,7 +1577,8 @@ class App(tk.Tk):
         self.dnd_hint.configure(text="Tip: drag and drop two CWNs (or two folders of CWNs) onto this box.")
         self.util_hint.configure(text="Tip: drag and drop a CWN (day variants in order) or an Attune XML (station "
                                       "working book) onto this box.")
-        self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts onto this box.")
+        self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts onto this box. Leave "
+                                       "'Layout from chart' blank to use the app's built-in layout.")
 
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""

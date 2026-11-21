@@ -13,7 +13,7 @@ from rstools.fsutil import unique_stem
 from . import writer
 from .chart import Units, place
 from .compare import carry_colours, colour_name, diff, highlight, write_report
-from .layout import Layout, read_chart
+from .layout import Layout, load_default, read_chart
 from .mapping import load as load_locations
 from .stays import build
 from .xmlread import BerthingError, read_xml
@@ -80,14 +80,19 @@ def _save(fn, path: str):
                             "in Excel.")
 
 
-def generate(xml_paths: Sequence[str], layout_path: str, out_dir: str = "", name: str = "", issue: str = "",
-             log: Log = lambda m: None) -> Result:
+def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "", name: str = "", issue: str = "",
+             log: Log = lambda m: None, counts: bool = False) -> Result:
     """A new chart from an LTP XML (or an LTP and an STP XML: STP trains in bold on lavender), laid out like
-    `layout_path`. No change colours: the chart starts clean."""
+    `layout_path` - or like the app's built-in layout when none is given. No change colours: the chart starts
+    clean. `counts` adds the unit counts of each siding location."""
     _check_paths(list(xml_paths), "Attune XML")
-    _check_paths([layout_path], "chart to take the layout from")
-    log(f"Reading the layout of {os.path.basename(layout_path)}")
-    layout = read_chart(layout_path, load_locations())
+    if layout_path:
+        _check_paths([layout_path], "chart to take the layout from")
+        log(f"Reading the layout of {os.path.basename(layout_path)}")
+        layout = read_chart(layout_path, load_locations())
+    else:
+        layout = load_default()
+        log(f"Using {layout.path}")
     _clear_units(layout)
     xmls, filled, warnings = _fill(layout, xml_paths, log)
     stp = len(xml_paths) > 1
@@ -95,14 +100,14 @@ def generate(xml_paths: Sequence[str], layout_path: str, out_dir: str = "", name
     path = _out(out_dir, name, default + (" STP" if stp and "stp" not in default.lower() else ""), xml_paths[-1])
     first = xmls[-1]
     _save(lambda: writer.write(filled, path, writer.cover_rewriter(issue, first.start, first.end), _legend(stp),
-                               _notes(xml_paths, layout_path, warnings)), path)
+                               _notes(xml_paths, layout_path or layout.path, warnings), counts), path)
     n = _count(filled)
     return Result(path, "", f"{n} unit stay(s) placed on {len(filled.sheets)} sheet(s)." +
                   (" STP trains are in bold on lavender." if stp else ""), warnings)
 
 
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",
-              name: str = "", issue: str = "", log: Log = lambda m: None) -> Result:
+              name: str = "", issue: str = "", log: Log = lambda m: None, counts: bool = False) -> Result:
     """The chart remade from the updated XML(s), with every cell that differs from the original XML(s)
     filled in `colour`, and the chart's earlier highlights kept where nothing changed. Plus a change report."""
     _check_paths([chart_path], "berthing chart to add the changes to")
@@ -125,7 +130,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     rewrite = writer.cover_rewriter(issue, first.start, first.end)
     cover = lambda t: _updates_line(rewrite(t), shade)
     _save(lambda: writer.write(after, path, cover, _legend(len(updated) > 1),
-                               _notes(list(updated), chart_path, warnings)), path)
+                               _notes(list(updated), chart_path, warnings), counts), path)
     about = [("Chart", os.path.basename(path)), ("Original XML", ", ".join(map(os.path.basename, original))),
              ("Updated XML", ", ".join(map(os.path.basename, updated))), ("Highlight colour", shade),
              ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
@@ -134,7 +139,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
 
 
 def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "", name: str = "",
-                   log: Log = lambda m: None) -> Result:
+                   log: Log = lambda m: None, counts: bool = False) -> Result:
     """The newer chart, tidied, with every cell that differs from the older one filled in `colour` (its own
     earlier highlights kept), and a change report."""
     _check_paths([old_path, new_path], "two berthing charts")
@@ -151,7 +156,7 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
     path = _out(out_dir, name, f"{naming.today()} {naming.vs(a, b)}", new_path)
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
-    _save(lambda: writer.write(new, path, lambda t: _updates_line(t, shade), (), []), path)
+    _save(lambda: writer.write(new, path, lambda t: _updates_line(t, shade), (), [], counts), path)
     about = [("Older chart", os.path.basename(old_path)), ("Newer chart", os.path.basename(new_path)),
              ("Highlight colour", shade), ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
     _save(lambda: write_report(report, changes, "Berthing chart changes", about), report)
@@ -193,8 +198,9 @@ def _timetable(xmls) -> str:
 
 
 def _notes(xmls: Sequence[str], layout_path: str, warnings: Sequence[str]) -> List[str]:
+    where = layout_path if layout_path.startswith("the built-in") else os.path.basename(layout_path)
     lines = [f"Made {datetime.datetime.now():%d/%m/%Y %H:%M} from " + ", ".join(map(os.path.basename, xmls))
-             + f", in the layout of {os.path.basename(layout_path)}."]
+             + f", in the layout of {where}."]
     if len(xmls) > 1:
         lines.append("LTP and STP: each day's STP diagrams replace the LTP ones; STP trains are in bold on lavender.")
     lines += list(warnings) or ["Nothing needs checking."]

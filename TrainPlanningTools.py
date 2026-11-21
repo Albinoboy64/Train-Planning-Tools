@@ -380,7 +380,9 @@ def berthing_cli(argv):
     g.add_argument("--xml", nargs="+", help="make a chart: the LTP Attune XML, then optionally the STP XML")
     g.add_argument("--chart", help="add a round of changes to this chart (with --original and --updated)")
     g.add_argument("--compare", nargs=2, metavar=("OLD", "NEW"), help="compare two charts")
-    ap.add_argument("--layout", help="the chart whose sheets, berths and notes the new chart follows")
+    ap.add_argument("--layout", default="", help="the chart whose sheets, berths and notes the new chart follows "
+                                                 "(default: the app's built-in layout)")
+    ap.add_argument("--counts", action="store_true", help="add the unit counts of each siding location")
     ap.add_argument("--original", nargs="+", help="the Attune XML(s) the chart was made from")
     ap.add_argument("--updated", nargs="+", help="the changed Attune XML(s)")
     ap.add_argument("--issue", default="", help="the issue shown on the cover, e.g. 'Proof 2'")
@@ -395,16 +397,15 @@ def berthing_cli(argv):
         if colour and not (len(colour) == 6 and all(ch in "0123456789abcdefABCDEF" for ch in colour)):
             raise BerthingError(f"'{a.colour}' is not a colour: use a name ({', '.join(PRESET_COLOURS)}) or RRGGBB.")
         if a.xml:
-            if not a.layout:
-                raise BerthingError("--xml needs --layout CHART.xlsx (the chart whose layout to follow).")
-            res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print)
+            res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print, counts=a.counts)
         elif a.chart:
             if not (a.original and a.updated):
                 raise BerthingError("--chart needs --original XML and --updated XML.")
             res = engine.add_round(a.chart, a.original, a.updated, colour or "92D050", a.out, a.name, a.issue,
-                                   log=print)
+                                   log=print, counts=a.counts)
         else:
-            res = engine.compare_charts(a.compare[0], a.compare[1], colour or "FFFF00", a.out, a.name, log=print)
+            res = engine.compare_charts(a.compare[0], a.compare[1], colour or "FFFF00", a.out, a.name, log=print,
+                                        counts=a.counts)
     except BerthingError as exc:
         print("ERROR:", exc)
         sys.exit(1)
@@ -432,6 +433,12 @@ def selftest_cli(argv):
         print("ERROR: the built-in Section 4 rule set is missing from the exe")
         sys.exit(1)
     print(f"Rules OK: {rules.BUILT_IN_S4}, {len(rules._builtin_data()['possessions'])} possession rows")
+    from rstools.berthing.layout import default_info
+    lay = default_info()
+    if lay is None:
+        print("ERROR: the built-in berthing chart layout is missing from the exe")
+        sys.exit(1)
+    print(f"Layout OK: berthing chart layout from {lay['source']}, {lay['sheets']} sheets")
     import tkinter as tk
     try:
         root = tk.Tk()
