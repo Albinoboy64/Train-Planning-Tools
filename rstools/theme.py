@@ -219,6 +219,32 @@ def rescaled_size(width: int, height: int, ratio: float, area=None):
     return max(w, 200), max(h, 150)
 
 
+def place_window(x: int, y: int, w: int, h: int, need_w: int, need_h: int, area, frame=(0, 0)):
+    """Where the window goes after a scaling change: at least as big as its content needs (so nothing is cut
+    off), never bigger than the display's work area, and moved back inside it if it now sticks out.
+    (x, y) is the window frame's top-left, (w, h) its inside size, `frame` the extra width / height of the
+    border and title bar, `area` the work area (left, top, right, bottom). Returns (x, y, w, h)."""
+    left, top, right, bottom = area
+    fw, fh = frame
+    w = max(200, min(max(w, need_w), right - left - fw))
+    h = max(150, min(max(h, need_h), bottom - top - fh))
+    x = max(left, min(x, right - w - fw))
+    y = max(top, min(y, bottom - h - fh))
+    return x, y, w, h
+
+
+def mouse_held() -> bool:
+    """True while a mouse button is held down (Windows: the window is still being dragged)."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        state = ctypes.windll.user32.GetAsyncKeyState
+        return bool(state(0x01) & 0x8000 or state(0x02) & 0x8000)          # left / right button
+    except (AttributeError, OSError):
+        return False
+
+
 def windows_high_contrast() -> bool:
     """True when Windows high-contrast mode is on."""
     if not sys.platform.startswith("win"):

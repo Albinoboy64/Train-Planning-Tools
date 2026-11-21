@@ -190,13 +190,18 @@ class App(tk.Tk):
         self.bind_class("TPTMain", "<Configure>", self._moved)
         self.bindtags(("TPTMain",) + self.bindtags())
 
+    def _needed_size(self):
+        """The window size that shows a whole tab without scrolling (after the layout is up to date)."""
+        bodies = [self.outer, self.stats_tab, self.tt_tab]
+        width = max(b.winfo_reqwidth() for b in bodies) + 40
+        chrome = self.winfo_reqheight() - self.notebook.winfo_reqheight() + 40     # header, tabs, status bar
+        height = max(b.winfo_reqheight() for b in bodies) + chrome
+        return width, height
+
     def _fit_to_screen(self):
         """Open big enough to show a whole tab without scrolling, but never larger than the screen."""
         self.update_idletasks()
-        bodies = [self.outer, self.stats_tab, self.tt_tab]
-        width = max(b.winfo_reqwidth() for b in bodies) + 40
-        chrome = self.winfo_reqheight() - self.notebook.winfo_reqheight() + 40     # header + tab strip
-        height = max(b.winfo_reqheight() for b in bodies) + chrome
+        width, height = self._needed_size()
         area = theme.work_area(self)
         screen_w, screen_h = ((area[2] - area[0], area[3] - area[1]) if area else
                               (self.winfo_screenwidth() - 40, self.winfo_screenheight() - 80))
@@ -205,7 +210,11 @@ class App(tk.Tk):
         self.geometry(f"{width}x{height}")
 
     def _set_minsize(self):
-        self.minsize(theme.px(self, 1080), theme.px(self, 560 if self.compact else 720))
+        """The smallest window that keeps the layout usable, but never larger than the display it is on (a big
+        minimum on a small, high-scaling screen would push the window off it)."""
+        left, top, right, bottom = theme.screen_area(self)
+        self.minsize(min(theme.px(self, 1080), right - left - 20),
+                     min(theme.px(self, 560 if self.compact else 720), bottom - top - 60))
 
     # ------------------------------------------------------------ moving between displays
     def _moved(self, event):
@@ -222,8 +231,12 @@ class App(tk.Tk):
     def _check_dpi(self):
         self._dpi_after = None
         dpi = theme.window_dpi(self)
-        if dpi != self.dpi:
-            self.dpi_changed(dpi)
+        if dpi == self.dpi:
+            return
+        if theme.mouse_held():              # still being dragged: rescale once it is let go, in one step
+            self._dpi_after = self.after(60, self._check_dpi)
+            return
+        self.dpi_changed(dpi)
 
     def _prewarm_displays(self):
         """Once the window is up and idle: draw icons and tick boxes for the other displays' scaling now, so a
@@ -245,10 +258,17 @@ class App(tk.Tk):
             width, height = self.winfo_width(), self.winfo_height()
             self.set_text_size(self.size_var.get(), fit=False, save=False, rescale_only=True)
             self._set_minsize()
+            self.update_idletasks()                 # the content's new size, worked out while painting is held
             if self.state() != "zoomed":
-                w, h = theme.rescaled_size(width, height, ratio, theme.work_area(self))
-                self.geometry(f"{w}x{h}")
-            self.update_idletasks()                 # lay everything out while painting is held
+                # the same physical size, grown if the content needs more room, and kept on this display
+                area = theme.screen_area(self)
+                w, h = theme.rescaled_size(width, height, ratio, area)
+                frame = (max(0, 2 * (self.winfo_rootx() - self.winfo_x())),
+                         max(0, self.winfo_rooty() - self.winfo_y() + (self.winfo_rootx() - self.winfo_x())))
+                need_w, need_h = self._needed_size()
+                x, y, w, h = theme.place_window(self.winfo_x(), self.winfo_y(), w, h, need_w, need_h, area, frame)
+                self.geometry(f"{w}x{h}+{x}+{y}")
+                self.update_idletasks()             # lay the window out at its new size while painting is held
 
     # ------------------------------------------------------------ settings shared by both tabs
     def apply_theme(self, mode: str):

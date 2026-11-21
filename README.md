@@ -342,6 +342,11 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.21.3** - no more resizing the window after moving between displays
+* **Nothing cut off**: after moving to a display with other scaling, the window grows if its content needs more room (never beyond the display), and is moved back fully onto the display if it now sticks out past an edge. It used to keep only its physical size and stay where it was, so a window near the edge could end up partly off the screen, or too small for the content.
+* **Smaller minimum size on small screens**: the window's minimum size never exceeds the display it is on (a large minimum on a small, high-scaling laptop screen could force part of the window off it).
+* **One step, when you let go**: while the window is still being dragged, the rescale waits; it happens once the mouse button is released, in one go, instead of resizing and relaying out the window under the mouse mid-drag.
+
 **3.21.2** - quicker when moving between displays (again)
 * **Images drawn ahead**: a few seconds after the app opens, it asks Windows which scaling each connected display uses (e.g. 200% on a 4K laptop, 100% on a 1440p monitor) and draws the icons, tick boxes and radio buttons for those displays in spare time. Moving the window to another display then only has to lay it out again.
 * **Images kept**: icons and tick boxes drawn for a display are kept, so moving back and forth never draws them twice.

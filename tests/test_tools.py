@@ -906,3 +906,63 @@ def test_rescale_reuses_drawn_images(monkeypatch):
             assert app.run_btn.cget("image") and app._indicator_images["check"].height() >= 11
         finally:
             app._on_close()
+
+
+def test_window_placed_on_screen_after_a_scaling_change():
+    """After a move to a display with other scaling the window is at least as big as its content needs
+    (nothing cut off), no bigger than the work area, and moved back inside it if it sticks out."""
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools.theme import place_window
+    area = (0, 0, 1920, 1040)
+    assert place_window(100, 100, 1000, 700, 1200, 800, area) == (100, 100, 1200, 800)        # grown to fit
+    assert place_window(100, 100, 1500, 900, 1200, 800, area) == (100, 100, 1500, 900)        # kept if bigger
+    assert place_window(1500, 600, 1200, 800, 1200, 800, area, (16, 40)) == (704, 200, 1200, 800)  # moved in
+    assert place_window(-300, -50, 3000, 2000, 2500, 1500, area, (16, 40)) == (0, 0, 1904, 1000)   # screen-sized
+    left = (-1920, 0, 0, 1080)                                                                  # a display on the left
+    assert place_window(-200, 100, 800, 600, 900, 700, left) == (-900, 100, 900, 700)
+
+
+def test_rescale_waits_for_the_drag_to_end_then_fits_the_window(monkeypatch):
+    """While the mouse button is held (the window still being dragged) the rescale waits; once let go it rescales
+    in one step, and the window ends up fully on the screen and big enough for its content."""
+    import time
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    from rstools import theme
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        monkeypatch.setenv("TPT_COMPACT", "0")
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        try:
+            app.update()
+            shown = {"dpi": app.dpi, "held": True}
+            monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
+            monkeypatch.setattr(g.theme, "mouse_held", lambda: shown["held"])
+            area = theme.screen_area(app)
+            app.geometry(f"1100x700+{area[2] - 1150}+{area[1] + 20}")      # near the right edge
+            app.update()
+            base = app.dpi
+            shown["dpi"] = base * 2
+            app._check_dpi()
+            app.update()
+            assert app.dpi == base and app._dpi_after is not None          # still dragging: waits
+            shown["held"] = False
+            end = time.time() + 2
+            while app.dpi == base and time.time() < end:
+                app.update()
+                time.sleep(0.02)
+            assert app.dpi == base * 2
+            app.update()
+            need_w, need_h = app._needed_size()
+            assert app.winfo_x() >= area[0] and app.winfo_x() + app.winfo_width() <= area[2] + 1
+            assert app.winfo_y() >= area[1] and app.winfo_y() + app.winfo_height() <= area[3] + 1
+            assert app.winfo_width() >= min(need_w, area[2] - area[0]) - 2
+            assert app.winfo_height() >= min(need_h, area[3] - area[1]) - 60
+        finally:
+            app._on_close()
