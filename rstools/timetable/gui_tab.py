@@ -171,9 +171,10 @@ class TimetableTab(ttk.Frame):
             self.clear_btns[key] = clear
             self.vars[key].trace_add("write", lambda *_a: self._update_name_hint())
         ttk.Button(ff, text="Swap files", command=self._swap).grid(row=3, column=2, pady=(2, 0))
-        self.note = ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.note = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"),
+                              "What is checked")
         self.note.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"))
+        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.dnd_hint.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
         # --- utilities: the Section 4 possession check (Attune XML + Network Rail's Section 4 PDFs)
@@ -198,11 +199,13 @@ class TimetableTab(ttk.Frame):
                 ttk.Button(uf, text="Clear", width=6, command=lambda: self.s4_vars["pdf"].set("")).grid(
                     row=r, column=3, padx=(4, 0), pady=2)
             self.s4_vars[key].trace_add("write", lambda *_a: self._update_name_hint())
-        self.s4_set = ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.s4_set = theme.collapse_empty(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480,
+                                                     justify="left"))
         self.s4_set.grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        self.s4_note = ttk.Label(uf, text=S4_NOTE, style="Small.TLabel", wraplength=480, justify="left")
+        self.s4_note = theme.tip(ttk.Label(uf, text=S4_NOTE, style="Small.TLabel", wraplength=480, justify="left"),
+                                 "About this check")
         self.s4_note.grid(row=5, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        self.s4_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left"))
+        self.s4_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.s4_hint.grid(row=6, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.s4_vars["pdf"].trace_add("write", lambda *_a: self.show_rule_set())
         self.show_rule_set()
@@ -218,7 +221,8 @@ class TimetableTab(ttk.Frame):
         ttk.Label(of, text="Output name:").grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
         ttk.Entry(of, textvariable=self.out_name).grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
-        self.name_hint = ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left"),
+                                   "Default name and folder")
         self.name_hint.grid(row=2, column=0, columnspan=3, sticky="w")
         fmtf = ttk.Frame(of)
         fmtf.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))

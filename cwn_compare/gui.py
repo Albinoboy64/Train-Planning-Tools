@@ -8,6 +8,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import tkinter as tk
 import webbrowser
@@ -354,6 +355,8 @@ class App(tk.Tk):
 
     def notify_done(self, title: str, message: str, ok: bool = True):
         """Flash the taskbar and show a corner notice when a run ends while the app is in the background."""
+        at = time.monotonic()
+        self.after_idle(lambda: self._status_done(title, message, ok, at))      # after its outputs are known
         if self.opts.notify_done:
             from rstools.notify import notify
             notify(self, title, message, ok)
@@ -605,6 +608,8 @@ class App(tk.Tk):
 
     def open_outputs(self, paths, force: bool = False):
         """'Open when finished' (or an Open button, with force): open the output, or its folder for many files."""
+        if not force and paths:
+            self._outputs_at = (time.monotonic(), list(paths))       # a run just finished: for the status bar
         if not (force or self.open_var.get()) or not paths:
             return
         for p in (paths if len(paths) <= 3 else [os.path.dirname(paths[0])]):
@@ -626,8 +631,47 @@ class App(tk.Tk):
         busy = busy or self.running or self.stats_tab.running or self.tt_tab.running or self.live_tab.running
         try:
             self.configure(cursor="watch" if busy else "")
+            if busy:
+                self._set_status("Working...", "")
+            elif str(self.status_text.cget("text")) == "Working...":
+                self.after_idle(self._status_ready)
         except tk.TclError:
             pass
+
+    # ------------------------------------------------------------ status bar (the last result, whichever tab)
+    def _build_status_bar(self):
+        bar = self.status_bar = ttk.Frame(self, padding=(12, 3, 12, 4))
+        bar.pack(side="bottom", fill="x")
+        ttk.Separator(self, orient="horizontal").pack(side="bottom", fill="x")
+        bar.columnconfigure(0, weight=1)
+        self.status_text = ttk.Label(bar, text="Ready", style="Small.TLabel", anchor="w")
+        self.status_text.grid(row=0, column=0, sticky="ew")
+        self.status_open = ttk.Label(bar, text="Open output", style="Link.TLabel", cursor="hand2")
+        self.status_dir = ttk.Label(bar, text="Open folder", style="Link.TLabel", cursor="hand2")
+        self.status_open.bind("<Button-1>", lambda _e: self.open_outputs(self._status_paths, force=True))
+        self.status_dir.bind("<Button-1>", lambda _e: self.open_outputs(
+            [os.path.dirname(self._status_paths[0])], force=True))
+        self._status_paths: list = []
+        self._outputs_at = (0.0, [])
+
+    def _set_status(self, text: str, style: str = "", paths=()):
+        self.status_text.configure(text=text, style=style or "Small.TLabel")
+        self._status_paths = [p for p in paths if p]
+        for col, link in enumerate((self.status_open, self.status_dir), start=1):
+            if self._status_paths:
+                link.grid(row=0, column=col, padx=(12, 0))
+            else:
+                link.grid_remove()
+
+    def _status_ready(self):
+        if str(self.status_text.cget("text")) == "Working...":       # a run stopped without a result
+            self._set_status("Ready")
+
+    def _status_done(self, title: str, message: str, ok: bool, at: float):
+        when, paths = self._outputs_at
+        paths = paths if ok and abs(when - at) < 5 else []         # the outputs of this run, not an earlier one
+        line = f"{time.strftime('%H:%M')}  {title}" + (f" - {message}" if message else "")
+        self._set_status(line, "" if ok else "Warn.TLabel", paths)
 
     def _on_close(self):
         if (self.running or self.stats_tab.running or self.tt_tab.running) and not messagebox.askyesno(
@@ -699,6 +743,7 @@ class App(tk.Tk):
         self.update_note.grid(row=0, column=4, sticky="e")
         self.update_note.bind("<Button-1>", lambda _e: self.check_for_updates(self._pending_release))
         self._pending_release = None
+        self._build_status_bar()
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True)
         cwn_page, stats_page = ScrollPage(self.notebook), ScrollPage(self.notebook)
@@ -720,6 +765,11 @@ class App(tk.Tk):
         self.live_tab = LiveTab(live_page.body, self)
         self.live_tab.pack(fill="both", expand=True)
         self.notebook.add(live_page, text="  Live View  ")
+        from rstools import icons
+        for page, name in ((cwn_page, "stock"), (stats_page, "stats"), (tt_page, "timing"), (live_page, "live")):
+            self.notebook.tab(page, image=(icons.image(self, name, "muted"), "selected", icons.image(self, name)),
+                              compound="left", text=" " + self.notebook.tab(page, "text").strip() + " ")
+        icons.watch_buttons(self)
         outer.columnconfigure(0, weight=1)
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
@@ -768,9 +818,10 @@ class App(tk.Tk):
         self.upd_browse.grid(row=2, column=2, pady=(6, 0))
         self.swap_btn = ttk.Button(ff, text="Swap original / updated", command=self._swap)
         self.swap_btn.grid(row=3, column=1, sticky="w", padx=4, pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=430, justify="left"))
+        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=430, justify="left"), "Tips")
         self.dnd_hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        self.prev_info = ttk.Label(ff, text="", style="Small.TLabel", wraplength=430, justify="left")
+        self.prev_info = theme.collapse_empty(ttk.Label(ff, text="", style="Small.TLabel", wraplength=430,
+                                                        justify="left"))
         self.prev_info.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
         for w in (self.orig_entry, self.upd_entry):           # typing in a box picks its section
             w.bind("<FocusIn>", lambda _e: self._pick_section("compare"), add="+")
@@ -795,7 +846,7 @@ class App(tk.Tk):
         ttk.Button(uf, text="Browse...", command=lambda: self._browse(self.util, True)).grid(row=1, column=2,
                                                                                           pady=(6, 0))
         self.util_entry.bind("<FocusIn>", lambda _e: self._pick_section("util"), add="+")
-        self.util_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=430, justify="left"))
+        self.util_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=430, justify="left"), "Tips")
         self.util_hint.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # --- berthing charts: made from Attune XMLs, a round of changes added, two charts compared
@@ -844,7 +895,8 @@ class App(tk.Tk):
         ttk.Label(of, text="Output name:").grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
         ttk.Entry(of, textvariable=self.out_name).grid(row=6, column=1, sticky="ew", padx=4, pady=(6, 0))
-        self.name_hint = ttk.Label(of, text="", style="Small.TLabel", wraplength=440, justify="left")
+        self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=440, justify="left"),
+                                   "Default name and folder")
         self.name_hint.grid(row=7, column=0, columnspan=3, sticky="w")
         dayf = ttk.Frame(of)
         dayf.grid(row=8, column=0, columnspan=3, sticky="w", pady=(8, 0))
@@ -857,7 +909,8 @@ class App(tk.Tk):
             self.day_cbs.append(cb)
         self.all_days_btn = ttk.Button(dayf, text="All", width=5, state="disabled", command=self._all_days)
         self.all_days_btn.grid(row=0, column=len(DAY_LABELS) + 1, padx=(4, 0))
-        self.day_note = ttk.Label(of, text="", style="Small.TLabel", wraplength=440, justify="left")
+        self.day_note = theme.collapse_empty(ttk.Label(of, text="", style="Small.TLabel", wraplength=440,
+                                                       justify="left"))
         self.day_note.grid(row=9, column=0, columnspan=3, sticky="w")
         # reorder mode: how the variants of each train are ordered (shown instead of the comparison options)
         self.order_frame = orf = ttk.Frame(of)
@@ -1002,7 +1055,8 @@ class App(tk.Tk):
         self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
         ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths).grid(row=4, column=2,
                                                                                     pady=(6, 0))
-        self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"))
+        self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
+                                    "Tips")
         self.berth_hint.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
         for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue]:
             var.trace_add("write", lambda *_a: self._update_name_hint())
@@ -1195,7 +1249,8 @@ class App(tk.Tk):
         for i, dt in enumerate(("SX", "SO", "Su")):
             v = self.book_day_vars[dt] = tk.BooleanVar(value=True)
             ttk.Checkbutton(df, text=dt, variable=v).grid(row=0, column=i + 1, padx=(0, 8))
-        self.book_note = ttk.Label(sb, text="", style="Small.TLabel", wraplength=440, justify="left")
+        self.book_note = theme.collapse_empty(ttk.Label(sb, text="", style="Small.TLabel", wraplength=440,
+                                                        justify="left"))
         self.book_note.grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self._book_stations: list = []
         self._book_token = 0

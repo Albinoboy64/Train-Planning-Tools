@@ -342,6 +342,13 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.21.0** - a cleaner, more professional look
+* **One flat look in every theme**: light mode on Windows now uses the same flat style as dark and high contrast (it used the old Windows 'Vista' controls), so every theme matches.
+* **Less text on screen**: tips and longer notes (drag-and-drop tips, what each comparison checks, the default output name and folder, notes about the files) now show as one short line - an info icon with *Tips*, *What is checked*, *Default name and folder*... - and the full text appears when the mouse rests on it or it is clicked. Each tab's one-line description stays.
+* **No empty gaps**: notes that have nothing to say in the chosen mode no longer leave blank space in their section.
+* **Icons**: Run, Browse, Add and Open buttons and the four tabs have small icons, drawn by the app at the display's scaling in the theme's colours (greyed when a button is not available).
+* **Status bar** along the bottom of the window: the last result from any tab (time, what finished and its summary, or what failed), with *Open output* and *Open folder* links.
+
 **3.20.4** - review fixes: Live View highlights, print reader, drop-down, berthing smoke test
 * **Live View, CWNs**: unit, note and next-day working lines are highlighted the way the comparison judges them. Lines that only moved (units listed in another order, next-day workings re-ordered or with only a different day code) are no longer shown as changed; only the line that really differs is.
 * **Live View, two plans**: warnings from building each plan (e.g. a fleet missing from the fleet table) are now shown, as in the stats pack comparison. A comparison CWN without its stored data now gives a plain message instead of an error.

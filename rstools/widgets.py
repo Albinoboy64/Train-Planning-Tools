@@ -62,15 +62,16 @@ class Tooltip:
     """Help text shown when the mouse rests on a widget (after a short delay, kept on screen)."""
     DELAY_MS = 450
 
-    def __init__(self, widget, text: str):
+    def __init__(self, widget, text: str, delay: int = 0):
         self.widget, self.text, self.tip, self._after = widget, text, None, None
+        self.delay = delay or self.DELAY_MS
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self.hide, add="+")
         widget.bind("<ButtonPress>", self.hide, add="+")
 
     def _schedule(self, _e=None):
         self._cancel()
-        self._after = self.widget.after(self.DELAY_MS, self.show)
+        self._after = self.widget.after(self.delay, self.show)
 
     def _cancel(self):
         if self._after:

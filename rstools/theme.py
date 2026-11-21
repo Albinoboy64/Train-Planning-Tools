@@ -1,7 +1,7 @@
 """Appearance of the Train Planning Tools window: theme, fonts and text size.
 
-Light mode on Windows keeps the native 'vista' look. Dark and high-contrast modes (and light mode
-elsewhere) use ttk's 'clam' theme recoloured from one palette, so every tab, box and button matches.
+Every mode (light, dark, high contrast) uses ttk's 'clam' theme recoloured from one palette, so every tab,
+box and button matches, with the same flat look on Windows and elsewhere.
 'Follow Windows' reads the Windows app theme and high-contrast setting (no admin rights needed) and
 keeps following them.
 
@@ -287,54 +287,51 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     CURRENT.update(p)
     hc = name == "contrast"
     style = ttk.Style(root)
-    native = name == "light" and sys.platform.startswith("win") and "vista" in style.theme_names()
-    wanted = "vista" if native else "clam"
-    if style.theme_use() != wanted:             # switching to the same theme again would restyle every widget
-        style.theme_use(wanted)
+    if style.theme_use() != "clam":             # switching to the same theme again would restyle every widget
+        style.theme_use("clam")
 
-    if not native:
-        style.configure(".", background=p["bg"], foreground=p["fg"], fieldbackground=p["field"],
-                        bordercolor=p["border"], lightcolor=p["bg"], darkcolor=p["bg"], troughcolor=p["trough"],
-                        selectbackground=p["select"], selectforeground=p["select_fg"], insertcolor=p["fg"],
-                        focuscolor=p["accent"], font="TkDefaultFont")
-        style.map(".", foreground=[("disabled", p["disabled"])])
-        style.configure("TFrame", background=p["bg"])
-        style.configure("TLabelframe", background=p["bg"], bordercolor=p["border"], relief="groove")
-        style.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font="AppBold")
-        style.configure("TButton", background=p["panel"], foreground=p["fg"], bordercolor=p["border"],
-                        lightcolor=p["panel"], darkcolor=p["panel"], padding=(8, 2), relief="solid",
-                        borderwidth=2 if hc else 1)
-        style.map("TButton", background=[("disabled", p["bg"]), ("pressed", p["select"]), ("active", p["hover"])],
-                  foreground=[("disabled", p["disabled"]), ("pressed", p["select_fg"])],
-                  bordercolor=[("focus", p["accent"]), ("active", p["accent"] if hc else p["border"])])
-        for cls in ("TCheckbutton", "TRadiobutton"):
-            style.configure(cls, background=p["bg"], foreground=p["fg"], indicatorbackground=p["field"],
-                            indicatorforeground=p["accent"], upperbordercolor=p["border"],
-                            lowerbordercolor=p["border"])
-            style.map(cls, background=[("active", p["bg"])], foreground=[("disabled", p["disabled"])],
-                      indicatorbackground=[("disabled", p["bg"]), ("selected", p["accent"]),
-                                           ("pressed", p["select"])],
-                      indicatorforeground=[("selected", p["accent_fg"])])
-        style.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"], bordercolor=p["border"],
-                        padding=2)
-        style.map("TEntry", bordercolor=[("focus", p["accent"])], fieldbackground=[("disabled", p["bg"])])
-        style.configure("TCombobox", fieldbackground=p["field"], foreground=p["fg"], background=p["panel"],
-                        arrowcolor=p["fg"], bordercolor=p["border"], padding=2)
-        style.map("TCombobox", fieldbackground=[("readonly", p["field"]), ("disabled", p["bg"])],
-                  foreground=[("readonly", p["fg"]), ("disabled", p["disabled"])],
-                  selectbackground=[("readonly", p["field"])], selectforeground=[("readonly", p["fg"])],
-                  bordercolor=[("focus", p["accent"])])
-        style.configure("TNotebook", background=p["bg"], bordercolor=p["border"], tabmargins=(4, 4, 4, 0))
-        style.configure("TNotebook.Tab", background=p["panel"], foreground=p["muted"], padding=(14, 5),
-                        bordercolor=p["border"])
-        style.map("TNotebook.Tab", background=[("selected", p["select"] if hc else p["bg"])],
-                  foreground=[("selected", p["select_fg"] if hc else p["fg"])],
-                  expand=[("selected", (0, 2, 0, 0))])
-        style.configure("Horizontal.TProgressbar", background=p["accent"], troughcolor=p["trough"],
-                        bordercolor=p["border"], lightcolor=p["accent"], darkcolor=p["accent"])
-        style.configure("Vertical.TScrollbar", background=p["panel"], troughcolor=p["bg"], arrowcolor=p["fg"],
-                        bordercolor=p["bg"])
-        style.map("Vertical.TScrollbar", background=[("active", p["hover"])])
+    style.configure(".", background=p["bg"], foreground=p["fg"], fieldbackground=p["field"],
+                    bordercolor=p["border"], lightcolor=p["bg"], darkcolor=p["bg"], troughcolor=p["trough"],
+                    selectbackground=p["select"], selectforeground=p["select_fg"], insertcolor=p["fg"],
+                    focuscolor=p["accent"], font="TkDefaultFont")
+    style.map(".", foreground=[("disabled", p["disabled"])])
+    style.configure("TFrame", background=p["bg"])
+    style.configure("TLabelframe", background=p["bg"], bordercolor=p["border"], relief="groove")
+    style.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font="AppBold")
+    style.configure("TButton", background=p["panel"], foreground=p["fg"], bordercolor=p["border"],
+                    lightcolor=p["panel"], darkcolor=p["panel"], padding=(8, 2), relief="solid",
+                    borderwidth=2 if hc else 1)
+    style.map("TButton", background=[("disabled", p["bg"]), ("pressed", p["select"]), ("active", p["hover"])],
+              foreground=[("disabled", p["disabled"]), ("pressed", p["select_fg"])],
+              bordercolor=[("focus", p["accent"]), ("active", p["accent"] if hc else p["border"])])
+    for cls in ("TCheckbutton", "TRadiobutton"):
+        style.configure(cls, background=p["bg"], foreground=p["fg"], indicatorbackground=p["field"],
+                        indicatorforeground=p["accent"], upperbordercolor=p["border"],
+                        lowerbordercolor=p["border"])
+        style.map(cls, background=[("active", p["bg"])], foreground=[("disabled", p["disabled"])],
+                  indicatorbackground=[("disabled", p["bg"]), ("selected", p["accent"]),
+                                       ("pressed", p["select"])],
+                  indicatorforeground=[("selected", p["accent_fg"])])
+    style.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"], bordercolor=p["border"],
+                    padding=2)
+    style.map("TEntry", bordercolor=[("focus", p["accent"])], fieldbackground=[("disabled", p["bg"])])
+    style.configure("TCombobox", fieldbackground=p["field"], foreground=p["fg"], background=p["panel"],
+                    arrowcolor=p["fg"], bordercolor=p["border"], padding=2)
+    style.map("TCombobox", fieldbackground=[("readonly", p["field"]), ("disabled", p["bg"])],
+              foreground=[("readonly", p["fg"]), ("disabled", p["disabled"])],
+              selectbackground=[("readonly", p["field"])], selectforeground=[("readonly", p["fg"])],
+              bordercolor=[("focus", p["accent"])])
+    style.configure("TNotebook", background=p["bg"], bordercolor=p["border"], tabmargins=(4, 4, 4, 0))
+    style.configure("TNotebook.Tab", background=p["panel"], foreground=p["muted"], padding=(14, 5),
+                    bordercolor=p["border"])
+    style.map("TNotebook.Tab", background=[("selected", p["select"] if hc else p["bg"])],
+              foreground=[("selected", p["select_fg"] if hc else p["fg"])],
+              expand=[("selected", (0, 2, 0, 0))])
+    style.configure("Horizontal.TProgressbar", background=p["accent"], troughcolor=p["trough"],
+                    bordercolor=p["border"], lightcolor=p["accent"], darkcolor=p["accent"])
+    style.configure("Vertical.TScrollbar", background=p["panel"], troughcolor=p["bg"], arrowcolor=p["fg"],
+                    bordercolor=p["bg"])
+    style.map("Vertical.TScrollbar", background=[("active", p["hover"])])
 
     # tables (Live View)
     style.configure("Treeview", background=p["field"], fieldbackground=p["field"], foreground=p["fg"],
@@ -351,34 +348,31 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     style.configure("Title.TLabel", font="AppTitle")
     style.configure("Link.TLabel", foreground=p["accent"], font="AppLink")
     style.configure("Small.TLabel", foreground=p["muted"], font="AppSmall")
+    style.configure("Caption.TLabel", foreground=p["muted"], font="AppSmall")
     style.configure("Warn.TLabel", foreground=p["warn"])
     style.configure("Bold.TLabel", font="AppBold")
     style.configure("Bold.TCheckbutton", font="AppBold")
     style.configure("Run.TButton", font="AppRun", padding=(14, 7))
-    if not native:
-        style.configure("Run.TButton", background=p["accent"], foreground=p["accent_fg"])
-        style.map("Run.TButton", background=[("disabled", p["panel"]), ("pressed", p["select"]),
-                                             ("active", p["accent"])],
-                  foreground=[("disabled", p["disabled"]), ("active", p["accent_fg"])])
+    style.configure("Run.TButton", background=p["accent"], foreground=p["accent_fg"])
+    style.map("Run.TButton", background=[("disabled", p["panel"]), ("pressed", p["select"]),
+                                         ("active", p["accent"])],
+              foreground=[("disabled", p["disabled"]), ("active", p["accent_fg"])])
     # tick boxes, radio buttons, drop-down arrows and scrollbars sized for the display's scaling and text size
     k = getattr(root, "ui_scale", 1.0)
     style.configure("TCheckbutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
     style.configure("TRadiobutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
-    if not native:
-        try:
-            _indicators(root, style, p, k)
-        except tk.TclError:             # an old Tk without PNG images: the theme's own (fixed-width) marks
-            pass
+    try:
+        _indicators(root, style, p, k)
+    except tk.TclError:             # an old Tk without PNG images: the theme's own (fixed-width) marks
+        pass
     style.configure("TCombobox", arrowsize=round(14 * k))
     style.configure("TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
     style.configure("Vertical.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
     style.configure("Horizontal.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
 
     # a section of a tab that is not the one chosen (e.g. Utilities while comparing CWNs): its title greyed
-    style.configure("Off.TLabelframe", **({} if native else dict(background=p["bg"], bordercolor=p["border"],
-                                                                  relief="groove")))
-    style.configure("Off.TLabelframe.Label", foreground=p["muted"],
-                    **({} if native else dict(background=p["bg"], font="AppBold")))
+    style.configure("Off.TLabelframe", background=p["bg"], bordercolor=p["border"], relief="groove")
+    style.configure("Off.TLabelframe.Label", foreground=p["muted"], background=p["bg"], font="AppBold")
 
     # plain tk widgets: drop-down lists, logs, tooltips
     root.option_add("*TCombobox*Listbox.background", p["field"])
@@ -391,6 +385,8 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
         _dark_title_bar(root, name != "light")
     if hasattr(root, "_focus_shown"):
         focus_cues(root, root._focus_shown)
+    from rstools import icons
+    icons.refresh(root, p)
     return p
 
 
@@ -604,12 +600,73 @@ COMPACT = {"on": False}
 COMPACT_BELOW = 900          # screen height (logical pixels) below which the layout is compact
 
 
-def tip(widget):
+def tip(widget, caption: str = ""):
     """Mark a description or tip label: it is hidden in the compact layout (its text stays in the hover
-    help), and stays hidden even when a tab shows it again after a mode change."""
+    help), and stays hidden even when a tab shows it again after a mode change.
+
+    With a `caption` the label shows only an info icon and the caption (e.g. 'Tips'); its full text appears
+    when the mouse rests on it (or on a click), so long notes don't crowd the controls. Setting the label's
+    text later (as each mode does) updates the hover text; an empty text hides the caption too."""
     widget._tip = True
     widget.bind("<Map>", _hide_if_compact, add="+")
+    if caption:
+        _caption(widget, caption)
+    return collapse_empty(widget)
+
+
+def collapse_empty(widget):
+    """A note label that takes no room while it has nothing to show (an empty label is as tall as a line of
+    text) and comes back when text is set. Hiding and showing it for a mode works as before."""
+    if getattr(widget, "_collapses", False):
+        return widget
+    widget._collapses = True
+    real = widget.configure
+
+    def configure(cnf=None, **kw):
+        if isinstance(cnf, dict):
+            kw, cnf = {**cnf, **kw}, None
+        out = real(cnf, **kw) if (cnf is not None or kw) else real()
+        if "text" in kw or "image" in kw:
+            _fit(widget)
+        return out
+    widget.configure = widget.config = configure        # this label only
+    widget.bind("<Map>", lambda _e: _fit(widget), add="+")
     return widget
+
+
+def _fit(widget):
+    try:
+        empty = not str(widget.cget("text")) and not str(widget.cget("image"))
+        if empty and widget.winfo_manager() == "grid":
+            widget.grid_remove()
+            widget._collapsed = True
+        elif not empty and getattr(widget, "_collapsed", False):
+            widget._collapsed = False
+            if not (COMPACT["on"] and getattr(widget, "_tip", False)):
+                widget.grid()
+    except tk.TclError:
+        pass
+
+
+def _caption(widget, caption: str):
+    from rstools import icons
+    from rstools.widgets import Tooltip
+    hover = Tooltip(widget, "", delay=150)
+    real = widget.configure
+
+    def configure(cnf=None, **kw):
+        if isinstance(cnf, dict):
+            kw, cnf = {**cnf, **kw}, None
+        if "text" in kw:
+            hover.text = str(kw.pop("text") or "")
+            kw["text"] = caption if hover.text else ""
+            kw["image"] = icons.image(widget, "info", "accent", 0.9) if hover.text else ""
+        return real(cnf, **kw) if (cnf is not None or kw) else real()
+    full = str(widget.cget("text"))
+    widget.configure = widget.config = configure        # this label only
+    widget.configure(text=full, compound="left", cursor="question_arrow", style="Caption.TLabel")
+    widget.bind("<Button-1>", lambda _e: hover.show(), add="+")
+    widget.full_text = lambda: hover.text
 
 
 def _hide_if_compact(event):

@@ -156,9 +156,10 @@ class StatsPackTab(ttk.Frame):
             btn.grid(row=r, column=2, pady=2)
             self.file_rows[key] = (lab, ent, btn)
             self.vars[key].trace_add("write", lambda *_a, k=key: self._file_changed(k))
-        self.note = theme.tip(ttk.Label(ff, text=NOTE, style="Small.TLabel", wraplength=480, justify="left"))
+        self.note = theme.tip(ttk.Label(ff, text=NOTE, style="Small.TLabel", wraplength=480, justify="left"),
+                              "About the files")
         self.note.grid(row=10, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"))
+        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.dnd_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # 4. output
@@ -172,7 +173,8 @@ class StatsPackTab(ttk.Frame):
         for i, (key, text) in enumerate((("xlsx", "Excel (default)"), ("pdf", "PDF"), ("docx", "Word"))):
             ttk.Radiobutton(fmtf, text=text, variable=self.fmt_var, value=key,
                             command=self._fmt_changed).grid(row=0, column=i + 1, padx=(0, 10))
-        self.fmt_hint = ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.fmt_hint = theme.collapse_empty(ttk.Label(of, text="", style="Small.TLabel", wraplength=480,
+                                                       justify="left"))
         self.fmt_hint.grid(row=10, column=0, columnspan=3, sticky="w")
         self.output = tk.StringVar(value="totals_days")
         self.output_radios = []
@@ -207,7 +209,8 @@ class StatsPackTab(ttk.Frame):
         ttk.Label(of, text="Output name:").grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
         ttk.Entry(of, textvariable=self.out_name).grid(row=6, column=1, sticky="ew", padx=4, pady=(6, 0))
-        self.name_hint = ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left"),
+                                   "Default name and folder")
         self.name_hint.grid(row=7, column=0, columnspan=3, sticky="w")
         ttk.Button(of, text="Edit fleet data (operator, seats, units, lengths)...", command=self.edit_fleet).grid(
             row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -241,7 +244,8 @@ class StatsPackTab(ttk.Frame):
         fb.grid(row=6, column=0, sticky="w", pady=(4, 0))
         ttk.Button(fb, text="All fleets", command=lambda: self._set_fleets(True)).grid(row=0, column=0)
         ttk.Button(fb, text="None", command=lambda: self._set_fleets(False)).grid(row=0, column=1, padx=4)
-        self.fleet_note = ttk.Label(sel, text="", style="Small.TLabel", wraplength=440, justify="left")
+        self.fleet_note = theme.collapse_empty(ttk.Label(sel, text="", style="Small.TLabel", wraplength=440,
+                                                         justify="left"))
         self.fleet_note.grid(row=7, column=0, sticky="w", pady=(4, 0))
 
         # 5. run
@@ -360,7 +364,8 @@ class StatsPackTab(ttk.Frame):
             box.bind("<Key>", lambda e, f=pick: f() if e.char and e.char.isprintable() else None, add="+")
             Suggest(box, lambda b=box: b.cget("values"), pick)
             self.seat_boxes[kind] = box
-        self.seat_group_note = ttk.Label(sf, text="", style="Small.TLabel", wraplength=400, justify="left")
+        self.seat_group_note = theme.collapse_empty(ttk.Label(sf, text="", style="Small.TLabel", wraplength=400,
+                                                              justify="left"))
         self.seat_group_note.grid(row=1, column=1, sticky="w", padx=(4, 0))
         self.corridor_dir = tk.StringVar(value="both")
         self.corridor_dir_box = ttk.Combobox(sf, state="readonly", width=36)

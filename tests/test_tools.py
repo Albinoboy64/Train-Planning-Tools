@@ -133,7 +133,7 @@ def test_every_module_imports():
     for pkg in ("cwn_compare", "rstools"):
         for mod in pkgutil.walk_packages([os.path.join(root, pkg)], prefix=pkg + "."):
             name = mod.name
-            if not have_tk and (name.endswith(("gui", "gui_tab", "theme", "widgets", "help_text", "notify",
+            if not have_tk and (name.endswith(("gui", "gui_tab", "theme", "widgets", "icons", "help_text", "notify",
                                                "update_dialog", "autocomplete", "rules_dialog"))):
                 continue
             importlib.import_module(name)
@@ -725,6 +725,48 @@ def test_rules_in_use_line(monkeypatch, tmp_path):
     monkeypatch.setattr(rules, "active_set_info", lambda: {"name": "2027 EAS v4", "to": "2027-12-11"})
     assert rules.in_use(datetime.date(2027, 1, 10)) == ("Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4", False)
     assert rules.in_use(datetime.date(2028, 1, 10))[1]                       # both past their last date
+
+
+def test_professional_layout_captions_icons_and_status_bar(monkeypatch):
+    """Long notes show as a short caption with the full text on hover; an empty note takes no room;
+    Run / Browse / Open buttons and the tabs carry drawn icons; the status bar shows the last result with
+    links to its output (not after a failure)."""
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        try:
+            app.update()
+            hint = app.dnd_hint
+            assert str(hint.cget("text")) == "Tips" and "drag" in hint.full_text().lower()
+            assert str(hint.cget("image"))                                  # the info icon
+            hint.configure(text="")
+            app.update()
+            assert hint.winfo_manager() == "" and not str(hint.cget("text"))   # empty: no room taken
+            hint.configure(text="Drop two CWNs here.")
+            app.update()
+            assert hint.winfo_manager() == "grid" and hint.full_text() == "Drop two CWNs here."
+            assert app.prev_info.winfo_manager() == ""                       # blank in this mode
+            assert str(app.run_btn.cget("image")) and str(app.open_cwn.cget("image"))
+            assert all(str(app.notebook.tab(i, "image")) for i in range(4))
+            out = os.path.join(d, "result.xlsx")
+            open(out, "w").close()
+            app.open_outputs([out])                         # a run finished (not opened: the box is unticked)
+            app.notify_done("CWN comparison finished", "3 change(s) found.")
+            app.update()
+            assert "CWN comparison finished" in str(app.status_text.cget("text"))
+            assert app.status_open.winfo_manager() == "grid" and app._status_paths == [out]
+            app.notify_done("CWN comparison failed", "The file is locked.", False)
+            app.update()
+            assert "failed" in str(app.status_text.cget("text")) and app.status_open.winfo_manager() == ""
+        finally:
+            app._on_close()
 
 
 def test_tick_boxes_and_radio_buttons_drawn_for_the_scaling(monkeypatch):
