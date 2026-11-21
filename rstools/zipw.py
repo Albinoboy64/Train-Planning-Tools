@@ -27,21 +27,48 @@ def _deflate(data: bytes) -> Tuple[int, bytes]:
     return zlib.crc32(data) & 0xFFFFFFFF, c.compress(data) + c.flush()
 
 
+class Deflated:
+    """A part compressed piece by piece as it is made, so a very large part (a Word document of thousands of
+    pages) is never held whole in memory, nor copied to bytes before compressing. write() text, then close()."""
+
+    def __init__(self):
+        self._c = zlib.compressobj(LEVEL, zlib.DEFLATED, -15)
+        self.crc, self.size, self.comp = 0, 0, b""
+        self._out: List[bytes] = []
+
+    def write(self, text: str):
+        data = text.encode("utf-8")
+        self.crc = zlib.crc32(data, self.crc)
+        self.size += len(data)
+        self._out.append(self._c.compress(data))
+
+    def close(self) -> "Deflated":
+        self._out.append(self._c.flush())
+        self.comp, self._out = b"".join(self._out), []
+        self.crc &= 0xFFFFFFFF
+        return self
+
+
 def _dos_time() -> Tuple[int, int]:
     t = time.localtime()
     return ((t.tm_hour << 11) | (t.tm_min << 5) | (t.tm_sec // 2),
             ((max(t.tm_year, 1980) - 1980) << 9) | (t.tm_mon << 5) | t.tm_mday)
 
 
-def write_zip(path: str, items: Iterable[Tuple[str, bytes]]):
-    """Write `items` [(name inside the zip, bytes)] to `path` (replacing it only once complete)."""
-    parts: List[Tuple[str, bytes]] = list(items)
-    big = [d for _n, d in parts if len(d) > 64 * 1024]
+def write_zip(path: str, items: Iterable[Tuple[str, object]]):
+    """Write `items` [(name inside the zip, bytes or a closed Deflated)] to `path` (replacing it only once
+    complete)."""
+    parts = list(items)
+    plain = [d for _n, d in parts if not isinstance(d, Deflated)]
+    big = [d for d in plain if len(d) > 64 * 1024]      # type: ignore[arg-type]
+
+    def pack(d) -> Tuple[int, bytes]:
+        return (d.crc, d.comp) if isinstance(d, Deflated) else _deflate(d)
     if len(big) > 1 and workers() > 1:
         with ThreadPoolExecutor(max_workers=workers()) as pool:
-            packed = list(pool.map(_deflate, (d for _n, d in parts)))
+            packed = list(pool.map(pack, (d for _n, d in parts)))
     else:
-        packed = [_deflate(d) for _n, d in parts]
+        packed = [pack(d) for _n, d in parts]
     dos_t, dos_d = _dos_time()
     from .fsutil import long_path, temp_path
     tmp, final = long_path(temp_path(path)), long_path(path)
@@ -49,17 +76,18 @@ def write_zip(path: str, items: Iterable[Tuple[str, bytes]]):
         with open(tmp, "wb") as fh:
             central = []
             for (name, data), (crc, comp) in zip(parts, packed):
+                size = data.size if isinstance(data, Deflated) else len(data)      # type: ignore[arg-type]
                 raw = name.encode("utf-8")
                 flags = 0x0800 if not name.isascii() else 0
-                if max(len(data), len(comp), fh.tell()) >= 0xFFFFFFFF:
+                if max(size, len(comp), fh.tell()) >= 0xFFFFFFFF:
                     raise ValueError("Workbook too large (over 4 GB).")
                 offset = fh.tell()
                 fh.write(struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, flags, 8, dos_t, dos_d, crc,
-                                     len(comp), len(data), len(raw), 0))
+                                     len(comp), size, len(raw), 0))
                 fh.write(raw)
                 fh.write(comp)
                 central.append(struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, flags, 8, dos_t, dos_d,
-                                           crc, len(comp), len(data), len(raw), 0, 0, 0, 0, 0, offset) + raw)
+                                           crc, len(comp), size, len(raw), 0, 0, 0, 0, 0, offset) + raw)
             start = fh.tell()
             for entry in central:
                 fh.write(entry)

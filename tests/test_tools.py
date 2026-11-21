@@ -856,3 +856,19 @@ def test_display_watcher_only_watches_the_main_window(monkeypatch):
             assert rescaled == [shown["dpi"]]
         finally:
             app._on_close()
+
+
+def test_zip_part_compressed_as_it_is_made():
+    """A Word document is compressed section by section (never held whole); the file is a valid zip with the
+    same content as writing the text in one go."""
+    import zipfile
+    from rstools.zipw import Deflated, write_zip
+    with tempfile.TemporaryDirectory() as d:
+        text = "".join(f"<row n='{i}'>Ünïcødé text {i}</row>" for i in range(20000))
+        part = Deflated()
+        for i in range(0, len(text), 777):
+            part.write(text[i:i + 777])
+        write_zip(os.path.join(d, "a.zip"), [("doc.xml", part.close()), ("small.xml", b"<x/>")])
+        with zipfile.ZipFile(os.path.join(d, "a.zip")) as z:
+            assert z.testzip() is None
+            assert z.read("doc.xml").decode("utf-8") == text and z.read("small.xml") == b"<x/>"

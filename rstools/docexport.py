@@ -139,20 +139,22 @@ def _docx_table(sec: Section) -> str:
 
 
 def write_docx(path: str, title: str, sections: Sequence[Section]):
-    body = [_para(title, "Title"), _para(f"Created {_dt.datetime.now():%d/%m/%Y %H:%M} by {APP_NAME}", "Note")]
+    from .zipw import Deflated
+    doc = Deflated()                    # compressed section by section: never the whole document in memory
+    doc.write(f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="{W}"><w:body>')
+    doc.write(_para(title, "Title") + _para(f"Created {_dt.datetime.now():%d/%m/%Y %H:%M} by {APP_NAME}", "Note"))
     first = True
     for sec in sections:
         for part in split_wide(sec):
-            body.append(_para(part.title, "Heading1", page_break=not first))
+            doc.write(_para(part.title, "Heading1", page_break=not first))
             first = False
             if part.note:
-                body.append(_para(part.note, "Note"))
-            body.append(_docx_table(part) if part.headers else "")
-    body.append('<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>'
-                '<w:pgMar w:top="567" w:right="567" w:bottom="567" w:left="567" w:header="284" w:footer="284" '
-                'w:gutter="0"/></w:sectPr>')
-    doc = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="{W}">'
-           f'<w:body>{"".join(body)}</w:body></w:document>')
+                doc.write(_para(part.note, "Note"))
+            if part.headers:
+                doc.write(_docx_table(part))
+    doc.write('<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>'
+              '<w:pgMar w:top="567" w:right="567" w:bottom="567" w:left="567" w:header="284" w:footer="284" '
+              'w:gutter="0"/></w:sectPr></w:body></w:document>')
     rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     pkg = "http://schemas.openxmlformats.org/package/2006"
     main = "application/vnd.openxmlformats-officedocument.wordprocessingml"
@@ -169,7 +171,7 @@ def write_docx(path: str, title: str, sections: Sequence[Section]):
         ("word/_rels/document.xml.rels", (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships '
                                           f'xmlns="{pkg}/relationships"><Relationship Id="rId1" Type="{rel}/styles" '
                                           'Target="styles.xml"/></Relationships>').encode()),
-        ("word/document.xml", doc.encode("utf-8")),
+        ("word/document.xml", doc.close()),
         ("word/styles.xml", _STYLES.encode("utf-8")),
     ])
 
@@ -214,13 +216,51 @@ def write_pdf(path: str, title: str, sections: Sequence[Section]):
             if part.note:
                 story.append(Paragraph(escape(part.note), note))
             if part.headers:
-                story.append(_pdf_table(part, width, colors, LongTable, TableStyle, Paragraph, ParagraphStyle))
+                story.append(_Deferred(lambda part=part: _pdf_table(part, width, colors, LongTable, TableStyle,
+                                                                     Paragraph, ParagraphStyle)))
             story.append(Spacer(1, 4))
     from .fsutil import atomic_path
     with atomic_path(path) as tmp:              # the PDF replaces an older one only once complete
         SimpleDocTemplate(tmp, pagesize=page, leftMargin=margin, rightMargin=margin, topMargin=margin,
                           bottomMargin=12 * mm, title=title, author=APP_NAME).build(
             story, onFirstPage=footer, onLaterPages=footer)
+
+
+def _deferred_class():
+    from reportlab.platypus import Flowable
+
+    class Deferred(Flowable):
+        """A table built only when the page layout reaches it (and dropped once drawn), so a document of
+        thousands of pages never holds every table's cells and cell styles in memory at once."""
+
+        def __init__(self, make):
+            super().__init__()
+            self._make, self._table = make, None
+
+        def _real(self):
+            if self._table is None:
+                self._table = self._make()
+            return self._table
+
+        def wrap(self, availWidth, availHeight):
+            return self._real().wrap(availWidth, availHeight)
+
+        def split(self, availWidth, availHeight):
+            return self._real().split(availWidth, availHeight)
+
+        def drawOn(self, canvas, x, y, _sW=0):
+            return self._real().drawOn(canvas, x, y, _sW)
+    return Deferred
+
+
+def _Deferred(make):
+    global _DEFERRED
+    if _DEFERRED is None:
+        _DEFERRED = _deferred_class()
+    return _DEFERRED(make)
+
+
+_DEFERRED = None
 
 
 def _pdf_table(sec: Section, width: float, colors, LongTable, TableStyle, Paragraph, ParagraphStyle):
@@ -247,6 +287,13 @@ def _pdf_table(sec: Section, width: float, colors, LongTable, TableStyle, Paragr
         cmds.append(("FONT", (0, r + 1), (-1, r + 1), "Helvetica-Bold", size))
     table = LongTable(data, colWidths=widths, repeatRows=1)
     table.setStyle(TableStyle(cmds))
+    # every row's height worked out once and given to the table: otherwise each page split works out the
+    # heights of all the rows still to come again (minutes for a stats pack of thousands of pages)
+    table.wrap(width, 1e12)
+    heights = list(getattr(table, "_rowHeights", None) or [])
+    if len(heights) == len(data) and None not in heights:
+        table = LongTable(data, colWidths=widths, rowHeights=heights, repeatRows=1)
+        table.setStyle(TableStyle(cmds))
     return table
 
 

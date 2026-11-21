@@ -342,12 +342,16 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
-**3.21.0** - a cleaner, more professional look
+**3.21.1** - a cleaner, more professional look; sturdier with damaged files; lighter PDF and Word packs
 * **One flat look in every theme**: light mode on Windows now uses the same flat style as dark and high contrast (it used the old Windows 'Vista' controls), so every theme matches.
 * **Less text on screen**: tips and longer notes (drag-and-drop tips, what each comparison checks, the default output name and folder, notes about the files) now show as one short line - an info icon with *Tips*, *What is checked*, *Default name and folder*... - and the full text appears when the mouse rests on it or it is clicked. Each tab's one-line description stays.
 * **No empty gaps**: notes that have nothing to say in the chosen mode no longer leave blank space in their section.
 * **Icons**: Run, Browse, Add and Open buttons and the four tabs have small icons, drawn by the app at the display's scaling in the theme's colours (greyed when a button is not available).
 * **Status bar** along the bottom of the window: the last result from any tab (time, what finished and its summary, or what failed), with *Open output* and *Open folder* links.
+* **Damaged files**: a CWN tab that cannot be read (a damaged file) is now left out of both sides of the comparison, with a warning, instead of its trains showing as changed. Train lists and timetables with a damaged sheet, a stats pack with a damaged text table, and an Attune XML with no trains (for a berthing chart) now stop with a plain message saying what is wrong. Live View refuses a CWN with no location tabs and names the file. Messages show file names rather than full paths.
+* **Stats packs as PDF and Word**: a full week as PDF (about 4,700 pages) is made in about 75 s instead of about 130 s, using about half the memory (0.6 GB instead of 1.2 GB); as Word it uses 0.4 GB instead of 1.2 GB. The documents are page-for-page identical.
+* **Stress tested**: 78 damaged or hostile files (empty, truncated, random bytes, renamed Word files, XML bombs and external entities, damaged sheets) through every tool, with no hangs, crashes or unexplained errors; inputs 3 to 5 times the real size (a 39,000-train CWN in 26 s, a 47,800-train list in 25 s) with change counts matching a cell-by-cell check exactly; every output reopened cleanly from a 261-character accented folder path, with cells starting =, +, - or @ kept as text; and 2,000 tab and mode switches, 200 theme switches, 100 display scaling switches and 60 Live View loads without any growth in windows, images, timers or memory.
+* (3.21.0 was not published: its build check expected the full-size layout on a short-screen test machine. Fixed.)
 
 **3.20.4** - review fixes: Live View highlights, print reader, drop-down, berthing smoke test
 * **Live View, CWNs**: unit, note and next-day working lines are highlighted the way the comparison judges them. Lines that only moved (units listed in another order, next-day workings re-ordered or with only a different day code) are no longer shown as changed; only the line that really differs is.
