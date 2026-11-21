@@ -22,7 +22,7 @@ VSVersionInfo(
   kids=[
     StringFileInfo([StringTable('080904B0', [
       StringStruct('CompanyName', '{PUBLISHER}'),
-      StringStruct('FileDescription', 'Train Planning Tools - CWN Tools, Stats Pack, Timetable Comparison and Live View'),
+      StringStruct('FileDescription', 'Train Planning Tools - Stock Tools, Stats Pack, Timing Tools and Live View'),
       StringStruct('FileVersion', '{__version__}'),
       StringStruct('InternalName', 'TrainPlanningTools'),
       StringStruct('LegalCopyright', '{PUBLISHER}'),

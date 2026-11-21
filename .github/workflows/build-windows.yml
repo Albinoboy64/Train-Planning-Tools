@@ -131,11 +131,12 @@ jobs:
           version = os.environ["TAG"].lstrip("vV")
           m = re.search(r"^\*\*" + re.escape(version) + r"\*\*[^\n]*\n(.*?)(?=^\*\*\d|^## )", text, re.S | re.M)
           changes = m.group(1).strip() if m else "See the README for the version history."
-          intro = ("Portable Windows app for GTR train planning: CWN Tools (compare Carriage Working Notices, put "
-                   "day variants in order and make TRACS-RS style station working books), Stats Pack (rolling "
+          intro = ("Portable Windows app for GTR train planning: Stock Tools (compare Carriage Working Notices, "
+                   "put day variants in order and make TRACS-RS style station working books), Stats Pack (rolling "
                    "stock stats packs, unit and capacity reports from an Attune XML and the TRENT unit diagram "
-                   "prints), Timetable Comparison (GTR against Network Rail timetables, train prints and Attune "
-                   "train lists) and a Live View to browse any comparison train by train. No installation or "
+                   "print), Timing Tools (GTR against Network Rail timetables, train prints and Attune train "
+                   "lists, and the Section 4 possession check) and a Live View to browse any comparison train by "
+                   "train. No installation or "
                    "admin rights needed.\n\nDownload **TrainPlanningTools.exe** (or the zip, which also "
                    "contains the README) and double-click it. Already have 3.11.1 or later? Use Options > Check "
                    "for updates. Copies of 3.11.0 or earlier cannot update themselves to this repository: "
