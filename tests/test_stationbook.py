@@ -131,10 +131,9 @@ def test_several_station_books_in_one_run(monkeypatch):
     assert not results[2][1] and "not a location" in results[2][4]               # the rest are still made
 
 
-def test_stp_unit_diagram_replaces_ltp_and_platform_lengths(monkeypatch):
+def test_stp_unit_diagram_replaces_ltp():
     """An XML holding the LTP and STP versions of a unit diagram for the same day uses the STP one only (a unit
-    is not counted twice), and a train longer than its platform (Network Rail's usable length) is reported."""
-    from rstools import platforms
+    is not counted twice)."""
     d = tempfile.mkdtemp()
     x = os.path.join(d, "plan.xml")
     t = train("1A02XX", [leg("AAA", "05:30:00", "BBB", "05:40:00", depPlat="1")])
@@ -148,21 +147,14 @@ def test_stp_unit_diagram_replaces_ltp_and_platform_lengths(monkeypatch):
                  f'<unitDiagramList>{ltp}{stp}</unitDiagramList></diagramExchange>')
     plan = SB.read_plan(x)
     assert len(SB.day_diagrams(plan.diagrams, 0)) == 1 and SB.day_diagrams(plan.diagrams, 0)[0].plan == "S"
-    monkeypatch.setattr(platforms, "_TABLE", [platforms.PlatformTable([
-        {"TIPLOC": "AAA", "Station": "Alpha", "Platform": "1", "Usable length (m)": "60", "Notes": "3 cars"}])])
-    b = SB.Builder(plan, {"AAA"}, "Alpha", cars={"377/4": 4}, lengths={"377/4": 80.77})
+    b = SB.Builder(plan, {"AAA"}, "Alpha", cars={"377/4": 4})
     (row,) = b.build(0)
     assert row.cells[1] == "1A02XX\n(377/4)"                          # one unit, not two
-    assert list(b.too_long.values()) == ["1A02XX 05 30 platform 1 (Mon): 81 m on a 60 m platform (3 cars)"]
 
 
-def test_platform_table_and_station_names():
-    """The shipped platform lengths: by TIPLOC and platform; Network Rail's station names match Attune's."""
-    from rstools import platforms
+def test_station_names_network_rail_and_attune():
+    """Network Rail's station names match Attune's."""
     from rstools.statspack.seats import Stations
-    tab = platforms.PlatformTable.load()
-    assert tab.find("VICTRIC", "15").length == 259 and tab.find("HYWRDSH", "3").length == 241
-    assert tab.find("ZZZZ", "1") is None
     st = Stations({"VICTRIC": "London Victoria (C)", "VICTRIE": "London Victoria", "STLNRWS": "St. Leonards Warrior Sq",
                    "LBGHJN": "Loughborough Jn", "KNGX": "London Kings Cross", "KENOLYM": "Kensington (Olympia)"})
     assert st.find("London Victoria (Central)") == {"VICTRIC"} and st.find("London Victoria (Eastern)") == {"VICTRIE"}

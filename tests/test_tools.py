@@ -128,7 +128,7 @@ def test_every_module_imports():
         for mod in pkgutil.walk_packages([os.path.join(root, pkg)], prefix=pkg + "."):
             name = mod.name
             if not have_tk and (name.endswith(("gui", "gui_tab", "theme", "widgets", "help_text", "notify",
-                                               "update_dialog", "autocomplete"))):
+                                               "update_dialog", "autocomplete", "rules_dialog"))):
                 continue
             importlib.import_module(name)
 

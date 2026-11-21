@@ -679,15 +679,16 @@ class StatsPackTab(ttk.Frame):
             else:
                 from .attune import parse_attune_xml
                 from .seats import headcode_groups, network_stations
-                days, groups, stations = None, {}, set()
+                days, groups, stations, starts = None, {}, set(), []
                 for p in (box[0] for box in paths):
                     data = cached(parse_attune_xml, p)
+                    starts.append(data.start)
                     days = data.days() if days is None else days & data.days()
                     for code, desc in headcode_groups(data):
                         groups.setdefault(code, desc)
                     stations |= set(network_stations(data))
                 self.q.put(("inputs", kind, token, (days, sorted(groups.items()),
-                                                    sorted(stations, key=str.casefold)), None))
+                                                    sorted(stations, key=str.casefold), starts), None))
         except Exception as exc:
             self.q.put(("inputs", kind, token, None, str(exc)))
 
@@ -696,6 +697,8 @@ class StatsPackTab(ttk.Frame):
             self.xml_days = result[0] if result and not error else None
             self._headcode_groups, self._stations = (result[1], result[2]) if result and not error else ([], [])
             self._load_groups()
+            for start in (result[3] if result and not error and len(result) > 3 else []):
+                self.after(200, lambda st=start: self.app.rules_reminder(st))
             if error:
                 self._append(f"XML: {error}", "error")
         else:

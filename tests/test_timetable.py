@@ -524,3 +524,42 @@ def test_section4_windows_sections_and_check():
     assert {c.day for c in res.clashes if c.train == "1A01XX" and c.possession.number == "100.1"} == {1, 2, 3, 4}
     wb = S4.build_workbook(res, S4.Statement([both, down, gone], ["eas.pdf"]), x)
     assert wb.sheetnames == ["Summary", "Clashes", "By Section", "Not Checked", "What Was Compared"]
+
+
+def test_rules_sets_reminder_and_timetables(monkeypatch):
+    """Rule sets: added (only what the check needs, compressed, in the settings folder), switched and removed;
+    the new-timetable reminder comes once per timetable from Dec 27; out-of-date rules are flagged."""
+    from datetime import date
+    from rstools import rules
+    from rstools.timetable import section4 as S4
+    assert rules.change_dates(2026)[1] == date(2026, 12, 13) and rules.change_dates(2027) == (date(2027, 5, 16),
+                                                                                           date(2027, 12, 12))
+    assert [rules.timetable_of(date(*d)) for d in ((2027, 12, 11), (2027, 12, 12), (2028, 6, 1), (2028, 1, 5))] == [
+        "MAY27", "DEC27", "MAY28", "DEC27"]
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        monkeypatch.setattr(rules, "_dir", lambda: os.makedirs(os.path.join(d, "rules"), exist_ok=True) or
+                            os.path.join(d, "rules"))
+        assert rules.new_timetable_reminder("2027-05-16") is None              # before Dec 27: no reminder
+        first = rules.new_timetable_reminder("2027-12-12")
+        assert first and "DEC27" in first and rules.RULES_URL in first
+        assert rules.new_timetable_reminder("2027-12-20") is None              # same timetable: once only
+        assert "MAY28" in rules.new_timetable_reminder("2028-05-21")
+        per = S4.Period("Periods A and B", date(2026, 12, 13), date(2027, 2, 14))
+        pos = S4.Possession("XX1 TEST", "A and B", "1.1", ("A", "B"), "WEEK END", [per],
+                            S4.parse_windows("0100 Sun to 0600 Sun"), "BLOCKED", "", "t")
+        monkeypatch.setattr(S4, "read_statement", lambda pdfs, log=None: S4.Statement([pos], list(pdfs)))
+        rules.add_section4_set("EAS 2027 v4", ["/x/KS.pdf"])
+        rules.add_section4_set("EAS 2028 v1", ["/x/KS2.pdf"])
+        assert [s["name"] for s in rules.list_sets() if s["active"]] == ["EAS 2028 v1"]     # the newest is in use
+        rules.use_set("EAS 2027 v4")
+        st = rules.load_set()
+        assert rules.active_set_info()["name"] == "EAS 2027 v4" and len(st.possessions) == 1
+        p = st.possessions[0]
+        assert (p.number, p.ends, p.periods[0].start, p.windows[0].text) == ("1.1", ("A", "B"), date(2026, 12, 13),
+                                                                           "0100 Sun to 0600 Sun")
+        assert rules.coverage_warning(st, "2026-12-13", "2027-02-01") is None
+        assert rules.RULES_URL in rules.coverage_warning(st, "2028-12-10", "2029-05-01")
+        rules.remove_set("EAS 2027 v4")
+        assert rules.active_set_info()["name"] == "EAS 2028 v1"
+        assert len(os.listdir(os.path.join(d, "rules"))) == 2                # rules.json + the one set left

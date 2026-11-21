@@ -304,16 +304,12 @@ class Row:
 
 class Builder:
     def __init__(self, plan: Plan, station_tips: Set[str], station_name: str, platforms: Optional[Set[str]] = None,
-                 names: Optional[Dict[str, str]] = None, cars: Optional[Dict[str, int]] = None,
-                 lengths: Optional[Dict[str, float]] = None):
+                 names: Optional[Dict[str, str]] = None, cars: Optional[Dict[str, int]] = None):
         self.plan, self.tips, self.station_name = plan, station_tips, station_name
         self.platforms = platforms
         self.names = dict(plan.locations)
         self.names.update(names or {})
         self.cars = cars or {}
-        self.lengths = lengths or {}            # fleet -> unit length (m), for the platform length check
-        self.too_long: Dict[tuple, str] = {}    # (train, time, platform) -> what is too long
-        self.unmeasured: Set[str] = set()       # fleets with no length in the fleet table
         self.by_key = {d.key: d for d in plan.diagrams}
         self.warnings: List[str] = []
 
@@ -374,23 +370,7 @@ class Builder:
         f = show_dep(t, c) + (f"\n({c.plat})" if c.plat else "")
         g = self._calling(t, i, day, units, formation) if t.passenger else f"Empty to {self.name(dest.loc)}"
         cells = [inward, b, show_dep(t, origin), self.name(origin.loc), self.name(dest.loc), f, g]
-        if t.passenger and c.plat and formation:
-            self._check_platform(t, c, formation, day)
         return Row((self._day_time(c.dep, units), t.id), cells)
-
-    def _check_platform(self, t: Train, c: Call, formation: List[str], day: int):
-        """Note a departure longer than its platform (Network Rail's usable length)."""
-        from rstools import platforms
-        p = platforms.table().find(c.loc, c.plat, self.names.get(c.loc, ""))
-        if p is None:
-            return
-        length, missing = platforms.train_length(
-            [self.by_key[k].fleet if k in self.by_key else "?" for k in formation], self.lengths)
-        self.unmeasured.update(missing)
-        if platforms.too_long(length, p):
-            key = (t.id, show_dep(t, c), c.plat)
-            self.too_long.setdefault(key, f"{t.id} {show_dep(t, c)} platform {c.plat} ({DAY_NAMES[day][:3]}): "
-                                          + platforms.describe(p, length))
 
     @staticmethod
     def _day_time(dep: int, units) -> int:
@@ -688,10 +668,9 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     label = label.strip() or station.strip() + (f" ({_short(operator)})" if operator.strip() else "")
     fleet = FleetTable.load()
     cars = {r.cls: r.cars for r in fleet.rows if r.cars}
-    lengths = {r.cls: r.length for r in fleet.rows if r.length}
     # the station as the book names it (Origin / Destination columns): the sheet name without '(TLGN)'
     shown = re.sub(r"\s*\([^)]*\)\s*$", "", label).strip() or station.strip()
-    builder = Builder(plan, tips, shown, plats, cars=cars, lengths=lengths)
+    builder = Builder(plan, tips, shown, plats, cars=cars)
     groups = [(dt, DAY_GROUPS.get(dt) or SINGLE_DAYS.get(dt)) for dt in day_types]
     groups = [(dt, days) for dt, days in groups if days]
     if not groups:
@@ -708,15 +687,6 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         warnings.append("The XML has no unit diagrams for " + ", ".join(DAY_NAMES[d] for d in sorted(missing_days))
                         + ", so the stock and inward workings are missing on those days. Export the XML with the "
                           "unit diagrams for every day.")
-    if builder.too_long:
-        from rstools.platforms import SOURCE
-        found = list(builder.too_long.values())
-        warnings.append(f"{len(found)} departure(s) are longer than the platform's usable length in the {SOURCE} "
-                        "(check for selective door opening): " + "; ".join(found[:12])
-                        + (f"; and {len(found) - 12} more." if len(found) > 12 else "."))
-    if builder.unmeasured - {"?"}:
-        warnings.append("Platform lengths were not checked for " + ", ".join(sorted(builder.unmeasured - {"?"}))
-                        + ": add their unit length (metres) with Stats Pack > Edit fleet data.")
     if not total:
         warnings.append(f"No train departs {station}" + (f" from platform(s) {platforms}" if plats else "")
                         + " in this XML.")

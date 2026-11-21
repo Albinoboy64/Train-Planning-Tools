@@ -293,7 +293,7 @@ The tab has two sections. Under **1. Timetable comparison** choose what to compa
 
 ### Section 4 check
 
-* **Inputs:** the Attune XML of the timetable, and Network Rail's Engineering Access Statement **Section 4 (Standard Possession Opportunities)** PDFs for the routes it runs on (e.g. *2027 EAS V4 S4 - KS*, *- EC*, *- EMR*). Add several PDFs to the box, or drop them with the XML on the Utilities section.
+* **Inputs:** the Attune XML of the timetable, and Network Rail's Engineering Access Statement **Section 4 (Standard Possession Opportunities)** PDFs for the routes it runs on (e.g. *2027 EAS V4 S4 - KS*, *- EC*, *- EMR*). Add several PDFs to the box, or drop them with the XML on the Utilities section. Or add the PDFs once as a **rule set** in *Options > Rules and reference data* and leave the PDF box blank: the rule set in use is checked. The latest rules are on [Network Rail's operational rules page](https://www.networkrail.co.uk/industry-and-commercial/information-for-operators/operational-rules/).
 * The PDFs' tables are read from their drawn cells: each section (e.g. *Shepherds Lane Jn and Herne Hill 110.3*), each night (*WEEK END*, *SUN/MON*, *MID WEEK*), each period's windows (e.g. *0140 T-F to 0350 T-F* is 01:40-03:50 on Tuesday to Friday mornings) and what is blocked.
 * A train **clashes** when it calls at or passes both ends of a section at a time inside a window, on a day and in a period the possession applies to (only periods the XML's dates cover). Places are matched to the XML by name (Network Rail's and Attune's spellings, e.g. *Victoria Eastern* / *London Victoria*); sections whose places are not in the XML are listed under *Not Checked*.
 * The XML has no running lines, so each clash says **Every line blocked** or **Some lines: check the line used**. Where only the Down (or Up) line is blocked, a train is taken as Down when it reaches the first-named place first, and trains the other way are left out. Midweek possessions available only some weeks show it (e.g. *8 weeks a year*).
@@ -328,6 +328,14 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.17.0** - rule sets and the new-timetable reminder
+* **Platform length check removed** from the Station Working Book: Attune already checks platform lengths, and selective door opening is used throughout the network. Its built-in platform table and code are gone; unit lengths stay in the fleet table.
+* **Options > Rules and reference data** (new): shows the Network Rail rules built into the app (the Timetable Planning Rules 2027 headcode descriptions used for service groups) and the **Section 4 rule sets** you have added, with a link to Network Rail's rules page for the latest versions: https://www.networkrail.co.uk/industry-and-commercial/information-for-operators/operational-rules/
+  * **Add Section 4 rule set...** reads the Section 4 PDFs once and keeps only what the check needs, compressed, in your settings folder (all five 2027 v4 route PDFs, 23 MB, become a 133 KB rule set). The app itself does not grow.
+  * **Use this set** chooses the set in use; **Remove** deletes a set (the PDFs are not touched).
+* **Section 4 check**: the PDF box is now optional. Leave it blank to use the rule set in use (the tab says which). If the rules do not cover the timetable's dates, the report and log say they may be out of date and give the download link.
+* **New-timetable reminder**: the first time a timetable from **Dec 27** onwards is opened (an Attune XML on the Stats Pack, Station Working Book or Section 4 check), the app reminds you to check the latest Section 4 and Timetable Planning Rules are loaded, says which are in use and whether the built-in rules are out of date for that timetable, gives the download link and offers to open *Rules and reference data*. Each timetable is reminded once.
 
 **3.16.0** - Stock Tools, Timing Tools and the Section 4 check
 * **Tabs renamed**: *CWN Tools* is now **Stock Tools** and *Timetable Comparison* is now **Timing Tools** (tab, heading, window title, messages and help).

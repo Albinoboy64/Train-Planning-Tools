@@ -546,14 +546,23 @@ def _num_key(n: str):
 
 def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: str = "xlsx",
               progress=lambda f, m: None, log=lambda m: None):
-    """Read the XML and the Section 4 PDF(s), check, and save the report. Returns (path, result, statement)."""
+    """Read the XML and the Section 4 PDF(s) - or, with no PDFs, the Section 4 rule set in use (Options > Rules and
+    reference data) - check, and save the report. Returns (path, result, statement, plan start date)."""
     from rstools.stationbook import StationBookError, read_plan
-    from rstools import naming
-    progress(0.05, "Reading the Section 4 PDF(s)...")
-    statement = read_statement(pdfs, log)
+    from rstools import naming, rules
+    if pdfs:
+        progress(0.05, "Reading the Section 4 PDF(s)...")
+        statement = read_statement(pdfs, log)
+    else:
+        info = rules.active_set_info()
+        statement = rules.load_set() if info else None
+        if statement is None:
+            raise Section4Error("Choose the Section 4 PDF(s), or add a Section 4 rule set in Options > Rules and "
+                                f"reference data.\n\nThe latest rules can be downloaded from {rules.RULES_URL}")
+        log(f"Section 4 rule set in use: {info['name']} ({len(statement.possessions)} possession rows)")
     if not statement.possessions:
         raise Section4Error("No Section 4 possessions were found. Use Network Rail's Engineering Access Statement "
-                            "Section 4 (Standard Possession Opportunities) PDF(s).")
+                            f"Section 4 (Standard Possession Opportunities) PDF(s), from {rules.RULES_URL}")
     progress(0.4, "Reading the Attune XML...")
     log(f"Reading {os.path.basename(xml)}")
     try:
@@ -562,9 +571,12 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
         raise Section4Error(str(exc))
     progress(0.6, "Checking...")
     result = check(plan, statement, log)
+    stale = rules.coverage_warning(statement, plan.start, plan.end)
+    if stale:
+        result.warnings.insert(0, stale)
     progress(0.85, "Saving...")
     from .engine import _out, _save
     path = _out(out_dir, name or naming.clip(f"Section 4 check - {os.path.splitext(os.path.basename(xml))[0]}"),
                 fmt)
     _save(build_workbook(result, statement, xml), path)
-    return path, result, statement
+    return path, result, statement, plan.start

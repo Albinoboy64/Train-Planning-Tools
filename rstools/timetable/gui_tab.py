@@ -197,10 +197,14 @@ class TimetableTab(ttk.Frame):
                 ttk.Button(uf, text="Clear", width=6, command=lambda: self.s4_vars["pdf"].set("")).grid(
                     row=r, column=3, padx=(4, 0), pady=2)
             self.s4_vars[key].trace_add("write", lambda *_a: self._update_name_hint())
+        self.s4_set = ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left")
+        self.s4_set.grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.s4_note = ttk.Label(uf, text=S4_NOTE, style="Small.TLabel", wraplength=480, justify="left")
-        self.s4_note.grid(row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        self.s4_note.grid(row=5, column=0, columnspan=4, sticky="w", pady=(6, 0))
         self.s4_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left"))
-        self.s4_hint.grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.s4_hint.grid(row=6, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.s4_vars["pdf"].trace_add("write", lambda *_a: self.show_rule_set())
+        self.show_rule_set()
         self._last_cmp = "timetables"
 
         of = ttk.LabelFrame(left, text="2. Output", padding=8)
@@ -380,6 +384,21 @@ class TimetableTab(ttk.Frame):
         if mode != self.mode.get():
             self.mode.set(mode)
             self._mode_changed()
+
+    def show_rule_set(self):
+        """Say which Section 4 rules the check will use: the PDFs chosen, else the rule set in use."""
+        from rstools import rules
+        info = rules.active_set_info()
+        if split_paths(self.s4_vars["pdf"].get()):
+            text = "The PDFs chosen above are used." + (f" (Leave the box blank to use the rule set '{info['name']}'.)"
+                                                       if info else "")
+        elif info:
+            text = (f"Leave the PDF box blank to use the Section 4 rule set in use: {info['name']} "
+                    f"({info['possessions']} possession rows). Change it in Options > Rules and reference data.")
+        else:
+            text = ("No Section 4 rule set has been added: choose the PDFs, or add them once as a rule set in "
+                    "Options > Rules and reference data.")
+        self.s4_set.configure(text=text)
 
     def _cmp_mode(self) -> str:
         """The comparison chosen in the Timetable comparison section (kept while the Section 4 check is on)."""
@@ -581,8 +600,11 @@ class TimetableTab(ttk.Frame):
         pdfs = split_paths(self.s4_vars["pdf"].get())
         if not xml:
             return messagebox.showwarning(TITLE, "Choose the Attune XML.")
-        if not pdfs:
-            return messagebox.showwarning(TITLE, "Choose the Section 4 PDF(s).")
+        from rstools import rules
+        if not pdfs and not rules.active_set_info():
+            return messagebox.showwarning(TITLE, "Choose the Section 4 PDF(s), or add a Section 4 rule set in Options > "
+                                                 f"Rules and reference data.\n\nThe latest rules can be downloaded "
+                                                 f"from Network Rail:\n{rules.RULES_URL}")
         for p in [xml] + pdfs:
             if not os.path.isfile(p):
                 return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}")
@@ -596,7 +618,8 @@ class TimetableTab(ttk.Frame):
             return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{out_dir}")
         name = re.sub(r'[<>:"/\\|?*]', "-", self.out_name.get().strip()).strip(" .")
         self.app.add_recent("s4_xml", xml)
-        self.app.add_recent("s4_pdf", pdfs[0])
+        if pdfs:
+            self.app.add_recent("s4_pdf", pdfs[0])
         self._save_settings()
         self.app.save_app_settings()
         self._begin()
@@ -618,7 +641,7 @@ class TimetableTab(ttk.Frame):
     def _work_section4(self, xml, pdfs, out_dir, name, fmt):
         from .section4 import Section4Error, run_check
         try:
-            path, res, st = run_check(xml, pdfs, out_dir, name, fmt,
+            path, res, st, start = run_check(xml, pdfs, out_dir, name, fmt,
                                       progress=lambda f, m: self.q.put(("prog", f, m)),
                                       log=lambda m: self.q.put(("log", m, None)))
             every = sum(1 for c in res.clashes if c.possession.every_line)
@@ -628,7 +651,7 @@ class TimetableTab(ttk.Frame):
             summary = (f"{res.trains} train(s) run in a Section 4 possession window: {every} clash(es) where every "
                        f"line is blocked, {len(res.clashes) - every} where only some lines are (check the line "
                        "used)." if res.clashes else "No train runs in a Section 4 possession window.")
-            self.q.put(("s4done", path, lines, summary, len(st.warnings + res.warnings)))
+            self.q.put(("s4done", path, lines, summary, len(st.warnings + res.warnings), start))
         except (Section4Error, TimetableRunError) as exc:
             self.q.put(("error", str(exc)))
         except Exception as exc:
@@ -707,7 +730,7 @@ class TimetableTab(ttk.Frame):
                     self.app.notify_done("Timing Tools finished", summary)
                     messagebox.showinfo(TITLE, f"{summary}\n\n{res.path}{note}")
                 elif item[0] == "s4done":
-                    _k, path, lines, summary, nwarn = item
+                    _k, path, lines, summary, nwarn, start = item
                     self._finish(True)
                     self.prog["value"] = 1.0
                     self.outputs = [path]
@@ -721,6 +744,7 @@ class TimetableTab(ttk.Frame):
                     self.app.notify_done("Section 4 check finished", summary)
                     messagebox.showinfo(TITLE, f"{summary}\n\n{path}"
                                         + (f"\n\n{nwarn} warning(s) - see the log." if nwarn else ""))
+                    self.app.rules_reminder(start)
                 elif item[0] == "error":
                     self._finish(False)
                     self._append("ERROR: " + item[1], "error")

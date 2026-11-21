@@ -276,6 +276,7 @@ class App(tk.Tk):
         opt.add_command(label="Edit depot list (for unit reports)...", command=self.stats_tab.edit_depots)
         opt.add_command(label="Edit corridors (for capacity reports)...",
                         command=self.stats_tab.edit_groups)
+        opt.add_command(label="Rules and reference data...", command=self.show_rules)
         opt.add_command(label="Open settings folder", command=lambda: _open_path(
             os.path.dirname(Options.settings_path())))
         bar.add("Options", opt)
@@ -463,6 +464,21 @@ class App(tk.Tk):
             if updater.is_newer(rel.version, __version__):
                 self.q.put(("update", rel))
         threading.Thread(target=work, daemon=True).start()
+
+    def show_rules(self):
+        from rstools.rules_dialog import RulesDialog
+        RulesDialog(self)
+
+    def rules_reminder(self, start: str):
+        """The first time a timetable (from Dec 27) is used: remind to check the latest rules are loaded."""
+        from rstools import rules
+        try:
+            text = rules.new_timetable_reminder(start)
+        except Exception:
+            return
+        if text and messagebox.askyesno(f"{APP_NAME} - new timetable", text + "\n\nOpen Rules and reference data now?",
+                                        parent=self):
+            self.show_rules()
 
     def _about(self):
         messagebox.showinfo(f"About {APP_NAME}",
@@ -993,14 +1009,16 @@ class App(tk.Tk):
                 plan = read_plan(path)
                 stations = network_stations(cached(parse_attune_xml, path))
                 days = sorted(plan.diagram_days)
-                self.q.put(("bookxml", token, stations, timetable_name(plan), days, ""))
+                self.q.put(("bookxml", token, stations, timetable_name(plan), days, "", plan.start))
             except Exception as exc:
-                self.q.put(("bookxml", token, [], "", [], str(exc)))
+                self.q.put(("bookxml", token, [], "", [], str(exc), ""))
         threading.Thread(target=work, daemon=True).start()
 
-    def _book_xml_read(self, token, stations, timetable, days, error):
+    def _book_xml_read(self, token, stations, timetable, days, error, start=""):
         if token != self._book_token:
             return
+        if start:
+            self.after(200, lambda: self.rules_reminder(start))
         if error:
             self.book_note.configure(text=f"The XML could not be read: {error}")
             return
