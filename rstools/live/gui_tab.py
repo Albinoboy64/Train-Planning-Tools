@@ -169,9 +169,10 @@ class LiveTab(ttk.Frame):
         self._search_after = None
         self.search.trace_add("write", lambda *_a: self._search_soon())
         self.listv = ttk.Treeview(left, columns=("group", "train", "status"), show="headings", selectmode="browse")
-        for col, text, width in (("group", "Section / tab", 120), ("train", "Train", 130), ("status", "Status", 220)):
+        for col, text in (("group", "Section / tab"), ("train", "Train"), ("status", "Status")):
             self.listv.heading(col, text=text)
-            self.listv.column(col, width=width, anchor="w", stretch=col == "status")
+            self.listv.column(col, anchor="w", stretch=col == "status")
+        self.rescale()
         self.listv.grid(row=1, column=0, sticky="nsew")
         sb = ttk.Scrollbar(left, orient="vertical", command=self.listv.yview)
         sb.grid(row=1, column=1, sticky="ns")
@@ -221,6 +222,14 @@ class LiveTab(ttk.Frame):
     def _char_width(self) -> int:
         from tkinter import font
         return font.nametofont("TkDefaultFont", self).measure("0")
+
+    LIST_WIDTHS = {"group": 120, "train": 130, "status": 220}       # at 100% scaling, normal text
+
+    def rescale(self):
+        """Column widths for the display's scaling and the text size (called again when either changes)."""
+        from rstools.theme import px
+        for col, width in self.LIST_WIDTHS.items():
+            self.listv.column(col, width=px(self, width))
 
     def retheme(self, p: dict):
         """Colours of the difference rows and the notes box for the current theme."""

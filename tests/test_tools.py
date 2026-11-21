@@ -402,3 +402,51 @@ def test_service_groups_listed_without_an_xml():
     from rstools.statspack.seats import default_headcode_groups
     codes = [c for c, _d in default_headcode_groups()]
     assert len(codes) > 40 and {"1A", "1C", "1T", "2V", "9J", "9Y"} <= set(codes)
+
+
+def test_display_scaling_maths():
+    """Moving to a display with other scaling keeps the window's physical size, inside that display."""
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools import theme
+    assert theme.rescaled_size(1200, 800, 2.0) == (2400, 1600)
+    assert theme.rescaled_size(1200, 800, 2.0, (0, 0, 3840, 2100)) == (2400, 1600)
+    assert theme.rescaled_size(2400, 1600, 0.5, (2560, 0, 5120, 1400)) == (1200, 800)
+    assert theme.rescaled_size(2400, 1600, 1.0, (0, 0, 1920, 1040)) == (1920, 1040)
+
+
+def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch):
+    """The app redrawn for a 200% display: fonts, wrapped text, column room and the window double, and come
+    back when it returns to the 100% display."""
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    from tkinter import font
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        try:
+            app.update()
+            base_dpi = app.dpi
+            line = font.nametofont("TkDefaultFont", app).metrics("linespace")
+            wrap = int(str(app.dnd_hint.cget("wraplength")))
+            col = int(app.outer.columnconfigure(0)["minsize"])
+            app.geometry("1200x800")
+            app.update()
+            app.dpi_changed(base_dpi * 2)
+            app.update()
+            assert font.nametofont("TkDefaultFont", app).metrics("linespace") >= line * 1.7
+            assert int(str(app.dnd_hint.cget("wraplength"))) == wrap * 2
+            assert int(app.outer.columnconfigure(0)["minsize"]) == col * 2
+            assert app.winfo_width() >= 2000 or app.winfo_width() >= app.winfo_screenwidth() - 50
+            app.dpi_changed(base_dpi)
+            app.update()
+            assert font.nametofont("TkDefaultFont", app).metrics("linespace") == line
+            assert int(str(app.dnd_hint.cget("wraplength"))) == wrap
+            assert int(app.outer.columnconfigure(0)["minsize"]) == col
+        finally:
+            app._on_close()

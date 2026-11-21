@@ -93,15 +93,18 @@ class Tooltip:
                 self.tip.wm_attributes("-topmost", True)
             except tk.TclError:
                 pass
+            from rstools.theme import px
             tk.Label(self.tip, text=self.text, background=p["tip"], foreground=p["fg"], relief="solid", bd=1,
-                     wraplength=380, justify="left", padx=7, pady=4).pack()
+                     wraplength=px(self.widget, 380), justify="left", padx=px(self.widget, 7),
+                     pady=px(self.widget, 4)).pack()
             self.tip.update_idletasks()
             w, h = self.tip.winfo_reqwidth(), self.tip.winfo_reqheight()
             x = self.widget.winfo_rootx() + 16
             y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-            sw, sh = self.widget.winfo_screenwidth(), self.widget.winfo_screenheight()
-            x = max(0, min(x, sw - w - 8))
-            if y + h > sh - 40:                     # no room below: show above the widget
+            from rstools.theme import screen_area
+            left, _top, right, bottom = screen_area(self.widget)        # the display the window is on
+            x = max(left, min(x, right - w - 8))
+            if y + h > bottom - 8:                  # no room below: show above the widget
                 y = self.widget.winfo_rooty() - h - 4
             self.tip.wm_geometry(f"+{x}+{y}")
         except tk.TclError:

@@ -132,6 +132,9 @@ class MenuBar(ttk.Frame):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.dpi = theme.window_dpi(self)                     # this display's scaling (96 = 100%)
+        self.dpi_scale = self.dpi / theme.BASE_DPI
+        self.tk.call("tk", "scaling", self.dpi / 72.0)        # fonts are in points: sized for this display
         self.title(f"{APP_TITLE}  v{__version__}")
         self._set_icon()
         self.opts = Options.load()
@@ -145,11 +148,13 @@ class App(tk.Tk):
         self.size_var = tk.StringVar(value=self.opts.text_size if self.opts.text_size in theme.TEXT_SIZES
                                      else "normal")
         self._scale = theme.setup_fonts(self, self.size_var.get())
+        self.ui_scale = self._scale * self.dpi_scale          # pixel sizes: text size x display scaling
         self.palette = theme.apply(self, self.opts.theme)
         forced = os.environ.get("TPT_COMPACT", "")             # '1' / '0' to force it (testing)
-        self.compact = forced == "1" or (forced != "0" and self.winfo_screenheight() < theme.COMPACT_BELOW)
+        logical_height = self.winfo_screenheight() / self.dpi_scale       # e.g. a 4K laptop at 200%: 1080
+        self.compact = forced == "1" or (forced != "0" and logical_height < theme.COMPACT_BELOW)
         self._build()
-        self._size_columns(self._scale)
+        self._size_columns(self.ui_scale)
         self._build_menu()
         self._enable_drag_and_drop(self.outer)
         self._load_into_widgets()
@@ -157,7 +162,7 @@ class App(tk.Tk):
             theme.set_compact(self, True)
             self._head.configure(padding=(12, 2, 12, 0))
             self.live_tab.notes.configure(height=3)
-        self.minsize(1080, 560 if self.compact else 720)
+        self._set_minsize()
         self._fit_to_screen()
         pages = (None, self.stats_page, self.tt_page, self.live_page)
         if 0 < self.opts.last_tab < len(pages):
@@ -181,6 +186,8 @@ class App(tk.Tk):
         from rstools.help_text import attach
         attach(self)                                             # help when the mouse rests on a control
         theme.watch_focus_cues(self)                             # focus outlines only for keyboard use
+        self._dpi_after = None
+        self.bind("<Configure>", self._moved, add="+")            # a different display: rescale to its scaling
 
     def _fit_to_screen(self):
         """Open big enough to show a whole tab without scrolling, but never larger than the screen."""
@@ -189,9 +196,44 @@ class App(tk.Tk):
         width = max(b.winfo_reqwidth() for b in bodies) + 40
         chrome = self.winfo_reqheight() - self.notebook.winfo_reqheight() + 40     # header + tab strip
         height = max(b.winfo_reqheight() for b in bodies) + chrome
-        width = min(max(width, 1080), self.winfo_screenwidth() - 40)
-        height = min(max(height, 720), self.winfo_screenheight() - 80)
+        area = theme.work_area(self)
+        screen_w, screen_h = ((area[2] - area[0], area[3] - area[1]) if area else
+                              (self.winfo_screenwidth() - 40, self.winfo_screenheight() - 80))
+        width = min(max(width, theme.px(self, 1080)), screen_w)
+        height = min(max(height, theme.px(self, 720)), screen_h)
         self.geometry(f"{width}x{height}")
+
+    def _set_minsize(self):
+        self.minsize(theme.px(self, 1080), theme.px(self, 560 if self.compact else 720))
+
+    # ------------------------------------------------------------ moving between displays
+    def _moved(self, event):
+        """The window moved or resized: once it settles, check whether it is now on a display with other
+        scaling (nothing else is done, so moving the window costs nothing)."""
+        if event.widget is not self:
+            return
+        if self._dpi_after:
+            self.after_cancel(self._dpi_after)
+        self._dpi_after = self.after(300, self._check_dpi)
+
+    def _check_dpi(self):
+        self._dpi_after = None
+        dpi = theme.window_dpi(self)
+        if dpi != self.dpi:
+            self.dpi_changed(dpi)
+
+    def dpi_changed(self, dpi: int):
+        """Redraw for a display with other scaling: text, spacing and the logo sized for it, and the window kept
+        the same physical size."""
+        ratio = dpi / self.dpi
+        self.dpi, self.dpi_scale = dpi, dpi / theme.BASE_DPI
+        self.tk.call("tk", "scaling", dpi / 72.0)
+        width, height = self.winfo_width(), self.winfo_height()
+        self.set_text_size(self.size_var.get(), fit=False, save=False)
+        self._set_minsize()
+        if self.state() != "zoomed":
+            w, h = theme.rescaled_size(width, height, ratio, theme.work_area(self))
+            self.geometry(f"{w}x{h}")
 
     # ------------------------------------------------------------ settings shared by both tabs
     def apply_theme(self, mode: str):
@@ -202,18 +244,23 @@ class App(tk.Tk):
         if live is not None:
             live.retheme(self.palette)
 
-    def set_text_size(self, size: str):
+    def set_text_size(self, size: str, fit: bool = True, save: bool = True):
         """Resize all text in the window (and table rows) to one of theme.TEXT_SIZES."""
         size = size if size in theme.TEXT_SIZES else "normal"
         self.size_var.set(size)
         self.opts.text_size = size
         scale = theme.setup_fonts(self, size)
+        self.ui_scale = scale * self.dpi_scale
         self.apply_theme(self.opts.theme)
         self._show_logo()
-        self._size_columns(scale)
-        if self.state() != "zoomed":
+        self._size_columns(self.ui_scale)
+        live = getattr(self, "live_tab", None)
+        if live is not None and hasattr(live, "rescale"):
+            live.rescale()
+        if fit and self.state() != "zoomed":
             self._fit_to_screen()
-        self.save_app_settings()
+        if save:
+            self.save_app_settings()
 
     def _size_columns(self, scale: float):
         """Two-column tabs keep room for their text at the chosen text size."""
@@ -593,9 +640,9 @@ class App(tk.Tk):
 
     def _show_logo(self):
         """The header logo, drawn at a size that suits the text size (never shrunk by dropping pixels)."""
-        name = {"small": "logo_32.png", "xlarge": "logo.png"}.get(self.size_var.get(), "logo_48.png")
-        if getattr(self, "compact", False) and name != "logo.png":
-            name = "logo_32.png"                                  # a short screen: a smaller header
+        want = 48 * getattr(self, "ui_scale", 1.0) * (0.7 if getattr(self, "compact", False) else 1.0)
+        size = min((32, 48, 64), key=lambda s: abs(s - want))     # the nearest drawn size (never enlarged)
+        name = {32: "logo_32.png", 48: "logo_48.png", 64: "logo.png"}[size]
         try:
             self._logo = tk.PhotoImage(file=os.path.join(ASSETS, name))
             self._logo_label.configure(image=self._logo)
@@ -1828,11 +1875,6 @@ class App(tk.Tk):
 
 
 def main():
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
+    theme.enable_dpi_awareness()          # sharp on every display, at each one's own scaling
     app = App()
     app.mainloop()

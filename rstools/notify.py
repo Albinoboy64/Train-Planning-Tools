@@ -57,13 +57,17 @@ def notify(root: tk.Tk, title: str, message: str, ok: bool = True):
         frame.pack(fill="both", expand=True)
         tk.Label(frame, text=("✔ " if ok else "✖ ") + title, background=p["panel"],
                  foreground=p["ok"] if ok else p["error"], font="AppNotice", anchor="w").pack(fill="x")
-        tk.Label(frame, text=message, background=p["panel"], foreground=p["fg"], wraplength=320, justify="left",
+        from rstools.theme import px
+        tk.Label(frame, text=message, background=p["panel"], foreground=p["fg"], wraplength=px(frame, 320),
+                 justify="left",
                  anchor="w").pack(fill="x", pady=(2, 0))
         tk.Label(frame, text="Click to open the app", background=p["panel"], foreground=p["muted"],
                  font="AppNoticeSmall", anchor="w").pack(fill="x", pady=(4, 0))
         win.update_idletasks()
         w, h = max(win.winfo_reqwidth(), 300), win.winfo_reqheight()
-        x, y = win.winfo_screenwidth() - w - 16, win.winfo_screenheight() - h - 60
+        from rstools.theme import screen_area
+        _l, _t, right, bottom = screen_area(root)
+        x, y = right - w - 16, bottom - h - 20                       # the corner of the app's display
         win.wm_geometry(f"{w}x{h}+{x}+{y}")
 
         def bring_front(_e=None):

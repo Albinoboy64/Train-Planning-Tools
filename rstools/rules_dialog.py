@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from rstools import rules
 from rstools.branding import APP_NAME
+from rstools.theme import px
 
 TITLE = f"{APP_NAME} - Rules and reference data"
 
@@ -32,7 +33,7 @@ class RulesDialog(tk.Toplevel):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
         pad = dict(padx=12, pady=(10, 0))
-        intro = ttk.Label(self, wraplength=760, justify="left", text=(
+        intro = ttk.Label(self, wraplength=px(self, 760), justify="left", text=(
             "The Network Rail rules the app uses. Add the Section 4 PDFs once as a rule set; the Section 4 check uses "
             "the rule set in use whenever no PDFs are chosen."))
         intro.grid(row=0, column=0, sticky="w", **pad)
@@ -44,7 +45,7 @@ class RulesDialog(tk.Toplevel):
             stale = rules.parse_date(b["to"]) and today > rules.parse_date(b["to"])
             ttk.Label(bf, text=f"{b['name']} - {b['use']}. {b['covers']}; {_d(b['from'])} to {_d(b['to'])}."
                                + (" Out of date: a newer app version will carry the new rules." if stale else ""),
-                      wraplength=740, justify="left").grid(row=i, column=0, sticky="w")
+                      wraplength=px(self, 740), justify="left").grid(row=i, column=0, sticky="w")
         sf = ttk.LabelFrame(self, text="Section 4 rule sets", padding=8)
         sf.grid(row=2, column=0, sticky="nsew", **pad)
         sf.columnconfigure(0, weight=1)
@@ -54,7 +55,7 @@ class RulesDialog(tk.Toplevel):
         for c, text, w in (("use", "In use", 60), ("name", "Name", 200), ("periods", "Covers", 170),
                            ("rows", "Possessions", 90), ("files", "From", 300), ("added", "Added", 130)):
             self.tree.heading(c, text=text, anchor="w")
-            self.tree.column(c, width=w, anchor="w", stretch=c in ("name", "files"))
+            self.tree.column(c, width=px(self, w), anchor="w", stretch=c in ("name", "files"))
         self.tree.grid(row=0, column=0, sticky="nsew")
         sb = ttk.Scrollbar(sf, orient="vertical", command=self.tree.yview)
         sb.grid(row=0, column=1, sticky="ns")
@@ -67,7 +68,7 @@ class RulesDialog(tk.Toplevel):
         self.use_btn.grid(row=0, column=1, padx=6)
         self.del_btn = ttk.Button(btns, text="Remove", command=self._remove)
         self.del_btn.grid(row=0, column=2)
-        self.status = ttk.Label(sf, text="", style="Small.TLabel", wraplength=740, justify="left")
+        self.status = ttk.Label(sf, text="", style="Small.TLabel", wraplength=px(self, 740), justify="left")
         self.status.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         lf = ttk.Frame(self)
         lf.grid(row=3, column=0, sticky="ew", padx=12, pady=(10, 0))

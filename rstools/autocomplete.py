@@ -92,7 +92,8 @@ class Suggest:
     def _place(self):
         e = self.entry
         top = e.winfo_toplevel()
-        room = min(top.winfo_rootx() + top.winfo_width(), e.winfo_screenwidth()) - e.winfo_rootx() - 4
+        from rstools.theme import screen_area
+        room = min(top.winfo_rootx() + top.winfo_width(), screen_area(e)[2]) - e.winfo_rootx() - 4
         width = max(min(e.winfo_width(), room), 160)          # within the window, not off its edge
         self.popup.geometry(f"{width}x{self.box.winfo_reqheight()}+{e.winfo_rootx()}+"
                             f"{e.winfo_rooty() + e.winfo_height()}")

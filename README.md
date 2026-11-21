@@ -329,6 +329,12 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.18.0** - sharp on every display
+* **No more blurry window on high-resolution screens**: the app now tells Windows it handles each display's own scaling, so Windows no longer stretches it. Text and controls are drawn sharply on a 4K laptop at 200% as well as on a 1440p monitor at 100%.
+* **Moving between displays**: drag the window to a display with different scaling and, once it settles there, the text, spacing, tick boxes, drop-down arrows, scrollbars, table columns, hover help and logo are redrawn for that display, and the window keeps the same physical size (kept within that display). Nothing is recalculated while the window stays on displays with the same scaling, so moving it costs nothing.
+* Hover help, typing suggestions and the finished-in-the-background notice now appear on the display the app is on (they could jump to the main display before).
+* The compact layout is chosen from the display's scaled height (a 4K laptop at 200% counts as 1080 lines high).
+
 **3.17.1** - clearer wording
 * **Shorter, plainer text throughout**: tab descriptions, notes, tips and hover help no longer explain things planners already know or how the app works inside (e.g. *trains, not Excel rows*, how trains are matched, *hold Ctrl in the file window*, *using several CPU cores*, what a CET or an ACWN is). Each tab's description is now one line, e.g. *Compares an original and an updated CWN, and produces a highlighted CWN and a change report.*
 * **Layout fixes**: the capacity report's group, corridor and station boxes and the note under *Service group* now fit their section; the Live View colour key and its *< Previous* / *Next >* / *Export...* buttons are no longer cut off on smaller windows.

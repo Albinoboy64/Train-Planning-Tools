@@ -29,7 +29,7 @@ class UpdateDialog(tk.Toplevel):
         body.rowconfigure(2, weight=1)
         self.head = ttk.Label(body, text="Checking GitHub for a newer version...", style="Head.TLabel")
         self.head.grid(row=0, column=0, sticky="w")
-        self.sub = ttk.Label(body, text=f"You have version {current}.", style="Small.TLabel", wraplength=480,
+        self.sub = ttk.Label(body, text=f"You have version {current}.", style="Small.TLabel", wraplength=theme.px(body, 480),
                              justify="left")
         self.sub.grid(row=1, column=0, sticky="w", pady=(2, 8))
         self.notes = tk.Text(body, height=10, wrap="word", font="TkTextFont")

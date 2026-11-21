@@ -90,6 +90,104 @@ def row_height(root) -> int:
     return font.nametofont("TkDefaultFont", root).metrics("linespace") + 6
 
 
+# --------------------------------------------------------------------------- display scaling (DPI)
+BASE_DPI = 96                  # Windows' 100% scaling
+
+
+def enable_dpi_awareness():
+    """Per-monitor DPI awareness (call before the first window): Windows then draws the app sharply at each
+    display's own scaling instead of stretching a 100% image (blurry on a 4K laptop next to a 1440p monitor)."""
+    if not sys.platform.startswith("win"):
+        return
+    import ctypes
+    try:
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):   # per monitor, v2
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)                               # per monitor
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
+def window_dpi(root) -> int:
+    """The DPI of the display the window is on (96 at 100% scaling, 192 at 200%)."""
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)             # GA_ROOT: the frame
+            dpi = ctypes.windll.user32.GetDpiForWindow(hwnd)
+            if dpi:
+                return int(dpi)
+        except (AttributeError, OSError, tk.TclError):
+            pass
+    try:
+        return int(round(root.winfo_fpixels("1i")))
+    except tk.TclError:
+        return BASE_DPI
+
+
+def px(widget, n: float) -> int:
+    """n pixels at 100% scaling and normal text size, as pixels on the window's display at the chosen text size
+    (the main window keeps the factor as `ui_scale`)."""
+    try:
+        scale = getattr(widget.nametowidget("."), "ui_scale", 1.0)
+    except (tk.TclError, KeyError, AttributeError):
+        scale = 1.0
+    return int(round(n * scale))
+
+
+def work_area(root):
+    """(left, top, right, bottom) of the work area (no taskbar) of the display the window is on, or None."""
+    if not sys.platform.startswith("win"):
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD)]
+        hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)
+        mon = ctypes.windll.user32.MonitorFromWindow(hwnd, 2)                        # nearest display
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(info)):
+            r = info.rcWork
+            return r.left, r.top, r.right, r.bottom
+    except (AttributeError, OSError, tk.TclError):
+        pass
+    return None
+
+
+def screen_area(widget):
+    """(left, top, right, bottom) of the display a widget's window is on: its work area on Windows, else the
+    screen."""
+    try:
+        area = work_area(widget.winfo_toplevel())
+    except tk.TclError:
+        area = None
+    if area:
+        return area
+    return 0, 0, widget.winfo_screenwidth(), widget.winfo_screenheight() - 40
+
+
+def rescaled_size(width: int, height: int, ratio: float, area=None):
+    """A window's size after moving to a display with `ratio` times the scaling (the same physical size),
+    kept inside the display's work area when it is known."""
+    w, h = int(round(width * ratio)), int(round(height * ratio))
+    if area:
+        w = min(w, area[2] - area[0])
+        h = min(h, area[3] - area[1])
+    return max(w, 200), max(h, 150)
+
+
 def windows_high_contrast() -> bool:
     """True when Windows high-contrast mode is on."""
     if not sys.platform.startswith("win"):
@@ -228,6 +326,15 @@ def apply(root: tk.Tk, mode: str) -> dict:
         style.map("Run.TButton", background=[("disabled", p["panel"]), ("pressed", p["select"]),
                                              ("active", p["accent"])],
                   foreground=[("disabled", p["disabled"]), ("active", p["accent_fg"])])
+    # tick boxes, radio buttons, drop-down arrows and scrollbars sized for the display's scaling and text size
+    k = getattr(root, "ui_scale", 1.0)
+    style.configure("TCheckbutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
+    style.configure("TRadiobutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
+    style.configure("TCombobox", arrowsize=round(14 * k))
+    style.configure("TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
+    style.configure("Vertical.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
+    style.configure("Horizontal.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
+
     # a section of a tab that is not the one chosen (e.g. Utilities while comparing CWNs): its title greyed
     style.configure("Off.TLabelframe", **({} if native else dict(background=p["bg"], bordercolor=p["border"],
                                                                   relief="groove")))
