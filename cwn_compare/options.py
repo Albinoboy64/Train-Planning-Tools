@@ -33,7 +33,7 @@ def default_categories() -> Dict[str, Dict[str, bool]]:
 
 @dataclass
 class Options:
-    mode: str = "compare"            # compare | cumulative | batch | reorder | station
+    mode: str = "compare"            # compare | cumulative | batch | reorder | station | berth_make / round / compare
     variant_order: str = "day"       # reorder mode: day (MO first ... FO, SO, Su) | time (departure time first)
     book_station: str = ""           # station working book: station, platforms, title parts, day sheets
     book_platforms: str = ""
@@ -43,6 +43,8 @@ class Options:
     book_services: str = "Thameslink and Great Northern services only"
     book_label: str = ""
     book_days: List[str] = field(default_factory=lambda: ["SX", "SO", "Su"])
+    berth_files: Dict[str, List[str]] = field(default_factory=dict)   # berthing chart mode -> its file boxes
+    berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
     original: str = ""               # original CWN, or previous comparison CWN (cumulative)
     updated: str = ""
     output_type: str = "full"        # full | acwn

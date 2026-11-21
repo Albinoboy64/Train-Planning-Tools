@@ -137,6 +137,19 @@ Passenger trains (classes 1, 2 and 9) show public times as `HH MM`; other trains
 
 Command line: `stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15] [--operator "GTR(TLGN)"] [--timetable Dec23] [--services "..."] [--label "..."] [--sheets SX,SO,Su]`.
 
+### Berthing charts
+
+Under *Berthing charts* on the Stock Tools tab (drop XMLs and charts on that box):
+
+* **Make a berthing chart from an Attune XML**: where every unit berths each night at the out-berth platforms and sidings. Choose the **Attune XML** (an export with every day's unit diagrams) and an earlier chart under **Layout from chart**: its sheets, berths, capacities and notes are kept, the units come from the XML, and the old formulas, counting rows (*Start1* ... *Finish1*, *\*4 377\** rows) and damaged formatting are left out. *Issue on cover* (e.g. *Proof 1*) goes on the cover with the XML's dates. A new chart starts without highlights.
+* **STP charts**: attach the **STP XML** as well. Each day's STP diagrams replace the LTP ones, and STP trains are shown **in bold on a lavender fill**.
+* **Add a round of changes to a berthing chart**: the chart, the **original XML** it was made from and the **updated XML** (for an STP chart, the LTP and STP XMLs separated by `;`). The chart is remade from the updated XML, every cell that differs is filled in the chosen colour, earlier highlights are kept, and a change report lists each change. The cover's *Updates highlighted in ...* line follows the colour.
+* **Compare two berthing charts**: every unit or time in the newer chart that differs from the older one is highlighted, with a change report. Spacing slips (`(4 387) 00 45`), the old `L` marker and `12700` / `12 700` are not differences.
+
+Each row is one unit's stay: its arrival in the night's **FINISH** column and its departure in the next **START** column (`02+02` an empty move, `0500` a passenger train), **Berth** on any day it stays put, and **RP** when it leaves as the rear portion of another train, attached to by a unit that moved onto it that day. Coupled units sit on consecutive rows in brackets, front first, with the time on the first row; the latest arrival is at the top. 387/2 (Gatwick Express) are in red, 387/3 (Southern) in green, and Thameslink 700s end `TLK`. The depot sheet (Lovers Walk) lists each unit type's arrivals and departures in time order.
+
+Which XML location each berth is comes from the **berth list** (*Edit berth locations...*): sheet, berth as written on the chart, TIPLOC and the platform or road codes Attune uses (e.g. Brighton *Plat 7* = BRGHTN 7 / 7F, Eastbourne *No 3 Siding* = EBOUSID S3). Units berthing on a platform or road the sheet has no berth for are listed at the bottom of that sheet, and everything that needs checking is on the chart's **Notes** sheet. Command line: `TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx`.
+
 ### Add new comparisons to previously generated comparison CWN
 
 Every comparison CWN stores a hidden data sheet containing the clean data it was built from. To add a further round:
@@ -328,6 +341,10 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.20.0** - berthing charts
+* **Berthing charts** (new, Stock Tools tab): make SNGX's berthing chart from an Attune XML in the layout of an earlier chart, tidied (one font, consistent borders, no old formulas or counting sections); STP charts from an LTP and an STP XML with STP trains in bold on lavender; add a round of changes to a chart from the original and updated XML, highlighted in a colour with earlier highlights kept; and compare two charts. Each unit's arrival, departure, *Berth* days, *RP* (rear portion attached to that morning) and coupled formations come from the XML's diagrams and next-day workings; 387/2 in red and 387/3 in green. A change report comes with each round and comparison, and a Notes sheet lists anything to check.
+* The berth list links each berth on the charts to its TIPLOC and platform / road and can be edited in Excel (*Edit berth locations...*).
 
 **3.19.3** - fewer pop-ups, folder pairing and --between fixed
 * **Hover help trimmed**: no pop-ups on the menu bar (*Options*, *Save/Load*, *Help*), and none that only repeat a control's own words (e.g. *Clear*, *Swap files*, *Open report*, *Start (F5)* on run buttons, the day, class and operator tick boxes, *All days* / *Weekdays*, *The Attune diagram export (.xml) of the original plan*). Pop-ups that add something - formats, examples, what a blank box means, what is copied or never overwritten, the fuel-check rule, what each change type covers - are kept (64 of 145).

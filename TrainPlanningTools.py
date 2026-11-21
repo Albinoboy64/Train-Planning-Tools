@@ -9,6 +9,9 @@ Command-line use:
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
                                        [--sheets SX,SO,Su]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--name NAME] [--out DIR]  (day variants in order)
+    TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
+    TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
+    TrainPlanningTools.exe berthing --compare OLD_CHART.xlsx NEW_CHART.xlsx [--colour Orange]
     TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO]
                                      [--output totals_days|totals|days]
     TrainPlanningTools.exe statspack --trent "LTP_VL29.docx;STP_VL29.docx" --unit-reports washes,depots,captive
@@ -356,6 +359,52 @@ def timetable_cli(argv):
     print("Saved:", res.path)
 
 
+def berthing_cli(argv):
+    from cwn_compare.options import PRESET_COLOURS
+    from rstools.berthing import engine
+    from rstools.berthing.xmlread import BerthingError
+
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools berthing", description="Berthing charts")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--xml", nargs="+", help="make a chart: the LTP Attune XML, then optionally the STP XML")
+    g.add_argument("--chart", help="add a round of changes to this chart (with --original and --updated)")
+    g.add_argument("--compare", nargs=2, metavar=("OLD", "NEW"), help="compare two charts")
+    ap.add_argument("--layout", help="the chart whose sheets, berths and notes the new chart follows")
+    ap.add_argument("--original", nargs="+", help="the Attune XML(s) the chart was made from")
+    ap.add_argument("--updated", nargs="+", help="the changed Attune XML(s)")
+    ap.add_argument("--issue", default="", help="the issue shown on the cover, e.g. 'Proof 2'")
+    ap.add_argument("--colour", default="",
+                    help="highlight colour: a name (" + ", ".join(PRESET_COLOURS) + ") or RRGGBB")
+    ap.add_argument("--out", default="", help="output folder (default: beside the input)")
+    ap.add_argument("--name", default="", help="output file name, without .xlsx")
+    a = ap.parse_args(argv)
+    named = {k.lower(): v for k, v in PRESET_COLOURS.items()}
+    colour = named.get(a.colour.lower(), a.colour.lstrip("#")) if a.colour else ""
+    try:
+        if colour and not (len(colour) == 6 and all(ch in "0123456789abcdefABCDEF" for ch in colour)):
+            raise BerthingError(f"'{a.colour}' is not a colour: use a name ({', '.join(PRESET_COLOURS)}) or RRGGBB.")
+        if a.xml:
+            if not a.layout:
+                raise BerthingError("--xml needs --layout CHART.xlsx (the chart whose layout to follow).")
+            res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print)
+        elif a.chart:
+            if not (a.original and a.updated):
+                raise BerthingError("--chart needs --original XML and --updated XML.")
+            res = engine.add_round(a.chart, a.original, a.updated, colour or "92D050", a.out, a.name, a.issue,
+                                   log=print)
+        else:
+            res = engine.compare_charts(a.compare[0], a.compare[1], colour or "FFFF00", a.out, a.name, log=print)
+    except BerthingError as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+    print(res.summary)
+    for w in res.warnings:
+        print("WARNING:", w)
+    print("Saved:", res.chart)
+    if res.report:
+        print("Saved:", res.report)
+
+
 def selftest_cli(argv):
     """Checks the packaged exe can read an Attune print with its fast PDF reader (used by the build)."""
     from rstools.timetable.prints import _pdfium_lines
@@ -378,6 +427,8 @@ if __name__ == "__main__":
         reorder_cli(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1].lower() == "timetable":
         timetable_cli(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1].lower() == "berthing":
+        berthing_cli(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1].lower() == "selftest":
         selftest_cli(sys.argv[2:])
     elif len(sys.argv) > 1:

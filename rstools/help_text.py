@@ -67,6 +67,24 @@ TIPS = {
                       "chosen CWNs do not cover are greyed out.",
     "Reset to defaults": "Switch every change type back on.",
     "Highlight only (no old values)": "Mark changes without showing the previous values struck through.",
+    # ---------------------------------------------------------------- berthing charts
+    "Berthing charts": "Files dropped on this box go here.",
+    "Make a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
+        "sidings, laid out like a chart you choose. A new chart has no highlights.",
+    "Add a round of changes to a berthing chart": "Remakes the chart from the updated XML. Cells that differ from the "
+        "original XML are filled in the chosen colour; earlier highlights are kept.",
+    "Compare two berthing charts": "Highlights in the newer chart every unit or time that differs from the older one. "
+        "Spacing slips and the old 'L' marker do not count.",
+    "STP XML (optional):": "For an STP chart: each day's STP diagrams replace the LTP ones, and STP trains are shown "
+                           "in bold on lavender.",
+    "Layout from chart:": "An earlier berthing chart. Its sheets, berths, capacities and notes are kept; the units "
+                          "come from the XML. Old formulas and counting rows are left out.",
+    "Berthing chart:": "The chart to add this round's changes to.",
+    "Original XML:": "The XML the chart was made from. For an STP chart: the LTP and STP XMLs, separated by ';'.",
+    "Updated XML:": "The changed XML. For an STP chart: the LTP and STP XMLs, separated by ';'.",
+    "Issue on cover:": "Shown on the cover, e.g. Proof 2. Leave blank to keep the chart's own.",
+    "Edit berth locations...": "Open the list that links each berth to its XML location (TIPLOC and platform or "
+                               "road) in Excel.",
     # ---------------------------------------------------------------- Stats Pack
     "Create a stats pack": "Build the rolling stock stats pack for the chosen days from an Attune XML and its "
                            "TRENT diagram print.",

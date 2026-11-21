@@ -11,6 +11,7 @@ import threading
 import traceback
 import tkinter as tk
 import webbrowser
+from functools import partial
 from typing import Dict, List
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
@@ -35,6 +36,22 @@ REPORT_FORMATS = {"xlsx": "Excel", "pdf": "PDF", "docx": "Word"}
 ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                       "rstools", "assets")
 HAS_OLD = {k: has_old for k, _label, has_old, _desc in CATEGORIES}
+# berthing charts: mode -> (radio button, [(file box label, kind)], run button, intro)
+BERTH_MODES = {
+    "berth_make": ("Make a berthing chart from an Attune XML",
+                   [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"), ("Layout from chart:", "xlsx")],
+                   "Make berthing chart", "Makes a berthing chart from an Attune XML, laid out like a chart you "
+                   "choose. Attach the STP XML too for an STP chart."),
+    "berth_round": ("Add a round of changes to a berthing chart",
+                    [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml")],
+                    "Add changes to chart", "Remakes a berthing chart from an updated Attune XML and highlights "
+                    "what changed since the original XML."),
+    "berth_compare": ("Compare two berthing charts", [("Older chart:", "xlsx"), ("Newer chart:", "xlsx")],
+                      "Compare charts", "Compares two berthing charts and highlights the differences in the newer "
+                      "one."),
+}
+
+
 OPENABLE = (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".csv", ".txt", ".log")
 
 
@@ -759,9 +776,12 @@ class App(tk.Tk):
         self.util_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=430, justify="left"))
         self.util_hint.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
+        # --- berthing charts: made from Attune XMLs, a round of changes added, two charts compared
+        self._build_berthing(left)
+
         # --- output
         of = self.out_frame = ttk.LabelFrame(left, text="2. Output", padding=8)
-        of.grid(row=2, column=0, sticky="ew")
+        of.grid(row=3, column=0, sticky="ew")
         of.columnconfigure(1, weight=1)
         self.out_type = tk.StringVar(value="full")
         type_lbl = ttk.Label(of, text="Output type:")
@@ -838,7 +858,7 @@ class App(tk.Tk):
         self._pending_days = None                        # days to tick once known (a saved comparison)
         self._run_when_days_known = False
         self._last_mode = "compare"
-        self._last_compare, self._last_util = "compare", "reorder"
+        self._last_compare, self._last_util, self._last_berth = "compare", "reorder", "berth_make"
         self.available_days: set = set()
         self._days_token = 0
         self._days_after = None
@@ -928,10 +948,154 @@ class App(tk.Tk):
         self.open_dir.grid(row=0, column=2)
         ttk.Checkbutton(ob, text="Open when finished", variable=self.open_var).grid(row=0, column=3, padx=(12, 0))
 
+    # ------------------------------------------------------------ berthing charts
+    def _build_berthing(self, left):
+        bf = self.berth_frame = ttk.LabelFrame(left, text="Berthing charts", padding=8)
+        bf.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        bf.columnconfigure(1, weight=1)
+        brow = ttk.Frame(bf)
+        brow.grid(row=0, column=0, columnspan=3, sticky="w")
+        for i, (value, (text, _rows, _run, _intro)) in enumerate(BERTH_MODES.items()):
+            ttk.Radiobutton(brow, text=text, variable=self.mode, value=value,
+                            command=self._mode_changed).grid(row=i, column=0, sticky="w")
+        self.berth_vars = {m: [tk.StringVar() for _r in spec[1]] for m, spec in BERTH_MODES.items()}
+        self.berth_rows: Dict[str, list] = {}
+        for mode, (_t, rows, _r, _i) in BERTH_MODES.items():
+            widgets = []
+            for i, (label, kind) in enumerate(rows):
+                lab = ttk.Label(bf, text=label)
+                lab.grid(row=i + 1, column=0, sticky="w", pady=(6, 0))
+                box = self.file_box(bf, self.berth_vars[mode][i], f"berth_{kind}")
+                box.grid(row=i + 1, column=1, sticky="ew", padx=4, pady=(6, 0))
+                box.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
+                btn = ttk.Button(bf, text="Browse...", command=partial(self._browse_berth, mode, i))
+                btn.grid(row=i + 1, column=2, pady=(6, 0))
+                widgets.append((lab, box, btn))
+            self.berth_rows[mode] = widgets
+        self.berth_issue = tk.StringVar()
+        self.berth_issue_lbl = ttk.Label(bf, text="Issue on cover:")
+        self.berth_issue_lbl.grid(row=4, column=0, sticky="w", pady=(6, 0))
+        self.berth_issue_entry = ttk.Entry(bf, textvariable=self.berth_issue, width=18)
+        self.berth_issue_entry.grid(row=4, column=1, sticky="w", padx=4, pady=(6, 0))
+        self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
+        ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths).grid(row=4, column=2,
+                                                                                    pady=(6, 0))
+        self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"))
+        self.berth_hint.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue]:
+            var.trace_add("write", lambda *_a: self._update_name_hint())
+
+    def _show_berth_rows(self, mode: str):
+        for m, widgets in self.berth_rows.items():
+            for w in (x for row in widgets for x in row):
+                (w.grid if m == mode else w.grid_remove)()
+        on = mode in ("berth_make", "berth_round")
+        for w in (self.berth_issue_lbl, self.berth_issue_entry):
+            (w.grid if on else w.grid_remove)()
+
+    def _browse_berth(self, mode: str, i: int):
+        label, kind = BERTH_MODES[mode][1][i]
+        var = self.berth_vars[mode][i]
+        init = os.path.dirname(var.get().split(";")[0].strip()) if var.get() else None
+        title = "Choose the " + label.rstrip(":").replace(" (optional)", "")
+        if kind == "xml":
+            p = filedialog.askopenfilename(title=title, initialdir=init,
+                                           filetypes=[("Attune diagram XML", "*.xml"), ("All files", "*.*")])
+        else:
+            p = filedialog.askopenfilename(title=title, initialdir=init,
+                                           filetypes=[("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")])
+        if p:
+            var.set(os.path.normpath(p))
+
+    def _edit_berths(self):
+        from rstools.berthing.mapping import ensure_user_copy
+        self.open_outputs([ensure_user_copy()], force=True)
+
+    def _berth_paths(self, mode: str) -> List[str]:
+        return [v.get().strip().strip('"') for v in self.berth_vars[mode]]
+
+    def _drop_berthing(self, paths: List[str]):
+        """XMLs and charts dropped on the berthing box go to the boxes that take them."""
+        xmls = [p for p in paths if p.lower().endswith(".xml")]
+        charts = [p for p in paths if p.lower().endswith((".xlsx", ".xlsm"))]
+        if not xmls and not charts:
+            messagebox.showwarning(APP_TITLE, "Drop Attune XMLs (.xml) or berthing charts (.xlsx).")
+            return
+        mode = self.mode.get()
+        if mode not in BERTH_MODES:
+            mode = ("berth_round" if charts and len(xmls) >= 2 else "berth_make" if xmls else "berth_compare")
+            self._set_mode(mode)
+        vars_ = self.berth_vars[mode]
+        kinds = [k for _l, k in BERTH_MODES[mode][1]]
+        if mode == "berth_compare" and len(charts) >= 2:
+            charts = sorted(charts[:2], key=os.path.getmtime)        # the older file first
+            for v in vars_:
+                v.set("")
+        for files, kind in ((xmls, "xml"), (charts, "xlsx")):
+            slots = [i for i, k in enumerate(kinds) if k == kind]
+            for f in files:
+                free = [i for i in slots if not vars_[i].get().strip()] or slots[-1:]
+                if free:
+                    vars_[free[0]].set(f)
+
+    def _run_berthing(self, o: Options):
+        mode = o.mode
+        files = self._berth_paths(mode)
+        labels = [lab.rstrip(":") for lab, _k in BERTH_MODES[mode][1]]
+        for path, label in zip(files, labels):
+            if not path and not label.endswith("(optional)"):
+                messagebox.showwarning(APP_TITLE, f"Choose the {label[0].lower() + label[1:]}.")
+                return
+            for one in (p.strip() for p in path.split(";") if p.strip()):
+                if not os.path.isfile(one):
+                    messagebox.showwarning(APP_TITLE, f"This file could not be found:\n{one}")
+                    return
+        if o.output_dir and not os.path.isdir(o.output_dir):
+            messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
+            return
+        for path, (_l, kind) in zip(files, BERTH_MODES[mode][1]):
+            for one in (p.strip() for p in path.split(";") if p.strip()):
+                self.add_recent(f"berth_{kind}", one)
+        saved = dataclasses.replace(o, output_name="", days=[])
+        saved.save()
+        self.opts = saved
+        self._start()
+        self.status.configure(text="Working on the berthing chart...")
+        self.prog.configure(mode="indeterminate")
+        self.prog.start(15)
+        split = lambda text: [p.strip() for p in text.split(";") if p.strip()]
+        log = lambda m: self.q.put(("log", m))
+
+        def work():
+            from rstools.berthing import engine
+            from rstools.berthing.xmlread import BerthingError
+            try:
+                if mode == "berth_make":
+                    res = engine.generate([p for p in files[:2] if p], files[2], o.output_dir, o.output_name,
+                                          o.berth_issue, log)
+                elif mode == "berth_round":
+                    res = engine.add_round(files[0], split(files[1]), split(files[2]), o.colour, o.output_dir,
+                                           o.output_name, o.berth_issue, log)
+                else:
+                    res = engine.compare_charts(files[0], files[1], o.colour, o.output_dir, o.output_name, log)
+                self.q.put(("berth_done", res))
+            except BerthingError as exc:
+                self.q.put(("error", str(exc)))
+            except Exception as exc:
+                self.q.put(("error", errorlog.describe(exc)))
+        threading.Thread(target=work, daemon=True).start()
+
     # ------------------------------------------------------------ helpers
     def _load_into_widgets(self):
         o = self.opts
-        self.mode.set(o.mode if o.mode in ("compare", "cumulative", "batch", "reorder", "station") else "compare")
+        self.mode.set(o.mode if o.mode in ("compare", "cumulative", "batch", "reorder", "station", *BERTH_MODES)
+                      else "compare")
+        for mode, vars_ in self.berth_vars.items():
+            saved_files = o.berth_files.get(mode) if isinstance(o.berth_files, dict) else None
+            for i, var in enumerate(vars_):
+                var.set(saved_files[i] if isinstance(saved_files, list) and i < len(saved_files)
+                        and isinstance(saved_files[i], str) else "")
+        self.berth_issue.set(o.berth_issue)
         for k, var in self.book_vars.items():
             var.set(getattr(o, f"book_{k}", "") or "")
         for dt, v in self.book_day_vars.items():
@@ -955,6 +1119,8 @@ class App(tk.Tk):
         o = Options()
         o.mode = self.mode.get()
         o.variant_order = self.variant_order.get()
+        o.berth_files = {m: self._berth_paths(m) for m in BERTH_MODES}
+        o.berth_issue = self.berth_issue.get().strip()
         util = o.mode in ("reorder", "station")
         o.original = (self.util if util else self.orig).get().strip().strip('"')
         o.updated = "" if util else self.upd.get().strip().strip('"')
@@ -1085,6 +1251,21 @@ class App(tk.Tk):
             self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save next "
                                           "to the XML.")
             return
+        mode = self.mode.get()
+        if mode in BERTH_MODES:
+            files = self._berth_paths(mode)
+            issue = self.berth_issue.get().strip()
+            if mode == "berth_make":
+                name = f"Berthing Chart {issue}" if issue else "Berthing Chart <timetable>"
+                where = "the XML"
+            elif mode == "berth_round":
+                stem = os.path.splitext(os.path.basename(files[0]))[0] if files[0] else "chart name"
+                name, where = (f"{stem} - {issue}" if issue else f"{stem} updated"), "the chart"
+            else:
+                name, where = default_name(files[0], files[1]), "the newer chart"
+            self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save next "
+                                          f"to {where}.")
+            return
         if self.mode.get() == "reorder":
             p = self.util.get().strip().strip('"')
             stem = os.path.splitext(os.path.basename(p))[0] if p else "CWN name"
@@ -1112,12 +1293,11 @@ class App(tk.Tk):
 
     def _pick_section(self, section: str):
         """Typing in (or dropping on) a section's box picks that section, keeping its last mode."""
-        util = self.mode.get() in ("reorder", "station")
-        if section == "util" and not util:
-            self.mode.set(self._last_util)
-            self._mode_changed()
-        elif section == "compare" and util:
-            self.mode.set(self._last_compare)
+        mode = self.mode.get()
+        current = "util" if mode in ("reorder", "station") else "berth" if mode in BERTH_MODES else "compare"
+        if section != current:
+            self.mode.set({"util": self._last_util, "berth": self._last_berth,
+                           "compare": self._last_compare}.get(section, self._last_compare))
             self._mode_changed()
 
     def _mode_changed(self):
@@ -1131,30 +1311,39 @@ class App(tk.Tk):
         self._last_mode = mode
         station = mode == "station"
         reorder = mode == "reorder"
-        single = reorder or station                  # utilities: one input file, no comparison options
-        if single:
+        berth = mode in BERTH_MODES
+        single = reorder or station or berth         # no CWN comparison options
+        if berth:
+            self._last_berth = mode
+        elif single:
             self._last_util = mode
         else:
             self._last_compare = mode
+        self._show_berth_rows(mode)
         self.orig_lbl.configure(text="Earlier comparison CWN:" if mode == "cumulative" else
                                 "Original CWN folder:" if batch else "Original CWN:")
         self.util_lbl.configure(text="Attune XML:" if station else "CWN:")
-        for frame, on in ((self.cmp_frame, not single), (self.util_frame, single)):
+        for frame, on in ((self.cmp_frame, not single), (self.util_frame, reorder or station),
+                          (self.berth_frame, berth)):
             frame.configure(style="TLabelframe" if on else "Off.TLabelframe")
         for w in self._compare_only:
             (w.grid_remove if single else w.grid)()
+        if mode in ("berth_round", "berth_compare"):         # a round of changes is highlighted in a colour
+            self.colour_lbl.grid()
+            self.colour.grid()
         (self.order_frame.grid if reorder else self.order_frame.grid_remove)()
         (self.book_frame.grid if station else self.book_frame.grid_remove)()
         (self.cats_frame.grid_remove if single else self.cats_frame.grid)()
-        self.run_btn.configure(text="Put variants in order" if reorder else "Make station working book" if station
-                               else "Run comparison")
-        self.open_cwn.configure(text="Open tidied CWN" if reorder else "Open station working book" if station
-                                else "Open output CWN")
-        (self.open_rep.grid_remove if single else self.open_rep.grid)()
+        self.run_btn.configure(text=BERTH_MODES[mode][2] if berth else "Put variants in order" if reorder
+                               else "Make station working book" if station else "Run comparison")
+        self.open_cwn.configure(text="Open berthing chart" if berth else "Open tidied CWN" if reorder
+                                else "Open station working book" if station else "Open output CWN")
+        (self.open_rep.grid if not single or mode in ("berth_round", "berth_compare") else self.open_rep.grid_remove)()
         self.run_frame.configure(text="3. Run" if single else "4. Run")
         self.out_frame.configure(text="2. Stations and output" if station else "2. Output")
-        self.intro.configure(text="Saves a copy of a multi-day CWN with each train's day variants in order. The CWN "
-                                  "itself is not changed." if reorder else
+        self.intro.configure(text=BERTH_MODES[mode][3] if berth else
+                             "Saves a copy of a multi-day CWN with each train's day variants in order. The CWN "
+                             "itself is not changed." if reorder else
                              "Makes a TRACS-RS style station working book from an Attune XML." if station else
                              "Compares an original and an updated CWN, and produces a highlighted CWN and a change "
                              "report.")
@@ -1162,7 +1351,8 @@ class App(tk.Tk):
             self._read_book_xml()
         self._show_dnd_hint()
         self.upd_lbl.configure(text="Updated CWN folder:" if batch else "Updated CWN:")
-        self.colour_lbl.configure(text="Colour for new amendments:" if mode == "cumulative" else "Highlight colour:")
+        self.colour_lbl.configure(text="Colour for new amendments:" if mode in ("cumulative", "berth_round")
+                                  else "Highlight colour:")
         if mode == "cumulative":
             self.swap_btn.grid_remove()
             self._read_prev_info()
@@ -1181,6 +1371,7 @@ class App(tk.Tk):
         self.dnd_hint.configure(text="Tip: drag and drop two CWNs (or two folders of CWNs) onto this box.")
         self.util_hint.configure(text="Tip: drag and drop a CWN (day variants in order) or an Attune XML (station "
                                       "working book) onto this box.")
+        self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts onto this box.")
 
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""
@@ -1212,6 +1403,10 @@ class App(tk.Tk):
         register(outer)
         register(self.cmp_frame, None, "compare")
         register(self.util_frame, None, "util")
+        register(self.berth_frame, None, "berth")
+        for mode, widgets in self.berth_rows.items():
+            for i, (_lab, box, _btn) in enumerate(widgets):
+                register(box, self.berth_vars[mode][i], "berth")
         register(self.orig_entry, self.orig, "compare")
         register(self.upd_entry, self.upd, "compare")
         register(self.util_entry, self.util, "util")
@@ -1223,6 +1418,13 @@ class App(tk.Tk):
 
     def _on_drop(self, event, target, section=None):
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data)]
+        if section == "berth":
+            files = [p for p in paths if os.path.isfile(p)]
+            if target is not None and len(files) == 1:
+                target.set(files[0])
+            else:
+                self._drop_berthing(files)
+            return event.action
         folders = [p for p in paths if os.path.isdir(p)]
         xmls = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".xml")]
         files = [p for p in paths if os.path.isfile(p) and os.path.splitext(p)[1].lower() in SUPPORTED_EXT]
@@ -1508,6 +1710,9 @@ class App(tk.Tk):
 
     @staticmethod
     def files_in_state(s: dict) -> list:
+        if s.get("mode") in BERTH_MODES:
+            files = (s.get("berth_files") or {}).get(s["mode"]) or []
+            return [p.strip() for f in files if isinstance(f, str) for p in f.split(";") if p.strip()]
         if s.get("mode") in ("reorder", "station"):
             return [s["original"]] if s.get("original") else []
         return [p for p in (s.get("original", ""), s.get("updated", "")) if p]
@@ -1665,6 +1870,8 @@ class App(tk.Tk):
             return self._run_reorder(o)
         if o.mode == "station":
             return self._run_station_book(o)
+        if o.mode in BERTH_MODES:
+            return self._run_berthing(o)
         if not o.original or not o.updated:
             messagebox.showwarning(APP_TITLE, "Choose both files first.")
             return
@@ -1771,6 +1978,32 @@ class App(tk.Tk):
                     self.open_outputs([path])
                     (messagebox.showwarning if warnings else messagebox.showinfo)(
                         APP_TITLE, f"{summary}\n\nSaved: {path}" + "".join(f"\n\n{w}" for w in warnings[:4]))
+                elif kind == "berth_done":
+                    self._stop_spin()
+                    self.running = False
+                    self.set_busy(False)
+                    self.run_btn.state(["!disabled"])
+                    res = item[1]
+                    self.prog["value"] = 1
+                    self.status.configure(text="Finished")
+                    self.result = {"cwn": res.chart, "report": res.report}
+                    self.open_cwn.state(["!disabled"])
+                    self.open_dir.state(["!disabled"])
+                    if res.report:
+                        self.open_rep.state(["!disabled"])
+                    for w in res.warnings:
+                        self._append_log("WARNING: " + w)
+                    self._append_log(res.summary)
+                    self.notify_done("Berthing chart ready", res.summary)
+                    self.open_outputs([res.chart])
+                    from rstools.fsutil import excel_warning
+                    warn = excel_warning([res.chart, res.report])
+                    notes = list(res.warnings) + ([warn] if warn else [])
+                    (messagebox.showwarning if notes else messagebox.showinfo)(
+                        APP_TITLE, f"{res.summary}\n\nChart: {res.chart}" + (f"\nReport: {res.report}" if res.report
+                                                                            else "")
+                        + "".join(f"\n\n{w}" for w in notes[:4])
+                        + ("\n\n(More in the run log and on the chart's Notes sheet.)" if len(notes) > 4 else ""))
                 elif kind == "books_done":
                     self._stop_spin()
                     self.running = False
