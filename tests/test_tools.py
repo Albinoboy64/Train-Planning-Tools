@@ -872,3 +872,37 @@ def test_zip_part_compressed_as_it_is_made():
         with zipfile.ZipFile(os.path.join(d, "a.zip")) as z:
             assert z.testzip() is None
             assert z.read("doc.xml").decode("utf-8") == text and z.read("small.xml") == b"<x/>"
+
+
+def test_rescale_reuses_drawn_images(monkeypatch):
+    """Icons and tick boxes drawn for a display's scaling are kept, and can be drawn ahead of time for the other
+    displays: moving to one (and back) draws nothing new. A scaling change only re-applies sizes, not colours."""
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    from rstools import icons, theme
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        monkeypatch.setenv("TPT_COMPACT", "0")
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        try:
+            app.update()
+            assert theme.monitor_dpis() == [] or sys.platform.startswith("win")
+            recoloured = []
+            monkeypatch.setattr(theme, "_recolour", lambda *a: recoloured.append(a))
+            theme.prewarm(app, [app.dpi * 2])
+            drawn = (icons.draw.cache_info().misses, theme.indicator_image.cache_info().misses)
+            base = app.dpi
+            app.dpi_changed(base * 2)
+            app.update()
+            app.dpi_changed(base)
+            app.update()
+            assert (icons.draw.cache_info().misses, theme.indicator_image.cache_info().misses) == drawn
+            assert not recoloured                            # sizes only
+            assert app.run_btn.cget("image") and app._indicator_images["check"].height() >= 11
+        finally:
+            app._on_close()

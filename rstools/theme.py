@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import sys
 from contextlib import contextmanager
+from functools import lru_cache
 import tkinter as tk
-from typing import Dict, List, Literal, Tuple
+from typing import Dict, List, Literal, Sequence, Tuple
 from tkinter import ttk
 
 MODES = {"system": "Follow Windows", "light": "Light", "dark": "Dark", "contrast": "High contrast"}
@@ -357,18 +358,7 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     style.map("Run.TButton", background=[("disabled", p["panel"]), ("pressed", p["select"]),
                                          ("active", p["accent"])],
               foreground=[("disabled", p["disabled"]), ("active", p["accent_fg"])])
-    # tick boxes, radio buttons, drop-down arrows and scrollbars sized for the display's scaling and text size
-    k = getattr(root, "ui_scale", 1.0)
-    style.configure("TCheckbutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
-    style.configure("TRadiobutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
-    try:
-        _indicators(root, style, p, k)
-    except tk.TclError:             # an old Tk without PNG images: the theme's own (fixed-width) marks
-        pass
-    style.configure("TCombobox", arrowsize=round(14 * k))
-    style.configure("TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
-    style.configure("Vertical.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
-    style.configure("Horizontal.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
+    _sizes(root, style, p)
 
     # a section of a tab that is not the one chosen (e.g. Utilities while comparing CWNs): its title greyed
     style.configure("Off.TLabelframe", background=p["bg"], bordercolor=p["border"], relief="groove")
@@ -385,9 +375,29 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
         _dark_title_bar(root, name != "light")
     if hasattr(root, "_focus_shown"):
         focus_cues(root, root._focus_shown)
+    return p
+
+
+def apply_sizes(root: tk.Tk):
+    """Only what depends on the display's scaling and the text size (a move to a display with other scaling):
+    tick boxes, radio buttons, drop-down arrows, scrollbars and icons. Colours are left as they are."""
+    _sizes(root, ttk.Style(root), CURRENT or dict(PALETTES["light"], name="light", select_fg=PALETTES["light"]["fg"]))
+
+
+def _sizes(root, style: ttk.Style, p: dict):
+    k = getattr(root, "ui_scale", 1.0)
+    style.configure("TCheckbutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
+    style.configure("TRadiobutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
+    try:
+        _indicators(root, style, p, k)
+    except tk.TclError:             # an old Tk without PNG images: the theme's own (fixed-width) marks
+        pass
+    style.configure("TCombobox", arrowsize=round(14 * k))
+    style.configure("TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
+    style.configure("Vertical.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
+    style.configure("Horizontal.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
     from rstools import icons
     icons.refresh(root, p)
-    return p
 
 
 # --------------------------------------------------------------------------- #
@@ -416,6 +426,7 @@ def _rgb(colour: str) -> Tuple[int, int, int]:
     return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
 
 
+@lru_cache(maxsize=256)
 def indicator_image(kind: str, on: bool, size: int, gap: int, box: str, edge: str, mark: str) -> str:
     """A tick box ('check') or radio button ('radio') `size` pixels square, anti-aliased, with `gap`
     transparent pixels to its right (the space before the text): the theme's own marks have fixed-width
@@ -480,23 +491,67 @@ def _swap_element(layout, old: str, new: str):
     return out
 
 
+def _indicator_size(k: float) -> Tuple[int, int]:
+    return max(11, round(13 * k)), max(3, round(4 * k))
+
+
+def _indicator_specs(p: dict):
+    """(image name, kind, ticked, box colour, outline colour, mark colour) for each tick box / radio state."""
+    on_box, edge = p["accent"], p["border"]
+    return (("check", "check", False, p["field"], edge, ""),
+            ("check_on", "check", True, on_box, on_box, p["accent_fg"]),
+            ("check_off_dis", "check", False, p["bg"], p["disabled"], ""),
+            ("check_on_dis", "check", True, p["disabled"], p["disabled"], p["bg"]),
+            ("radio", "radio", False, p["field"], edge, ""),
+            ("radio_on", "radio", True, on_box, on_box, p["accent_fg"]),
+            ("radio_off_dis", "radio", False, p["bg"], p["disabled"], ""),
+            ("radio_on_dis", "radio", True, p["disabled"], p["disabled"], p["bg"]))
+
+
+def monitor_dpis() -> List[int]:
+    """The scaling (DPI) of every display connected to this PC, on Windows (empty elsewhere or on error)."""
+    if not sys.platform.startswith("win"):
+        return []
+    try:
+        import ctypes
+        from ctypes import wintypes
+        found: List[int] = []
+        proc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT),
+                                  wintypes.LPARAM)
+
+        def each(hmon, _hdc, _rect, _data):
+            x, y = ctypes.c_uint(), ctypes.c_uint()
+            if ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(x), ctypes.byref(y)) == 0:   # effective
+                found.append(int(x.value))
+            return 1
+        ctypes.windll.user32.EnumDisplayMonitors(None, None, proc(each), 0)
+        return sorted(set(found))
+    except (AttributeError, OSError, ValueError):
+        return []
+
+
+def prewarm(root, dpis: Sequence[int]):
+    """Draw, ahead of time, the tick boxes, radio buttons and icons for displays with other scaling (e.g. a
+    4K laptop next to a 1440p monitor), so moving the window there does not have to draw them."""
+    from rstools import icons
+    p = CURRENT or PALETTES["light"]
+    text = getattr(root, "ui_scale", 1.0) / max(getattr(root, "dpi_scale", 1.0), 0.01)     # the text size factor
+    for dpi in dpis:
+        k = text * dpi / BASE_DPI
+        size, gap = _indicator_size(k)
+        for _name, kind, on, box, line, mark in _indicator_specs(p):
+            indicator_image(kind, on, size, gap, box, line, mark or box)
+        icons.prewarm(root, k, p)
+
+
 def _indicators(root, style: ttk.Style, p: dict, k: float):
     """Tick boxes and radio buttons drawn at the display's scaling (a tick and a dot in proportion), in the
     theme's colours. The images are redrawn in place, so every tick box changes at once."""
-    size, gap = max(11, round(13 * k)), max(3, round(4 * k))
+    size, gap = _indicator_size(k)
     images = root.__dict__.setdefault("_indicator_images", {})
     key = (p["name"], size, gap)
     if root.__dict__.get("_indicator_key") != key:
-        on_box, edge = p["accent"], p["border"]
-        for name, kind, on, box, line, mark in (
-                ("check", "check", False, p["field"], edge, ""), ("check_on", "check", True, on_box, on_box,
-                                                                  p["accent_fg"]),
-                ("check_off_dis", "check", False, p["bg"], p["disabled"], ""),
-                ("check_on_dis", "check", True, p["disabled"], p["disabled"], p["bg"]),
-                ("radio", "radio", False, p["field"], edge, ""), ("radio_on", "radio", True, on_box, on_box,
-                                                                  p["accent_fg"]),
-                ("radio_off_dis", "radio", False, p["bg"], p["disabled"], ""),
-                ("radio_on_dis", "radio", True, p["disabled"], p["disabled"], p["bg"])):
+        for name, kind, on, box, line, mark in _indicator_specs(p):
             img = images.get(name) or images.setdefault(name, tk.PhotoImage(master=root))
             img.configure(data=indicator_image(kind, on, size, gap, box, line, mark or box), format="png")
         root._indicator_key = key

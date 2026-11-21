@@ -7,6 +7,7 @@ redrawn in place when the theme or scaling changes, so every button that shows o
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 import tkinter as tk
 from typing import Callable, Dict, List, Sequence, Tuple
 
@@ -96,6 +97,7 @@ def _rgb(colour: str) -> Tuple[int, int, int]:
     return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
 
 
+@lru_cache(maxsize=512)
 def draw(name: str, size: int, colour: str) -> str:
     """The icon `size` pixels square in `colour`, as PNG data (transparent background)."""
     from rstools.theme import _png
@@ -134,8 +136,14 @@ def spec(widget, name: str, role: str = "fg", disabled: str = "disabled"):
     return (image(widget, name, role), "disabled", image(widget, name, disabled))
 
 
-def _size(root, scale: float) -> int:
-    return max(10, round(BASE * getattr(root, "ui_scale", 1.0) * scale))
+def _size(root, scale: float, k: float = 0.0) -> int:
+    return max(10, round(BASE * (k or getattr(root, "ui_scale", 1.0)) * scale))
+
+
+def prewarm(root, k: float, p: dict):
+    """Draw the window's icons for another scaling `k` ahead of time (kept in draw()'s cache)."""
+    for (name, role, scale) in list(_store(root)):
+        draw(name, _size(root, scale, k), p.get(role, p["fg"]))
 
 
 def refresh(root, p: dict):

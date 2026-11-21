@@ -342,6 +342,12 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.21.2** - quicker when moving between displays (again)
+* **Images drawn ahead**: a few seconds after the app opens, it asks Windows which scaling each connected display uses (e.g. 200% on a 4K laptop, 100% on a 1440p monitor) and draws the icons, tick boxes and radio buttons for those displays in spare time. Moving the window to another display then only has to lay it out again.
+* **Images kept**: icons and tick boxes drawn for a display are kept, so moving back and forth never draws them twice.
+* **Sizes only**: a scaling change now re-applies only the sizes that depend on it (tick boxes, arrows, scrollbars, icons) instead of the whole theme.
+* Measured (median of five runs): the first move to a display with other scaling 262 ms -> 169 ms; later moves 177 ms -> 143 ms. What remains is the window being laid out at the new size.
+
 **3.21.1** - a cleaner, more professional look; sturdier with damaged files; lighter PDF and Word packs
 * **One flat look in every theme**: light mode on Windows now uses the same flat style as dark and high contrast (it used the old Windows 'Vista' controls), so every theme matches.
 * **Less text on screen**: tips and longer notes (drag-and-drop tips, what each comparison checks, the default output name and folder, notes about the files) now show as one short line - an info icon with *Tips*, *What is checked*, *Default name and folder*... - and the full text appears when the mouse rests on it or it is clicked. Each tab's one-line description stays.

@@ -225,6 +225,16 @@ class App(tk.Tk):
         if dpi != self.dpi:
             self.dpi_changed(dpi)
 
+    def _prewarm_displays(self):
+        """Once the window is up and idle: draw icons and tick boxes for the other displays' scaling now, so a
+        move between displays only has to lay the window out again."""
+        try:
+            others = [d for d in theme.monitor_dpis() if d != self.dpi]
+            if others:
+                theme.prewarm(self, others)
+        except Exception:                   # a nicety only: never in the way of using the app
+            pass
+
     def dpi_changed(self, dpi: int):
         """Redraw for a display with other scaling: text, spacing and the logo sized for it, and the window kept
         the same physical size."""
@@ -241,12 +251,12 @@ class App(tk.Tk):
             self.update_idletasks()                 # lay everything out while painting is held
 
     # ------------------------------------------------------------ settings shared by both tabs
-    def apply_theme(self, mode: str, recolour: bool = True):
+    def apply_theme(self, mode: str):
         self.opts.theme = mode if mode in theme.MODES else "system"
-        self.palette = theme.apply(self, self.opts.theme, recolour=recolour)
+        self.palette = theme.apply(self, self.opts.theme)
         self.theme_var.set(self.opts.theme)
         live = getattr(self, "live_tab", None)
-        if live is not None and recolour:
+        if live is not None:
             live.retheme(self.palette)
 
     def set_text_size(self, size: str, fit: bool = True, save: bool = True, rescale_only: bool = False):
@@ -257,7 +267,10 @@ class App(tk.Tk):
         self.opts.text_size = size
         scale = theme.setup_fonts(self, size)
         self.ui_scale = scale * self.dpi_scale
-        self.apply_theme(self.opts.theme, recolour=not rescale_only)
+        if rescale_only:                    # same colours: only the sizes of tick boxes, arrows and icons
+            theme.apply_sizes(self)
+        else:
+            self.apply_theme(self.opts.theme)
         self._show_logo()
         self._size_columns(self.ui_scale)
         live = getattr(self, "live_tab", None)
@@ -770,6 +783,7 @@ class App(tk.Tk):
             self.notebook.tab(page, image=(icons.image(self, name, "muted"), "selected", icons.image(self, name)),
                               compound="left", text=" " + self.notebook.tab(page, "text").strip() + " ")
         icons.watch_buttons(self)
+        self.after(3000, self._prewarm_displays)
         outer.columnconfigure(0, weight=1)
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
