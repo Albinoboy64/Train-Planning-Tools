@@ -244,6 +244,7 @@ class CWNModel:
     other_sheets: List[str]           # titles of non-CWN tabs (cover etc.)
     warnings: List[str] = field(default_factory=list)
     day_hint: str = ""                # wording on the cover / above the headings (which days the CWN is for)
+    unread: List[str] = field(default_factory=list)     # titles of tabs that could not be read (damaged)
 
     def all_train_ids(self) -> set:
         ids = set()
@@ -296,6 +297,7 @@ def parse_workbook(wb) -> CWNModel:
     others: List[str] = []
     warnings: List[str] = []
     hints: List[str] = []
+    unread: List[str] = []
     for ws in wb.worksheets:
         if ws.title.startswith("_CWNCompare"):
             continue
@@ -304,6 +306,7 @@ def parse_workbook(wb) -> CWNModel:
         except Exception as exc:   # one odd tab must not stop the whole comparison
             warnings.append(f"Tab '{ws.title}' could not be read and was skipped ({exc}).")
             others.append(ws.title)
+            unread.append(ws.title)
             continue
         if sm is None:
             others.append(ws.title)
@@ -320,7 +323,21 @@ def parse_workbook(wb) -> CWNModel:
         for b in sm.blocks:
             b.sheet = k
         sheets[k] = sm
-    return CWNModel(sheets, others, warnings, " ".join(h for h in hints if h)[:4000])
+    return CWNModel(sheets, others, warnings, " ".join(h for h in hints if h)[:4000], unread)
+
+
+def leave_out_unread(old: CWNModel, new: CWNModel) -> List[str]:
+    """A tab that could not be read in one CWN is left out of the other too, so its trains are not reported
+    as cancelled, new or moved. Returns a warning for each."""
+    out = []
+    for label, src, other in (("original", old, new), ("updated", new, old)):
+        for title in src.unread:
+            for k in [k for k, sh in other.sheets.items() if sh.title == title]:
+                del other.sheets[k]
+            out.append(f"Tab '{title}' could not be read in the {label} CWN, so it is left out of the comparison "
+                       "(its trains are not reported as changed). Open the file in Excel, save it and run again "
+                       "to include it.")
+    return out
 
 
 def _head_text(ws, rows: int) -> List[str]:

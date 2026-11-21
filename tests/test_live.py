@@ -200,3 +200,20 @@ def test_live_f3_prints_side_by_side():
         cells = [[c for c in r] for r in ws.iter_rows(min_row=2, values_only=True)]
         assert cells[0][0].startswith("1H05BS SX")                           # the train's own heading row
         assert any(r[0] == "Haywards Heath" and r[5] == "4 → 5" for r in cells)
+
+
+def test_live_cwn_without_location_tabs_names_the_file():
+    import openpyxl
+    import test_compare as t
+    from rstools.live.adapters import compute
+    d = tempfile.mkdtemp()
+    t.make(os.path.join(d, "a.xlsx"), t.BTN_ORIG, t.VIC_ORIG)
+    wb = openpyxl.Workbook()
+    wb.active["A1"] = "not a CWN"
+    wb.save(os.path.join(d, "cover only.xlsx"))
+    try:
+        compute("cwn", {"a": [os.path.join(d, "a.xlsx")], "b": [os.path.join(d, "cover only.xlsx")]})
+    except ValueError as exc:
+        assert "updated CWN, cover only.xlsx" in str(exc)
+    else:
+        raise AssertionError("a CWN without location tabs was accepted")

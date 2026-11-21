@@ -155,6 +155,9 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
     if not diagrams:
         raise BerthingError(f"'{name}' has no unit diagrams, so it cannot show where units berth. Export the XML "
                             "with its unit diagrams.")
+    if not trains:
+        raise BerthingError(f"'{name}' has no trains, so the platforms units berth at cannot be found. Export the "
+                            "XML with its trains as well as its unit diagrams.")
     return BerthXML(path, meta.get("startdate", ""), meta.get("enddate", ""), locations, trains, diagrams)
 
 

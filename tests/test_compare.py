@@ -610,3 +610,22 @@ def test_next_day_leftovers_are_never_guessed():
     # a single unit's only line changing is still one change
     got = _berth_changes([("Berth AA1 06+10MO", "146")], [("Berth CC3 05+00MO", "146")], "nw-one")
     assert [(o, n) for _k, o, n in got] == [("Berth AA1 06+10MO", "Berth CC3 05+00MO")]
+
+
+def test_damaged_tab_is_left_out_of_both_sides():
+    """A tab that cannot be read in the original CWN (damaged file) is left out of the updated one too, so its
+    trains are not reported as changed, and the run says so."""
+    import zipfile
+    d = tempfile.mkdtemp()
+    good, bad = os.path.join(d, "good.xlsx"), os.path.join(d, "bad.xlsx")
+    b, v = _upd_rows()
+    make(good, b, v)
+    with zipfile.ZipFile(good) as zi, zipfile.ZipFile(bad, "w", zipfile.ZIP_DEFLATED) as zo:
+        sheets = sorted(n for n in zi.namelist() if n.startswith("xl/worksheets/sheet"))
+        for it in zi.infolist():
+            data = zi.read(it.filename)
+            zo.writestr(it.filename, data[:len(data) // 2] if it.filename == sheets[0] else data)
+    logs = []
+    res = run(Options(original=bad, updated=good, output_dir=d, output_name="x"), log=logs.append)
+    assert read_meta_file(res["cwn"])["changes"] == []
+    assert any("left out of the comparison" in m for m in logs)

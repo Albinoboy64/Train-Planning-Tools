@@ -386,7 +386,7 @@ def read_pack(path: str) -> List[Tuple[str, Table]]:
     try:
         z = zipfile.ZipFile(path)
     except (zipfile.BadZipFile, OSError) as exc:
-        raise PackReadError(f"'{path}' is not a readable Excel stats pack: {exc}")
+        raise PackReadError(f"'{os.path.basename(path)}' is not a readable Excel stats pack: {exc}")
     with z:                             # closed straight away, so the pack is never left locked
         return _read_pack(z, path)
 
@@ -398,12 +398,16 @@ def _read_pack(z: zipfile.ZipFile, path: str) -> List[Tuple[str, Table]]:
         wb = ET.fromstring(z.read("xl/workbook.xml"))
         rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
     except (zipfile.BadZipFile, KeyError, OSError, ET.ParseError) as exc:
-        raise PackReadError(f"'{path}' is not a readable Excel stats pack: {exc}")
+        raise PackReadError(f"'{os.path.basename(path)}' is not a readable Excel stats pack: {exc}")
     targets = {r.get("Id"): r.get("Target") for r in rels}
     sst = []
     if "xl/sharedStrings.xml" in z.namelist():
-        for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(NS + "si"):
-            sst.append("".join(t.text or "" for t in si.iter(NS + "t")))
+        try:
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(NS + "si"):
+                sst.append("".join(t.text or "" for t in si.iter(NS + "t")))
+        except (zipfile.BadZipFile, OSError, ET.ParseError) as exc:
+            raise PackReadError(f"'{os.path.basename(path)}' looks damaged (its text table could not be read: "
+                                f"{exc}). Open it in Excel, save it and try again.")
     out: List[Tuple[str, Table]] = []
     for sh in wb.iter(NS + "sheet"):
         name = sh.get("name") or ""
@@ -418,7 +422,7 @@ def _read_pack(z: zipfile.ZipFile, path: str) -> List[Tuple[str, Table]]:
             raise PackReadError(f"Tab '{name}' could not be read: {exc}")
         out.append((name, _to_table(base, rows)))
     if not out:
-        raise PackReadError(f"No stats pack tabs were found in '{path}'.")
+        raise PackReadError(f"No stats pack tabs were found in '{os.path.basename(path)}'.")
     return out
 
 

@@ -50,7 +50,8 @@ def load_any(path: str, read_only: bool = False) -> "openpyxl.Workbook":
             f"Cannot open '{os.path.basename(path)}' - it may be open in Excel. "
             "Close it and try again.")
     except Exception as exc:
-        raise LoadError(f"Could not read '{os.path.basename(path)}': {exc}") from exc
+        raise LoadError(f"Could not read '{os.path.basename(path)}' - it looks damaged or is not an Excel workbook "
+                        f"({exc}). Open it in Excel, save it and try again.") from exc
     # Unknown extension: try openpyxl then xlrd.
     try:
         from rstools.fsutil import check_office_file

@@ -15,7 +15,9 @@ Each sheet is one section (OUT/RTN x SX/SO/SuO), taken from the sheet name or it
 from __future__ import annotations
 
 import datetime as _dt
+import os
 import re
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -164,7 +166,7 @@ def read_timetable(path: str) -> Timetable:
         check_office_file(path)     # refuse a 'zip bomb' before unpacking
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except Exception as exc:               # not a readable workbook
-        raise TimetableError(f"'{path}' could not be read as an Excel workbook ({exc}).")
+        raise TimetableError(f"'{os.path.basename(path)}' could not be read as an Excel workbook ({exc}).")
     sections: Dict[str, List[TTrain]] = defaultdict(list)
     locations: Dict[str, List[Tuple[str, str]]] = {}
     warnings: List[str] = []
@@ -204,11 +206,15 @@ def read_timetable(path: str) -> Timetable:
             for item in locs:
                 if item not in seen:
                     seen.append(item)
+    except ET.ParseError as exc:                   # a damaged sheet inside the workbook
+        raise TimetableError(f"'{os.path.basename(path)}' looks damaged and could not be read ({exc}). Open it in "
+                             "Excel, save it and try again.")
     finally:
         wb.close()
     if not sections:
-        raise TimetableError(f"No timetable sections were found in '{path}'. Expected sheets of trains across the "
-                             "columns and locations down the rows, with a headcode row (TID / Train ID).")
+        raise TimetableError(f"No timetable sections were found in '{os.path.basename(path)}'. Expected sheets of "
+                             "trains across the columns and locations down the rows, with a headcode row "
+                             "(TID / Train ID).")
     return Timetable(path, identifier, dict(sections), locations, warnings)
 
 

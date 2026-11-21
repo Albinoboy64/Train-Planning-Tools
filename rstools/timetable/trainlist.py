@@ -114,6 +114,9 @@ def read_train_list(path: str) -> TrainList:
             raise TrainListError(f"'{os.path.basename(path)}' could not be read as an Excel workbook ({exc}).")
         try:
             sheets = [(ws.title, [list(r) for r in ws.iter_rows(values_only=True)]) for ws in wb.worksheets]
+        except Exception as exc:        # a damaged sheet inside the workbook
+            raise TrainListError(f"'{os.path.basename(path)}' looks damaged and could not be read ({exc}). Open it "
+                                 "in Excel, save it and try again.")
         finally:
             wb.close()
     best = None

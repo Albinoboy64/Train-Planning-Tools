@@ -216,6 +216,32 @@ def test_train_lists_without_uid_pair_retimed_trains():
     assert sorted(b.rows[j][4] for j in cmp.added) == ["0505", "0605"]
 
 
+def test_damaged_workbooks_give_plain_messages():
+    """A workbook with a damaged sheet inside gives the reader's own plain message, never a raw XML error."""
+    import zipfile
+    import openpyxl
+    from rstools.timetable.parse import TimetableError, read_timetable
+    from rstools.timetable.trainlist import TrainListError, read_train_list
+    with tempfile.TemporaryDirectory() as d:
+        good, bad = os.path.join(d, "good.xlsx"), os.path.join(d, "bad.xlsx")
+        wb = openpyxl.Workbook()
+        wb.active.append(["Headcode", "Days", "Origin", "Work Dep"])
+        for i in range(50):
+            wb.active.append([f"1A{i:02d}", "SX", "Brighton", "0600"])
+        wb.save(good)
+        with zipfile.ZipFile(good) as zi, zipfile.ZipFile(bad, "w") as zo:
+            for it in zi.infolist():
+                data = zi.read(it.filename)
+                zo.writestr(it.filename, data[:len(data) // 2] if it.filename.startswith("xl/worksheets/") else data)
+        for reader, error in ((read_train_list, TrainListError), (read_timetable, TimetableError)):
+            try:
+                reader(bad)
+            except error as exc:
+                assert "damaged" in str(exc) and "bad.xlsx" in str(exc) and d not in str(exc)
+            else:
+                raise AssertionError(f"{reader.__name__} accepted a damaged workbook")
+
+
 def test_settings_carried_over():
     from rstools import branding
     with tempfile.TemporaryDirectory() as d:

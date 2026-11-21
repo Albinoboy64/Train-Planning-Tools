@@ -12,7 +12,7 @@ from .days import coverage, filter_model, label as day_label
 from .compare import CATEGORY_LABELS, Change, compare_models
 from .loader import load_any
 from .meta import is_comparison_output, read_meta_file, write_meta
-from .model import CWNModel, parse_workbook, model_to_dict, model_from_dict
+from .model import CWNModel, leave_out_unread, parse_workbook, model_to_dict, model_from_dict
 from rstools.docexport import ext_for
 from rstools.naming import clip
 
@@ -21,6 +21,8 @@ from .report import write_report
 from .writer import apply_changes
 from .xlsxfix import save_workbook
 
+NOTHING_LEFT = ("No tabs are left to compare: every tab that could be read in one CWN could not be read in the "
+                "other (see the warnings). Open the damaged file in Excel, save it and run again.")
 NO_TABS = "No CWN location tabs (with an ID / TIME heading row) were found in {}."
 
 
@@ -154,6 +156,10 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
         raise RunError(NO_TABS.format("the first file"))
     if not m_new.sheets:
         raise RunError(NO_TABS.format("the updated file"))
+    for w in leave_out_unread(m_old, m_new):
+        lg("WARNING: " + w)
+    if not m_old.sheets or not m_new.sheets:
+        raise RunError(NOTHING_LEFT)
     full_old = full_new = None
     if opts.days:                                   # only the trains running on the chosen days
         base_old, guess_old = coverage(m_old, opts.original)

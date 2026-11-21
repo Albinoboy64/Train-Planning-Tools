@@ -93,7 +93,16 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log) -> LiveRes
 
     log(f"Reading {os.path.basename(orig)} and {os.path.basename(upd)}")
     m_old, m_new = read_jobs([(model_of, orig), (model_of, upd)])
+    from cwn_compare.model import leave_out_unread
     warnings = list(m_old.warnings) + list(m_new.warnings)
+    for label, m, path in (("original", m_old, orig), ("updated", m_new, upd)):
+        if not m.sheets:
+            raise ValueError(f"No CWN location tabs (with an ID / TIME heading row) were found in the {label} CWN, "
+                             f"{os.path.basename(path)}.")
+    warnings += leave_out_unread(m_old, m_new)
+    if not m_old.sheets or not m_new.sheets:
+        from cwn_compare.engine import NOTHING_LEFT
+        raise ValueError(NOTHING_LEFT)
     full_old = full_new = None
     if days:
         b_old, b_new = coverage(m_old, orig)[0], coverage(m_new, upd)[0]

@@ -240,8 +240,10 @@ def test_bad_inputs_give_plain_messages(data):
     (data / "bad.xml").write_text("<oops>")
     (data / "other.xml").write_text("<root/>")
     (data / "nodiag.xml").write_text(xml([], []))
+    _trains, diagrams = base_plan()
+    (data / "notrains.xml").write_text(xml([], diagrams))
     for name, says in (("bad.xml", "could not be read"), ("other.xml", "not an Attune"),
-                       ("nodiag.xml", "no unit diag")):
+                       ("nodiag.xml", "no unit diag"), ("notrains.xml", "has no trains")):
         with pytest.raises(BerthingError, match=says):
             read_xml(str(data / name))
     wb = openpyxl.Workbook()
