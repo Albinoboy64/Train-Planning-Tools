@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 from contextlib import contextmanager
 import tkinter as tk
-from typing import Dict, Literal, Tuple
+from typing import Dict, List, Literal, Tuple
 from tkinter import ttk
 
 MODES = {"system": "Follow Windows", "light": "Light", "dark": "Dark", "contrast": "High contrast"}
@@ -364,6 +364,11 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     k = getattr(root, "ui_scale", 1.0)
     style.configure("TCheckbutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
     style.configure("TRadiobutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
+    if not native:
+        try:
+            _indicators(root, style, p, k)
+        except tk.TclError:             # an old Tk without PNG images: the theme's own (fixed-width) marks
+            pass
     style.configure("TCombobox", arrowsize=round(14 * k))
     style.configure("TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
     style.configure("Vertical.TScrollbar", arrowsize=round(14 * k), width=round(14 * k))
@@ -387,6 +392,132 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     if hasattr(root, "_focus_shown"):
         focus_cues(root, root._focus_shown)
     return p
+
+
+# --------------------------------------------------------------------------- #
+# tick boxes and radio buttons drawn for the display's scaling
+# --------------------------------------------------------------------------- #
+_SWAP = (("TCheckbutton", "Checkbutton.indicator", "TPT.Checkbutton.indicator"),
+         ("TRadiobutton", "Radiobutton.indicator", "TPT.Radiobutton.indicator"))
+
+
+def _png(w: int, h: int, px: List[Tuple[int, int, int, int]]) -> str:
+    """An RGBA image as base64 PNG data (Tk 8.6 reads PNG, transparency included)."""
+    import base64
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + bytes(c for pix in px[y * w:(y + 1) * w] for c in pix) for y in range(h))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+    return base64.b64encode(png).decode("ascii")
+
+
+def _rgb(colour: str) -> Tuple[int, int, int]:
+    c = colour.lstrip("#")
+    return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+
+def indicator_image(kind: str, on: bool, size: int, gap: int, box: str, edge: str, mark: str) -> str:
+    """A tick box ('check') or radio button ('radio') `size` pixels square, anti-aliased, with `gap`
+    transparent pixels to its right (the space before the text): the theme's own marks have fixed-width
+    lines, which look thin and faint on a high-scaling display. Off: `box` filled, `edge` outline; on:
+    `box` filled with a `mark` tick or dot. Returned as PNG data."""
+    import math
+    s = float(size)
+    c = s / 2
+    half = s / 2 - 0.5
+    bw = max(1.0, s / 13)                                   # outline width (1 px at 100%)
+    rad = max(1.5, s * 0.16)                                # tick box corner rounding
+
+    def cover(d: float) -> float:                           # signed distance -> pixel coverage
+        return min(1.0, max(0.0, 0.5 - d))
+
+    def shape(x: float, y: float, inset: float = 0.0) -> float:
+        if kind == "radio":
+            return math.hypot(x - c, y - c) - (half - inset)
+        r = max(0.5, rad - inset)
+        qx, qy = abs(x - c) - (half - inset - r), abs(y - c) - (half - inset - r)
+        return math.hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - r
+
+    pts = [(0.25 * s, 0.53 * s), (0.43 * s, 0.71 * s), (0.76 * s, 0.32 * s)]
+    stroke = max(1.6, s * 0.14)
+
+    def tick(x: float, y: float) -> float:
+        best = 1e9
+        for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+            vx, vy = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy)))
+            best = min(best, math.hypot(x - ax - t * vx, y - ay - t * vy))
+        return best - stroke / 2
+
+    layers = [(_rgb(edge), lambda x, y: cover(shape(x, y))), (_rgb(box), lambda x, y: cover(shape(x, y, bw)))]
+    if on and kind == "check":
+        layers.append((_rgb(mark), lambda x, y: cover(tick(x, y))))
+    elif on:
+        dot = max(1.5, s * 0.2)
+        layers.append((_rgb(mark), lambda x, y: cover(math.hypot(x - c, y - c) - dot)))
+    w = size + gap
+    px: List[Tuple[int, int, int, int]] = []
+    for yi in range(size):
+        for xi in range(w):
+            x, y = xi + 0.5, yi + 0.5
+            r = g = b = a = 0.0                             # premultiplied, painted bottom to top
+            if xi < size:
+                for (lr, lg, lb), cov in layers:
+                    f = cov(x, y)
+                    if f:
+                        r, g, b, a = lr * f + r * (1 - f), lg * f + g * (1 - f), lb * f + b * (1 - f), f + a * (1 - f)
+            px.append((round(r / a), round(g / a), round(b / a), round(a * 255)) if a else (0, 0, 0, 0))
+    return _png(w, size, px)
+
+
+def _swap_element(layout, old: str, new: str):
+    out = []
+    for name, opts in layout or []:
+        opts = dict(opts)
+        if "children" in opts:
+            opts["children"] = _swap_element(opts["children"], old, new)
+        out.append((new if name == old else name, opts))
+    return out
+
+
+def _indicators(root, style: ttk.Style, p: dict, k: float):
+    """Tick boxes and radio buttons drawn at the display's scaling (a tick and a dot in proportion), in the
+    theme's colours. The images are redrawn in place, so every tick box changes at once."""
+    size, gap = max(11, round(13 * k)), max(3, round(4 * k))
+    images = root.__dict__.setdefault("_indicator_images", {})
+    key = (p["name"], size, gap)
+    if root.__dict__.get("_indicator_key") != key:
+        on_box, edge = p["accent"], p["border"]
+        for name, kind, on, box, line, mark in (
+                ("check", "check", False, p["field"], edge, ""), ("check_on", "check", True, on_box, on_box,
+                                                                  p["accent_fg"]),
+                ("check_off_dis", "check", False, p["bg"], p["disabled"], ""),
+                ("check_on_dis", "check", True, p["disabled"], p["disabled"], p["bg"]),
+                ("radio", "radio", False, p["field"], edge, ""), ("radio_on", "radio", True, on_box, on_box,
+                                                                  p["accent_fg"]),
+                ("radio_off_dis", "radio", False, p["bg"], p["disabled"], ""),
+                ("radio_on_dis", "radio", True, p["disabled"], p["disabled"], p["bg"])):
+            img = images.get(name) or images.setdefault(name, tk.PhotoImage(master=root))
+            img.configure(data=indicator_image(kind, on, size, gap, box, line, mark or box), format="png")
+        root._indicator_key = key
+    have = style.element_names()
+    for cls, old, new in _SWAP:
+        if new not in have:
+            kind = "check" if cls == "TCheckbutton" else "radio"
+            style.element_create(new, "image", images[kind],
+                                 ("disabled", "selected", images[f"{kind}_on_dis"]),
+                                 ("disabled", images[f"{kind}_off_dis"]), ("selected", images[f"{kind}_on"]),
+                                 sticky="")
+        style.layout(cls, _swap_element(style.layout(cls), old, new))
+    saved = root.__dict__.get("_focus_layouts", {}).get(style.theme_use())
+    if saved:                                   # the focus-outline switch restores these layouts
+        for cls, old, new in _SWAP:
+            if cls in saved:
+                saved[cls] = _swap_element(saved[cls], old, new)
 
 
 def style_text(widget: tk.Text, p: dict):

@@ -3,8 +3,10 @@
 The heading row is found by its labels (Headcode / Train ID, UID, Days, Origin, Departure...), so
 extra title rows, column order and extra columns do not matter. Trains are paired by UID and days
 when the export has a UID column, otherwise by headcode, days and origin departure time; the same key
-appearing more than once is paired in order. Every column present in both files is compared, with
-times compared as HHMM (so '05:10', '0510' and an Excel time are equal) and numbers as numbers.
+appearing more than once is paired in order (same Stage first). Without a UID, a retimed train left
+over is paired by headcode, days and origin when it is the only one on each side with them (never
+guessed). Every column present in both files is compared, with times compared as HHMM (so '05:10',
+'0510' and an Excel time are equal) and numbers as numbers.
 """
 from __future__ import annotations
 
@@ -171,6 +173,8 @@ class ListComparison:
     changes: List[Tuple[int, int, str, str, str]]     # (original row, updated row, column, old, new)
     warnings: List[str] = field(default_factory=list)
     ignored: List[str] = field(default_factory=list)    # record-keeping columns in both, not compared
+    loose_headers: List[str] = field(default_factory=list)  # retimed trains paired by these (one each side)
+    retimed: int = 0                                     # trains paired that way
 
 
 def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
@@ -181,33 +185,59 @@ def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
         raise TrainListError("The two train lists do not share their key columns (UID or headcode, days...), so "
                              f"their trains cannot be paired.\nOriginal: {', '.join(key_a)}\n"
                              f"Updated: {', '.join(key_b)}")
-    ia, ib = [a.headers.index(h) for h in keys], [b.headers.index(h) for h in keys]
-
-    def index(lst: TrainList, cols):
-        out: Dict[tuple, List[int]] = {}
-        for r, row in enumerate(lst.rows):
-            out.setdefault(tuple(row[c].casefold() for c in cols), []).append(r)
-        return out
-    left, right = index(a, ia), index(b, ib)
     pairs: List[Tuple[int, int]] = []
-    removed: List[int] = []
-    for k, rows in left.items():
-        others = right.get(k, [])
-        pairs.extend(zip(rows, others))
-        removed.extend(rows[len(others):])
-    used = {j for _i, j in pairs}
-    added = [j for j in range(len(b.rows)) if j not in used]
+    left_a, left_b = list(range(len(a.rows))), list(range(len(b.rows)))
+
+    def pair(heads: List[str], unique: bool = False):
+        """Pair the trains still unpaired that share these columns (in order when a key repeats; only a
+        key held by exactly one train on each side when unique)."""
+        nonlocal left_a, left_b
+        ia, ib = [a.headers.index(h) for h in heads], [b.headers.index(h) for h in heads]
+        right: Dict[tuple, List[int]] = {}
+        for j in left_b:
+            right.setdefault(tuple(b.rows[j][c].casefold() for c in ib), []).append(j)
+        left: Dict[tuple, List[int]] = {}
+        for i in left_a:
+            left.setdefault(tuple(a.rows[i][c].casefold() for c in ia), []).append(i)
+        took_a, took_b = set(), set()
+        for k, rows in left.items():
+            others = right.get(k, [])
+            if unique and (len(rows) != 1 or len(others) != 1):
+                continue
+            for i, j in zip(rows, others):
+                pairs.append((i, j))
+                took_a.add(i)
+                took_b.add(j)
+        left_a = [i for i in left_a if i not in took_a]
+        left_b = [j for j in left_b if j not in took_b]
+
+    stage = a.headers[a.roles["stp"]] if "stp" in a.roles else ""
+    if stage and stage in b.headers and stage not in keys:
+        pair(keys + [stage])            # an LTP row and its STP twin (same key) keep to their own stage
+    pair(keys)
+    dep = a.headers[a.roles["origin_time"]] if "origin_time" in a.roles else ""
+    loose = [h for h in keys if h != dep]
+    if "uid" not in a.roles and dep in keys and loose:
+        n = len(pairs)
+        pair(loose, unique=True)        # a retimed train: the only one left with its headcode, days and origin
+        retimed = len(pairs) - n
+    else:
+        loose, retimed = [], 0
+    removed, added = left_a, left_b
     pairs.sort()
     common = [h for h in a.headers if h in b.headers and not _AUDIT.match(h)]
+    cols = [(h, a.headers.index(h), b.headers.index(h)) for h in common]
     changes = []
     for i, j in pairs:
-        for h in common:
-            old, new = a.rows[i][a.headers.index(h)], b.rows[j][b.headers.index(h)]
+        ra, rb = a.rows[i], b.rows[j]
+        for h, ca, cb in cols:
+            old, new = ra[ca], rb[cb]
             if old != new and not _same(old, new):
                 changes.append((i, j, h, old, new))
     return ListComparison(a, b, keys, common, [h for h in a.headers if h not in b.headers],
                           [h for h in b.headers if h not in a.headers], pairs, added, sorted(removed), changes,
-                          ignored=[h for h in a.headers if h in b.headers and _AUDIT.match(h)])
+                          ignored=[h for h in a.headers if h in b.headers and _AUDIT.match(h)],
+                          loose_headers=loose, retimed=retimed)
 
 
 def _same(old: str, new: str) -> bool:
@@ -239,10 +269,16 @@ def build_workbook(cmp: ListComparison):
               fills={3: "bad" if changed else "ok", 5: "bad" if cmp.added else "ok",
                      6: "bad" if cmp.removed else "ok"})
     ident = ["Headcode", "UID", "Days", "Origin", "Origin dep"]
-    add_sheet(wb, "Changes by Train", ident + ["Column", "Original", "Updated", "Original row", "Updated row"],
-              [_ident(a, i) + [h, old or "-", new or "-", a.excel_rows[i], b.excel_rows[j]]
-               for i, j, h, old, new in cmp.changes],
-              [11, 10, 10, 22, 11, 22, 26, 26, 11, 11], formats={5: "@", 7: "@", 8: "@"}, center=[5, 9, 10])
+    widths = [11, 10, 10, 22, 11, 22, 26, 26, 11, 11]
+    keep = [k for k in range(len(ident) + 5) if k != 1 or "uid" in a.roles or "uid" in b.roles]   # no empty UID
+    fmt = {keep.index(k) + 1: "@" for k in (4, 6, 7)}
+    centre = [keep.index(k) + 1 for k in (4, 8, 9)]
+    add_sheet(wb, "Changes by Train",
+              [(ident + ["Column", "Original", "Updated", "Original row", "Updated row"])[k] for k in keep],
+              [[row[k] for k in keep] for row in
+               ([*_ident(a, i), h, old or "-", new or "-", a.excel_rows[i], b.excel_rows[j]]
+                for i, j, h, old, new in cmp.changes)],
+              [widths[k] for k in keep], formats=fmt, center=centre)
     widths = [max(10, min(30, len(h) + 4)) for h in b.headers]
     add_sheet(wb, "Trains Added", ["Updated row"] + b.headers, [[b.excel_rows[j]] + b.rows[j] for j in cmp.added],
               [11] + widths, center=[1])
@@ -254,6 +290,8 @@ def build_workbook(cmp: ListComparison):
              ["Updated file", os.path.basename(b.path)],
              ["Updated sheet / heading row", f"{b.sheet}, row {b.header_row}"],
              ["Trains paired by", ", ".join(cmp.key_headers)],
+             *([["Retimed trains paired by", f"{', '.join(cmp.loose_headers)} (only when one train on each side "
+                 f"is left with them): {cmp.retimed}"]] if cmp.loose_headers else []),
              ["Columns compared", f"{len(cmp.common)}: {', '.join(cmp.common)}"],
              ["Record-keeping columns (not compared)", ", ".join(cmp.ignored) or "None"],
              ["Columns only in the original (not compared)", ", ".join(cmp.only_original) or "None"],

@@ -201,7 +201,9 @@ def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, na
         path = _out(out_dir, clip(name or default_name("lists", first, second)), fmt)
         _save(lists_workbook(cmp), path)
         changed = len({i for i, *_ in cmp.changes})
-        lines = [f"{len(cmp.pairs)} train(s) paired by {', '.join(cmp.key_headers)}: {changed} changed",
+        lines = [f"{len(cmp.pairs)} train(s) paired by {', '.join(cmp.key_headers)}"
+                 + (f" ({cmp.retimed} retimed, paired by {', '.join(cmp.loose_headers)})" if cmp.retimed else "")
+                 + f": {changed} changed",
                  f"{len(cmp.added)} added, {len(cmp.removed)} removed, {len(cmp.changes)} changed cell(s)"]
         return RunResult(path, lines, list(cmp.warnings), len(cmp.changes) + len(cmp.added) + len(cmp.removed))
     from .output import build_workbook as timetable_workbook, document_sections, output_name, summary_lines

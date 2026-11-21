@@ -29,9 +29,6 @@ class Berth:
     tiploc: str
     codes: Tuple[str, ...]      # platform / road codes; (ANY,) for any
 
-    def takes(self, code: str) -> bool:
-        return ANY in self.codes or code in self.codes
-
 
 @dataclass
 class Locations:

@@ -182,6 +182,40 @@ def test_train_lists():
                                                                       ("Class", "377", "700")]
 
 
+def test_train_lists_without_uid_pair_retimed_trains():
+    """No UID column: trains pair by headcode, days, departure and origin. A retimed train is a time
+    change when it is the only one left with its headcode, days and origin (never a guess between two),
+    and an LTP row and its STP twin with the same key keep to their own stage when the export is re-sorted."""
+    import openpyxl
+    from rstools.timetable.trainlist import compare_train_lists, read_train_list
+    heads = ["Stage", "Headcode", "Days", "Origin", "Work Dep", "Destination", "Stock"]
+    first = [["LTP Published", "1A08", "SX", "Victoria", dt.time(9, 0), "Brighton", "377"],
+             ["STP", "1A08", "SX", "Victoria", dt.time(9, 0), "Brighton", "387"],
+             ["LTP Published", "2B10", "SX", "Horsham", dt.time(7, 15), "Victoria", "377"],
+             ["LTP Published", "5C20", "SO", "Selhurst", dt.time(5, 0), "Norwood", "377"],
+             ["LTP Published", "5C20", "SO", "Selhurst", dt.time(6, 0), "Norwood", "377"]]
+    second = [first[1], first[0],                                       # re-sorted twins
+              ["LTP Published", "2B10", "SX", "Horsham", dt.time(7, 16), "Victoria", "377"],   # retimed
+              ["LTP Published", "5C20", "SO", "Selhurst", dt.time(5, 5), "Norwood", "377"],    # two left over:
+              ["LTP Published", "5C20", "SO", "Selhurst", dt.time(6, 5), "Norwood", "377"]]    # not guessed
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for n, rows in enumerate((first, second)):
+            wb = openpyxl.Workbook()
+            wb.active.append(heads)
+            for r in rows:
+                wb.active.append(r)
+            paths.append(os.path.join(d, f"l{n}.xlsx"))
+            wb.save(paths[-1])
+        a, b = read_train_list(paths[0]), read_train_list(paths[1])
+    assert "uid" not in a.roles
+    cmp = compare_train_lists(a, b)
+    assert [(h, old, new) for _i, _j, h, old, new in cmp.changes] == [("Work Dep", "0715", "0716")]
+    assert cmp.retimed == 1 and cmp.loose_headers == ["Headcode", "Days", "Origin"]
+    assert sorted(a.rows[i][4] for i in cmp.removed) == ["0500", "0600"]
+    assert sorted(b.rows[j][4] for j in cmp.added) == ["0505", "0605"]
+
+
 def test_settings_carried_over():
     from rstools import branding
     with tempfile.TemporaryDirectory() as d:

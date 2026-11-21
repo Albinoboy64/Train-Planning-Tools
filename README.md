@@ -301,7 +301,7 @@ The tab has two sections. Under **1. Timetable comparison** choose what to compa
 
 ### Two Attune train list exports (Excel)
 
-* The heading row is found automatically (extra title rows and column order don't matter). Trains are paired by UID, days, STP and start date when there is a UID column, otherwise by headcode, days and origin departure time.
+* The heading row is found automatically (extra title rows and column order don't matter). Trains are paired by UID, days, STP and start date when there is a UID column, otherwise by headcode, days and origin departure time. Without a UID, a retimed train is still paired (and its new time reported as a change) when it is the only train left on each side with its headcode, days and origin; where two or more are left, they are listed as added and removed rather than guessed. An LTP row and its STP twin with the same key keep to their own stage.
 * Every column present in both lists is compared; times compare as HHMM (`05:10`, `0510` and an Excel time are equal) and numbers as numbers. Output: *Summary*, *Changes by Train*, *Trains Added*, *Trains Removed* and *What Was Compared* (which columns were compared and how trains were paired).
 
 ### Section 4 check
@@ -341,6 +341,14 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.20.3** - full check: list pairing, fleet warning, sharper tick boxes
+* **Retimed trains in Attune train lists**: without a UID column, departure time is part of how trains are paired, so a train retimed by a minute used to show as one train removed and one added. It is now paired and its new time reported as a change, but only when it is the only train left on each side with its headcode, days and origin; where two or more are left they are still listed as added and removed, never guessed. An LTP row and its STP twin with the same key now keep to their own stage if the export is re-sorted. *What Was Compared* says how many were paired this way.
+* **Train list report**: the *Changes by Train* sheet no longer has an empty UID column when neither list has UIDs.
+* **Stats pack fleet warning**: a fleet in the TRENT print that is not in the fleet table (e.g. MAINT) makes the vehicle figures and totals show as ??? (as TRACS-RS does). The run now says which fleet and how to add it, once for the whole pack.
+* **Tick boxes and radio buttons**: in dark, high contrast (and light off Windows) they are now drawn for the display's scaling, with a proper tick and a dot in proportion. At 150-200% they used to have thin, faint marks. Disabled boxes show their ticks greyed rather than blank.
+* **Checked, no change needed**: every input compared with itself gives no differences; known edits to real CWNs, train lists, timetables and berthing charts each give exactly the expected change (and formatting-only edits none); comparisons are symmetric; .xls copies read identically; outputs, all tabs, modes and themes were reviewed at 100% and 200%.
+* Removed one unused piece of berthing code.
 
 **3.20.2** - quicker when moving between displays
 * **Rescaling starts sooner**: the app now notices a display with different scaling while the window is being moved and rescales a moment after (it used to wait until the window had been still for 0.3 s).

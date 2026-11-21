@@ -690,6 +690,46 @@ def test_rules_in_use_line(monkeypatch, tmp_path):
     assert rules.in_use(datetime.date(2028, 1, 10))[1]                       # both past their last date
 
 
+def test_tick_boxes_and_radio_buttons_drawn_for_the_scaling(monkeypatch):
+    """The drawn themes (dark, high contrast, light off Windows) draw tick boxes and radio buttons as images
+    sized for the display: twice the scaling gives twice the size, and the focus-outline switch (mouse /
+    keyboard) keeps them in the layout."""
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    from tkinter import ttk
+    from rstools import theme
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            return                                          # no display
+        try:
+            style = ttk.Style(root)
+            root.ui_scale = 1.0
+            theme.apply(root, "dark")
+            images = root._indicator_images
+            small = (images["check"].width(), images["check"].height())
+            assert "TPT.Checkbutton.indicator" in str(style.layout("TCheckbutton"))
+            assert "TPT.Radiobutton.indicator" in str(style.layout("TRadiobutton"))
+            for show in (True, False, True):
+                theme.focus_cues(root, show)
+                assert "TPT.Checkbutton.indicator" in str(style.layout("TCheckbutton"))
+                assert "TPT.Radiobutton.indicator" in str(style.layout("TRadiobutton"))
+            root.ui_scale = 2.0
+            theme.apply(root, "dark", recolour=False)
+            assert images["check"].height() == 2 * small[1] and images["radio_on"].height() == 2 * small[1]
+            box = ttk.Checkbutton(root, text="x")
+            box.pack()
+            root.update()
+            assert box.winfo_reqheight() >= 2 * small[1]
+            theme.apply(root, "contrast")                 # recoloured in place: same images, new colours
+            assert root._indicator_images["check"] is images["check"]
+        finally:
+            root.destroy()
+
+
 def test_display_watcher_only_watches_the_main_window(monkeypatch):
     """Child widgets resizing never run the display watcher; a move within the same display schedules nothing;
     moving to a display with other scaling rescales once, soon after."""

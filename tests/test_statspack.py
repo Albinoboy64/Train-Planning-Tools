@@ -141,6 +141,24 @@ def test_single_day_pack():
         assert unit == {"700/0"}
 
 
+def test_fleet_missing_from_the_table_is_reported_once():
+    """A fleet with no car count (e.g. a 'MAINT' diagram) makes the vehicle totals unknown (???, as TRACS-RS);
+    the run says which fleet and why, once for the whole pack rather than day by day."""
+    with tempfile.TemporaryDirectory() as d:
+        x, p = os.path.join(d, "a.xml"), os.path.join(d, "a.docx")
+        write_xml(x)
+        write_docx(p, [line.replace(":700/0", ":MAINT") for line in plan_lines()])
+        plan = load_plan(PlanInputs(x, p))
+        per_day, warnings = build_pack(plan, opts(d, [0, 1]), "test")
+        unit = {r.cells[0]: r.cells for t in per_day[0][1] if t.name == "Vehicle Mileage by Service Code"
+                for r in t.rows}
+        assert unit["MAINT"][1:] == [None, None, None] and unit["377/4"][3] == 50 * 4
+        said = [w for w in warnings if "MAINT" in w]
+        assert len(said) == 1 and "fleet table" in said[0] and "???" in said[0]
+        plain = build_pack(setup_plan(d, "b"), opts(d, [0, 1]), "test")[1]
+        assert not [w for w in plain if "fleet table" in w]
+
+
 def test_merged_and_split_week():
     with tempfile.TemporaryDirectory() as d:
         plan = setup_plan(d)

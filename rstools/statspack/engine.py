@@ -230,6 +230,7 @@ def build_pack(plan: LoadedPlan, opts: PackOptions, version: str,
     info = _info(plan, version)
     per_day, warnings = [], ([fleet.warning] if fleet.warning else [])
     xml_days = plan.attune.days()
+    no_cars: set = set()
     for i, d in enumerate(opts.days):
         progress(0.1 + 0.6 * i / max(len(opts.days), 1), f"Building {DAY_NAMES[d]}...")
         # a day missing from the XML is reported once (day_availability), not train by train
@@ -239,7 +240,12 @@ def build_pack(plan: LoadedPlan, opts: PackOptions, version: str,
             warnings.append(f"{DAY_NAMES[d]}: no diagrams for the selected operators and fleets.")
             continue
         warnings += [f"{DAY_NAMES[d]}: {w}" for w in model.warnings]
+        no_cars |= {dg.fleet for dg in model.diagrams if dg.cars is None}
         per_day.append((d, build_tables(model, info)))
+    if no_cars:                         # reported once, not day by day
+        warnings.append(f"Fleet(s) {', '.join(sorted(no_cars))} in the TRENT print are not in the fleet table, so "
+                        "their vehicle figures and the vehicle totals show as ??? (unknown). Add them with 'Edit "
+                        "fleet data' if they should be counted.")
     return per_day, warnings
 
 

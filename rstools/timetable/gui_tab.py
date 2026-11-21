@@ -49,8 +49,8 @@ NOTES = {
                 "only those are checked (use train prints to check every stop). Empty stock is left out."),
     "prints": ("Each train is compared location by location (times, platform, line, activities), with its "
                "heading details."),
-    "lists": ("Trains are paired by UID and days (or headcode, days and departure time), and every column is "
-              "compared."),
+    "lists": ("Trains are paired by UID and days (or headcode, days and departure time; a retimed train still pairs "
+              "when it is the only one left with its headcode, days and origin), and every column is compared."),
 }
 SEP = " ; "
 S4 = "section4"                 # Utilities: the Section 4 possession check
