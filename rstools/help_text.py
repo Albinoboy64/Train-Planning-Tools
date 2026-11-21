@@ -36,7 +36,7 @@ TIPS = {
     "Excel (default)": "An Excel workbook (.xlsx) - the most useful format for checking and filtering.",
     "PDF": "A PDF document (A4 landscape) for printing or emailing.",
     "Word": "A Word document (.docx) for printing or adding comments.",
-    # ---------------------------------------------------------------- CWN Tools
+    # ---------------------------------------------------------------- Stock Tools
     "Compare two CWNs": "Compare an original Carriage Working Notice with an updated one.",
     "Add a new round to an earlier comparison CWN": "Compare a newer CWN with a comparison CWN made earlier by this "
                                                     "app. The earlier highlights are kept and the new round is "
@@ -47,6 +47,19 @@ TIPS = {
                                                          "each train's day variants (MO, TWThO, FO...) are listed "
                                                          "in a fixed order. Nothing is changed or removed.",
     "CWN:": "The multi-day CWN (Excel) to tidy. It is not changed - a copy is saved.",
+    "1. CWN comparison": "Compare CWNs: choose one of the three comparisons, then its files below. Dropping CWNs "
+                         "or folders on this box puts them here.",
+    "Utilities": "Tools that take one input: on Stock Tools, a CWN to put in order or an Attune XML for a station "
+                 "working book; on Timing Tools, the Section 4 check. Dropping files on this box puts them here.",
+    "Section 4 check: trains in Network Rail's standard possession times": "Check the timetable (Attune XML) "
+        "against Network Rail's Engineering Access Statement Section 4: every train running over a section inside "
+        "one of its standard possession windows, by period and night. Choose the route PDFs that cover the "
+        "timetable.",
+    "Section 4 PDF(s):": "Network Rail's Engineering Access Statement Section 4 (Standard Possession Opportunities) "
+                         "PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Add... adds to those "
+                         "already chosen.",
+    "1. Timetable comparison": "Compare timetables, train prints and train lists: choose the comparison, then its "
+                               "two files below.",
     "Station Working Book (TRACS-RS layout, from an Attune XML)": "Make a Station Working Book like the TRACS-RS "
         "ones: every train leaving the station, with the train(s) it is formed from, its stock, platform and "
         "calling points, one sheet each for SX, SO and Su. Needs an Attune XML with every day's unit diagrams.",
@@ -176,7 +189,7 @@ TIPS = {
     "Compare plans": "Start (F5).",
     "Compare stats packs": "Start (F5).",
     "Create unit report": "Start (F5).",
-    # ---------------------------------------------------------------- Timetable Comparison
+    # ---------------------------------------------------------------- Timing Tools
     "GTR timetable against the Network Rail timetable": "Check the GTR timetable against the Network Rail "
                                                          "timetable (the reference). Output: the Consolidated "
                                                          "TT Comparison workbook.",

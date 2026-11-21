@@ -64,7 +64,7 @@ class Options:
     github_token: str = ""           # read-only token for a private repository (DPAPI-protected)
     recent: Dict[str, List[str]] = field(default_factory=dict)   # file box -> recent files
     days: List[int] = field(default_factory=list)   # CWN days to check and output (empty = every day)
-    last_tab: int = 0                # tab shown when the app opens (0 CWN Tools, 1 Stats Pack, 2 Timetable)
+    last_tab: int = 0                # tab shown when the app opens (0 Stock Tools, 1 Stats Pack, 2 Timetable)
     categories: Dict[str, Dict[str, bool]] = field(default_factory=default_categories)
 
     def cat(self, key: str, what: str) -> bool:

@@ -1,4 +1,4 @@
-"""Train Planning Tools window (tkinter) and its CWN Tools tab."""
+"""Train Planning Tools window (tkinter) and its Stock Tools tab."""
 from __future__ import annotations
 
 import dataclasses
@@ -30,7 +30,7 @@ from .options import Options, PRESET_COLOURS, default_categories, default_name
 APP_TITLE = APP_NAME
 APP_WIDE = ("last_tab", "theme", "text_size", "recent", "check_updates", "github_token", "notify_done", "saved",
             "live_details_open")
-TAB_NAMES = ("CWN Tools", "Stats Pack", "Timetable Comparison", "Live View")
+TAB_NAMES = ("Stock Tools", "Stats Pack", "Timing Tools", "Live View")
 REPORT_FORMATS = {"xlsx": "Excel", "pdf": "PDF", "docx": "Word"}
 ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                       "rstools", "assets")
@@ -286,8 +286,8 @@ class App(tk.Tk):
         help_menu.add_command(label="User guide (README on GitHub)", accelerator="F1",
                               command=lambda: webbrowser.open(f"https://github.com/{updater.REPO}#readme"))
         help_menu.add_command(label="Keyboard shortcuts", command=lambda: messagebox.showinfo(
-            "Keyboard shortcuts", "F5 or Ctrl+Enter\tRun the current tab\nCtrl+1 / 2 / 3 / 4\tCWN Tools / Stats Pack / "
-            "Timetable Comparison / Live View\nF3 / Shift+F3\tLive View: next / previous difference\n"
+            "Keyboard shortcuts", "F5 or Ctrl+Enter\tRun the current tab\nCtrl+1 / 2 / 3 / 4\tStock Tools / Stats Pack / "
+            "Timing Tools / Live View\nF3 / Shift+F3\tLive View: next / previous difference\n"
             "Ctrl++ / Ctrl+- / Ctrl+0\tLarger / smaller / normal text\nAlt+O / Alt+S / Alt+H\tOptions / Save/Load / "
             "Help menu\nF1\t\tUser guide\n\nFiles can also be dragged onto any tab: each goes to the right box.", parent=self))
         help_menu.add_command(label="Third-party software and licences", command=self._licences)
@@ -466,7 +466,7 @@ class App(tk.Tk):
 
     def _about(self):
         messagebox.showinfo(f"About {APP_NAME}",
-                            f"{APP_NAME} v{__version__}\n\nCWN Tools, Stats Pack, Timetable Comparison and Live View for GTR "
+                            f"{APP_NAME} v{__version__}\n\nStock Tools, Stats Pack, Timing Tools and Live View for GTR "
                             f"Train Planning.\n\nhttps://github.com/{updater.REPO}")
 
     def _licences(self):
@@ -606,7 +606,7 @@ class App(tk.Tk):
         cwn_page, stats_page = ScrollPage(self.notebook), ScrollPage(self.notebook)
         outer = self.outer = cwn_page.body
         outer.configure(padding=(12, 8, 12, 10))
-        self.notebook.add(cwn_page, text="  CWN Tools  ")
+        self.notebook.add(cwn_page, text="  Stock Tools  ")
         from rstools.statspack.gui_tab import StatsPackTab
         self.stats_tab = StatsPackTab(stats_page.body, self)
         self.stats_tab.pack(fill="both", expand=True)
@@ -616,7 +616,7 @@ class App(tk.Tk):
         tt_page = self.tt_page = ScrollPage(self.notebook)
         self.tt_tab = TimetableTab(tt_page.body, self)
         self.tt_tab.pack(fill="both", expand=True)
-        self.notebook.add(tt_page, text="  Timetable Comparison  ")
+        self.notebook.add(tt_page, text="  Timing Tools  ")
         from rstools.live.gui_tab import LiveTab
         live_page = self.live_page = ScrollPage(self.notebook)
         self.live_tab = LiveTab(live_page.body, self)
@@ -626,7 +626,7 @@ class App(tk.Tk):
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
 
-        self.heading = ttk.Label(outer, text="Carriage Working Notice Comparison", style="Head.TLabel")
+        self.heading = ttk.Label(outer, text="Stock Tools", style="Head.TLabel")
         self.heading.grid(row=0, column=0, columnspan=2, sticky="w")
         self.intro = theme.tip(ttk.Label(outer, text="", style="Small.TLabel"))
         self.intro.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
@@ -639,49 +639,69 @@ class App(tk.Tk):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
 
-        # --- mode
-        mf = ttk.LabelFrame(left, text="1. What to do", padding=8)
+        # --- CWN comparison: its modes and its two files
+        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. CWN comparison", padding=8)
         mf.grid(row=0, column=0, sticky="ew")
+        mf.columnconfigure(1, weight=1)
         self.mode = tk.StringVar(value="compare")
-        ttk.Radiobutton(mf, text="Compare two CWNs", variable=self.mode, value="compare",
+        mrow = ttk.Frame(mf)
+        mrow.grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Radiobutton(mrow, text="Compare two CWNs", variable=self.mode, value="compare",
                         command=self._mode_changed).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(mf, text="Add a new round to an earlier comparison CWN",
+        ttk.Radiobutton(mrow, text="Add a new round to an earlier comparison CWN",
                         variable=self.mode, value="cumulative",
                         command=self._mode_changed).grid(row=1, column=0, sticky="w")
-        ttk.Radiobutton(mf, text="Compare two folders of CWNs (batch)", variable=self.mode, value="batch",
+        ttk.Radiobutton(mrow, text="Compare two folders of CWNs (batch)", variable=self.mode, value="batch",
                         command=self._mode_changed).grid(row=2, column=0, sticky="w")
-        ttk.Separator(mf).grid(row=3, column=0, sticky="ew", pady=4)
-        ttk.Radiobutton(mf, text="Put each train's day variants in order (one CWN)", variable=self.mode,
-                        value="reorder", command=self._mode_changed).grid(row=4, column=0, sticky="w")
-        ttk.Radiobutton(mf, text="Station Working Book (TRACS-RS layout, from an Attune XML)", variable=self.mode,
-                        value="station", command=self._mode_changed).grid(row=5, column=0, sticky="w")
-
-        # --- files
-        ff = ttk.LabelFrame(left, text="2. Files", padding=8)
-        ff.grid(row=1, column=0, sticky="ew", pady=8)
-        ff.columnconfigure(1, weight=1)
+        ff = mf
         self.orig_lbl = ttk.Label(ff, text="Original CWN:")
-        self.orig_lbl.grid(row=0, column=0, sticky="w")
+        self.orig_lbl.grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.orig = tk.StringVar()
         self.orig_entry = self.file_box(ff, self.orig, "cwn")
-        self.orig_entry.grid(row=0, column=1, sticky="ew", padx=4)
-        ttk.Button(ff, text="Browse...", command=lambda: self._browse(self.orig, True)).grid(row=0, column=2)
+        self.orig_entry.grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
+        ttk.Button(ff, text="Browse...", command=lambda: self._browse(self.orig, True)).grid(row=1, column=2,
+                                                                                          pady=(6, 0))
         self.upd_lbl = ttk.Label(ff, text="Updated CWN:")
-        self.upd_lbl.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.upd_lbl.grid(row=2, column=0, sticky="w", pady=(6, 0))
         self.upd = tk.StringVar()
         self.upd_entry = self.file_box(ff, self.upd, "cwn")
-        self.upd_entry.grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
+        self.upd_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=(6, 0))
         self.upd_browse = ttk.Button(ff, text="Browse...", command=lambda: self._browse(self.upd, False))
-        self.upd_browse.grid(row=1, column=2, pady=(6, 0))
+        self.upd_browse.grid(row=2, column=2, pady=(6, 0))
         self.swap_btn = ttk.Button(ff, text="Swap original / updated", command=self._swap)
-        self.swap_btn.grid(row=2, column=1, sticky="w", padx=4, pady=(6, 0))
+        self.swap_btn.grid(row=3, column=1, sticky="w", padx=4, pady=(6, 0))
         self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=430, justify="left"))
-        self.dnd_hint.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self.dnd_hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.prev_info = ttk.Label(ff, text="", style="Small.TLabel", wraplength=430, justify="left")
-        self.prev_info.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self.prev_info.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        for w in (self.orig_entry, self.upd_entry):           # typing in a box picks its section
+            w.bind("<FocusIn>", lambda _e: self._pick_section("compare"), add="+")
+
+        # --- utilities: day variants in order (a CWN) and station working books (an Attune XML)
+        uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
+        uf.grid(row=1, column=0, sticky="ew", pady=8)
+        uf.columnconfigure(1, weight=1)
+        urow = ttk.Frame(uf)
+        urow.grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Radiobutton(urow, text="Put each train's day variants in order (one CWN)", variable=self.mode,
+                        value="reorder", command=self._mode_changed).grid(row=0, column=0, sticky="w")
+        ttk.Radiobutton(urow, text="Station Working Book (TRACS-RS layout, from an Attune XML)", variable=self.mode,
+                        value="station", command=self._mode_changed).grid(row=1, column=0, sticky="w")
+        self.util_lbl = ttk.Label(uf, text="CWN:")
+        self.util_lbl.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self.util = tk.StringVar()
+        self.util_entry = self.file_box(uf, self.util, "util")
+        self.util_entry.configure(postcommand=lambda: self.util_entry.configure(values=[
+            p for p in self.recent("util") if p.lower().endswith(".xml") == (self.mode.get() == "station")]))
+        self.util_entry.grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
+        ttk.Button(uf, text="Browse...", command=lambda: self._browse(self.util, True)).grid(row=1, column=2,
+                                                                                          pady=(6, 0))
+        self.util_entry.bind("<FocusIn>", lambda _e: self._pick_section("util"), add="+")
+        self.util_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=430, justify="left"))
+        self.util_hint.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # --- output
-        of = self.out_frame = ttk.LabelFrame(left, text="3. Output", padding=8)
+        of = self.out_frame = ttk.LabelFrame(left, text="2. Output", padding=8)
         of.grid(row=2, column=0, sticky="ew")
         of.columnconfigure(1, weight=1)
         self.out_type = tk.StringVar(value="full")
@@ -760,10 +780,12 @@ class App(tk.Tk):
         self._pending_days = None                        # days to tick once known (a saved comparison)
         self._run_when_days_known = False
         self._last_mode = "compare"
+        self._last_compare, self._last_util = "compare", "reorder"
         self.available_days: set = set()
         self._days_token = 0
         self._days_after = None
-        self.orig.trace_add("write", lambda *_a: self._read_book_xml())
+        self.util.trace_add("write", lambda *_a: self._read_book_xml())
+        self.util.trace_add("write", lambda *_a: self._update_name_hint())
         for var in (self.orig, self.upd):
             var.trace_add("write", lambda *_a: self._update_name_hint())
             var.trace_add("write", lambda *_a: self._schedule_days())
@@ -772,7 +794,7 @@ class App(tk.Tk):
         self._schedule_days()
 
         # --- categories
-        cf = self.cats_frame = ttk.LabelFrame(right, text="4. Changes to include", padding=8)
+        cf = self.cats_frame = ttk.LabelFrame(right, text="3. Changes to include", padding=8)
         cf.grid(row=0, column=0, sticky="nsew")
         heads = [("Change type", "Hover over a change type for what it covers."),
                  ("Show in\nCWN", "Highlight this type of change in the output CWN. For cancelled trains: "
@@ -816,7 +838,7 @@ class App(tk.Tk):
             row=0, column=1, padx=6)
 
         # --- run + log
-        rf = self.run_frame = ttk.LabelFrame(right, text="5. Run", padding=8)
+        rf = self.run_frame = ttk.LabelFrame(right, text="4. Run", padding=8)
         rf.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
         rf.columnconfigure(0, weight=1)
         rf.rowconfigure(2, weight=1, minsize=90)        # the log stays visible at the smallest size
@@ -878,8 +900,9 @@ class App(tk.Tk):
         o = Options()
         o.mode = self.mode.get()
         o.variant_order = self.variant_order.get()
-        o.original = self.orig.get().strip().strip('"')
-        o.updated = self.upd.get().strip().strip('"')
+        util = o.mode in ("reorder", "station")
+        o.original = (self.util if util else self.orig).get().strip().strip('"')
+        o.updated = "" if util else self.upd.get().strip().strip('"')
         o.output_type = self.out_type.get()
         o.colour = self.colour.value
         o.highlight_tabs = self.tabs_var.get()
@@ -954,7 +977,7 @@ class App(tk.Tk):
 
     def _read_book_xml(self):
         """List the XML's stations (and its timetable name) in the background, for the station box."""
-        path = self.orig.get().strip().strip('"')
+        path = self.util.get().strip().strip('"')
         self._book_token += 1
         token = self._book_token
         if self.mode.get() != "station" or not path.lower().endswith(".xml") or not os.path.isfile(path):
@@ -1006,7 +1029,7 @@ class App(tk.Tk):
                                           "to the XML.")
             return
         if self.mode.get() == "reorder":
-            p = self.orig.get().strip().strip('"')
+            p = self.util.get().strip().strip('"')
             stem = os.path.splitext(os.path.basename(p))[0] if p else "CWN name"
             what = "variants by time" if self.variant_order.get() == "time" else "variants in day order"
             self.name_hint.configure(text=f"Leave the name blank for '{stem} ({what})'. Leave the folder blank "
@@ -1030,21 +1053,37 @@ class App(tk.Tk):
         for vs in self.cat_vars.values():
             vs["show_old"].set(False)
 
+    def _pick_section(self, section: str):
+        """Typing in (or dropping on) a section's box picks that section, keeping its last mode."""
+        util = self.mode.get() in ("reorder", "station")
+        if section == "util" and not util:
+            self.mode.set(self._last_util)
+            self._mode_changed()
+        elif section == "compare" and util:
+            self.mode.set(self._last_compare)
+            self._mode_changed()
+
     def _mode_changed(self):
         mode = self.mode.get()
         batch = mode == "batch"
         if (mode != self._last_mode) and (batch or self._last_mode == "batch"):
             self.orig.set("")                       # files and folders do not mix
             self.upd.set("")
+        if mode != self._last_mode and {mode, self._last_mode} == {"reorder", "station"}:
+            self.util.set("")                       # a CWN and an XML do not mix
         self._last_mode = mode
         station = mode == "station"
         reorder = mode == "reorder"
-        single = reorder or station                  # one input file, no comparison options
+        single = reorder or station                  # utilities: one input file, no comparison options
+        if single:
+            self._last_util = mode
+        else:
+            self._last_compare = mode
         self.orig_lbl.configure(text="Earlier comparison CWN:" if mode == "cumulative" else
-                                "Original CWN folder:" if batch else "CWN:" if reorder else
-                                "Attune XML:" if station else "Original CWN:")
-        for w in (self.upd_lbl, self.upd_entry, self.upd_browse):
-            (w.grid_remove if single else w.grid)()
+                                "Original CWN folder:" if batch else "Original CWN:")
+        self.util_lbl.configure(text="Attune XML:" if station else "CWN:")
+        for frame, on in ((self.cmp_frame, not single), (self.util_frame, single)):
+            frame.configure(style="TLabelframe" if on else "Off.TLabelframe")
         for w in self._compare_only:
             (w.grid_remove if single else w.grid)()
         (self.order_frame.grid if reorder else self.order_frame.grid_remove)()
@@ -1055,17 +1094,16 @@ class App(tk.Tk):
         self.open_cwn.configure(text="Open tidied CWN" if reorder else "Open station working book" if station
                                 else "Open output CWN")
         (self.open_rep.grid_remove if single else self.open_rep.grid)()
-        self.run_frame.configure(text="4. Run" if single else "5. Run")
-        self.out_frame.configure(text="3. Stations and output" if station else "3. Output")
-        self.heading.configure(text="Day Variants in Order" if reorder else "Station Working Book" if station
-                               else "Carriage Working Notice Comparison")
-        self.intro.configure(text="Saves a tidier copy of one multi-day CWN, with each train's day variants listed "
-                                  "in order. Nothing in the CWN is changed or removed." if reorder else
-                             "Makes a Station Working Book in the TRACS-RS layout from an Attune XML: every train "
-                             "leaving the station, with its inward working, stock, platform and calling points."
+        self.run_frame.configure(text="3. Run" if single else "4. Run")
+        self.out_frame.configure(text="2. Stations and output" if station else "2. Output")
+        self.intro.configure(text="Day variants in order: saves a tidier copy of one multi-day CWN, with each "
+                                  "train's day variants listed in order. Nothing in the CWN is changed or removed."
+                             if reorder else
+                             "Station Working Book: makes a book in the TRACS-RS layout from an Attune XML - every "
+                             "train leaving the station, with its inward working, stock, platform and calling points."
                              if station else
-                             "Compares trains (not Excel rows) between an original and an updated CWN, and produces "
-                             "a highlighted CWN plus a change report.")
+                             "CWN comparison: compares trains (not Excel rows) between an original and an updated "
+                             "CWN, and produces a highlighted CWN plus a change report.")
         if station:
             self._read_book_xml()
         self._show_dnd_hint()
@@ -1074,9 +1112,6 @@ class App(tk.Tk):
         if mode == "cumulative":
             self.swap_btn.grid_remove()
             self._read_prev_info()
-        elif single:
-            self.swap_btn.grid_remove()
-            self.prev_info.configure(text="")
         else:
             self.swap_btn.grid()
             self.prev_info.configure(text="")
@@ -1089,12 +1124,9 @@ class App(tk.Tk):
     def _show_dnd_hint(self):
         if not getattr(self, "_dnd_on", False):
             return
-        self.dnd_hint.configure(text="Tip: drag and drop the Attune XML onto the box above, or anywhere on this tab."
-                                if self.mode.get() == "station" else
-                                "Tip: drag and drop the CWN onto the box above, or anywhere on this tab."
-                                if self.mode.get() == "reorder" else
-                                "Tip: drag and drop two CWNs (or two folders of CWNs) onto the boxes above, "
-                                "or anywhere on this tab.")
+        self.dnd_hint.configure(text="Tip: drag and drop two CWNs (or two folders of CWNs) onto this box.")
+        self.util_hint.configure(text="Tip: drag and drop a CWN (to put its variants in order) or an Attune XML "
+                                      "(for a station working book) onto this box.")
 
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""
@@ -1106,36 +1138,52 @@ class App(tk.Tk):
             return ""
 
     def _enable_drag_and_drop(self, outer):
-        """Drop CWN files onto a file box, or anywhere on the CWN Tools tab."""
+        """Drop CWN files onto a file box, or anywhere on the Stock Tools tab."""
         if not self._dnd:
             return
 
-        def register(widget, target=None):
+        def register(widget, target=None, section=None):
             if isinstance(widget, tk.Text):
                 return
             try:
                 widget.drop_target_register(self._dnd)
-                widget.dnd_bind("<<Drop>>", lambda e, t=target: self._on_drop(e, t))
+                widget.dnd_bind("<<Drop>>", lambda e, t=target, sec=section: self._on_drop(e, t, sec))
             except (tk.TclError, AttributeError):
                 return
             for child in widget.winfo_children():
-                if child not in (self.orig_entry, self.upd_entry):
-                    register(child)
+                if child in (self.cmp_frame, self.util_frame):
+                    continue
+                if child not in (self.orig_entry, self.upd_entry, self.util_entry):
+                    register(child, None, section)
         register(outer)
-        register(self.orig_entry, self.orig)
-        register(self.upd_entry, self.upd)
+        register(self.cmp_frame, None, "compare")
+        register(self.util_frame, None, "util")
+        register(self.orig_entry, self.orig, "compare")
+        register(self.upd_entry, self.upd, "compare")
+        register(self.util_entry, self.util, "util")
         self._dnd_on = True
         self._show_dnd_hint()
         self.stats_tab.enable_drag_and_drop(self._dnd)
         self.tt_tab.enable_drag_and_drop(self._dnd)
         self.live_tab.enable_drag_and_drop(self._dnd)
 
-    def _on_drop(self, event, target):
+    def _on_drop(self, event, target, section=None):
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data)]
         folders = [p for p in paths if os.path.isdir(p)]
+        xmls = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".xml")]
+        files = [p for p in paths if os.path.isfile(p) and os.path.splitext(p)[1].lower() in SUPPORTED_EXT]
+        if section == "util" or (section is None and xmls and not files and not folders):
+            if xmls:                                  # an Attune XML: the station working book
+                self._set_mode("station")
+                self.util.set(xmls[0])
+            elif files:                               # a CWN: its day variants in order
+                self._set_mode("reorder")
+                self.util.set(files[0])
+            else:
+                messagebox.showwarning(APP_TITLE, "Drop a CWN (.xlsx, .xlsm, .xls, .xlsb) or an Attune XML (.xml).")
+            return event.action
         if folders:                                   # folders: compare two folders of CWNs
-            self.mode.set("batch")
-            self._mode_changed()
+            self._set_mode("batch")
             if target is not None and len(folders) == 1:
                 target.set(folders[0])
             elif len(folders) >= 2:
@@ -1144,26 +1192,16 @@ class App(tk.Tk):
             else:
                 (self.upd if self.orig.get().strip() else self.orig).set(folders[0])
             return event.action
-        xmls = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".xml")]
-        if xmls:                                      # an Attune XML: the station working book
-            if self.mode.get() != "station":
-                self.mode.set("station")
-                self._mode_changed()
-            self.orig.set(xmls[0])
-            return event.action
-        files = [p for p in paths if os.path.isfile(p) and os.path.splitext(p)[1].lower() in SUPPORTED_EXT]
-        if files and self.mode.get() == "station":
-            self.mode.set("compare")
-            self._mode_changed()
-        if files and self.mode.get() == "batch":
-            self.mode.set("compare")
-            self._mode_changed()
         if not files:
-            messagebox.showwarning(APP_TITLE, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb).")
+            messagebox.showwarning(APP_TITLE, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb)"
+                                   + (" or an Attune XML (.xml) on the Utilities box." if section is None else "."))
             return event.action
-        if self.mode.get() == "reorder":
-            self.orig.set(files[0])
-        elif target is not None and len(files) == 1:
+        if section is None and self.mode.get() == "reorder" and len(files) == 1:
+            self.util.set(files[0])                   # dropped anywhere while putting variants in order
+            return event.action
+        if self.mode.get() not in ("compare", "cumulative"):
+            self._set_mode(self._last_compare if self._last_compare != "batch" else "compare")
+        if target is not None and len(files) == 1:
             target.set(files[0])
         elif len(files) >= 2:
             first, second = self._order_dropped(files[:2])
@@ -1176,6 +1214,11 @@ class App(tk.Tk):
         if self.mode.get() == "cumulative":
             self._read_prev_info()
         return event.action
+
+    def _set_mode(self, mode: str):
+        if self.mode.get() != mode:
+            self.mode.set(mode)
+            self._mode_changed()
 
     def _order_dropped(self, files):
         """Two files dropped together: the previous comparison (cumulative mode) or the
@@ -1220,7 +1263,7 @@ class App(tk.Tk):
         self.upd.set(a)
 
     def run(self):
-        """Run the CWN Tools tab (the same call as the other tabs' run)."""
+        """Run the Stock Tools tab (the same call as the other tabs' run)."""
         self._run()
 
     # ------------------------------------------------------------ day variants in order (one CWN)
@@ -1254,6 +1297,7 @@ class App(tk.Tk):
         if o.output_dir and not os.path.isdir(o.output_dir):
             messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
             return
+        self.add_recent("util", o.original)
         saved = dataclasses.replace(o, output_name="", days=[])
         saved.save()
         self.opts = saved
@@ -1295,7 +1339,7 @@ class App(tk.Tk):
         if o.output_dir and not os.path.isdir(o.output_dir):
             messagebox.showwarning(APP_TITLE, f"The output folder does not exist:\n{o.output_dir}")
             return
-        self.add_recent("cwn", o.original)
+        self.add_recent("util", o.original)
         saved = dataclasses.replace(o, output_name="", days=[])
         saved.save()
         self.opts = saved
@@ -1405,8 +1449,11 @@ class App(tk.Tk):
         keep = self.opts
         self.opts = dataclasses.replace(o, **{k: getattr(keep, k) for k in APP_WIDE})
         self._load_into_widgets()
-        self.orig.set(o.original)
-        self.upd.set(o.updated)
+        if o.mode in ("reorder", "station"):
+            self.util.set(o.original)
+        else:
+            self.orig.set(o.original)
+            self.upd.set(o.updated)
         self.out_name.set(o.output_name)
         self._pending_days = set(o.days) if o.days else None
         self.opts = keep
@@ -1535,7 +1582,7 @@ class App(tk.Tk):
             try:
                 meta = read_meta_file(path)
                 if not meta:
-                    msg = ("This file was not made by this app's CWN Tools tab - choose a previous "
+                    msg = ("This file was not made by this app's Stock Tools tab - choose a previous "
                            "comparison output.")
                     cols = []
                 else:

@@ -80,6 +80,8 @@ class Train:
     days: Set[int]
     plan: str
     calls: List[Call] = field(default_factory=list)
+    valid_from: str = ""        # 'yyyy-mm-dd', from the XML
+    valid_until: str = ""
 
     @property
     def passenger(self) -> bool:
@@ -112,6 +114,7 @@ class Plan:
     locations: Dict[str, str]
     trains: Dict[str, List[Train]]
     diagrams: List[Diagram]
+    end: str = ""
 
     @property
     def diagram_days(self) -> Set[int]:
@@ -159,7 +162,8 @@ def read_plan(path: str) -> Plan:
                     plan = el.get("planType", "")
                     if el.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
                         plan = "D"
-                    cur_train, legs = Train(el.get("id", ""), _days(el.get("daysRun", "")), plan), []
+                    cur_train, legs = Train(el.get("id", ""), _days(el.get("daysRun", "")), plan,
+                                            valid_from=el.get("validFrom", ""), valid_until=el.get("validUntil", "")), []
                 elif tag == "unitDiagram":
                     cur_diag = Diagram("", "", _days(el.get("daysrun", "")), plan=el.get("type", ""))
                     cur_diag.key = el.get("id", "").strip()          # depot added when its <depot> is read
@@ -218,7 +222,7 @@ def read_plan(path: str) -> Plan:
         raise StationBookError("This is not an Attune diagram XML (no <diagramExchange> element found).")
     if not trains:
         raise StationBookError("The XML contains no trains.")
-    return Plan(path, meta.get("startdate", ""), locations, dict(trains), diagrams)
+    return Plan(path, meta.get("startdate", ""), locations, dict(trains), diagrams, meta.get("enddate", ""))
 
 
 def _calls(legs: List[dict]) -> List[Call]:

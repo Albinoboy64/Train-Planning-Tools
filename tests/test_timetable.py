@@ -1,4 +1,4 @@
-"""Timetable Comparison: parsing, matching, the template output, train prints and train lists.
+"""Timing Tools: parsing, matching, the template output, train prints and train lists.
 
 All inputs are small synthetic workbooks / prints built here (no real timetable data is stored)."""
 import datetime as dt
@@ -468,3 +468,59 @@ def test_attune_train_list_columns():
     cmp = compare_train_lists(a, b)
     assert [(h, old, new) for _i, _j, h, old, new in cmp.changes] == [("Work Arr", "0533", "0540")]
     assert cmp.ignored == ["Last Update", "Last Updated By", "Lock Id"]
+
+
+def test_section4_windows_sections_and_check():
+    """Section 4: windows ('0140 T-F to 0350 T-F'), section names, cells holding two possessions, and the check of
+    an Attune XML: a train over both ends of a section inside a window clashes; outside it, or on a line left open
+    in its direction, it does not."""
+    from datetime import date
+    from rstools import stationbook as SB
+    from rstools.timetable import section4 as S4
+    w = S4.parse_windows("0140 T-F to 0350 T-F")
+    assert [x.text for x in w] == ["0140 Tue to 0350 Tue", "0140 Wed to 0350 Wed", "0140 Thu to 0350 Thu",
+                                   "0140 Fri to 0350 Fri"]
+    assert [(x.start, x.end) for x in S4.parse_windows("2340 T to 0540 W")] == [(1440 + 1420, 2880 + 340)]
+    assert S4.parse_windows("2350 Sat to 0750 Sun")[0].text == "2350 Sat to 0750 Sun"
+    assert S4._section("Shepherds Lane Jn and Herne Hill 110.3") == ("Shepherds Lane Jn and Herne Hill", "110.3",
+                                                                     ("Shepherds Lane Jn", "Herne Hill"))
+    name, num, ends = S4._section("London Bridge and Bricklayers Arms Jn and New Cross Jn 130.5a Thameslink Lines")
+    assert num == "130.5a" and ends == ("London Bridge", "New Cross Jn") and "Thameslink Lines" in name
+    segs = S4._segments_of("2350 Sat to 0750 Sun Fast Lines BLOCKED or 0150 Sun to 0750 Sun Slow Lines BLOCKED")
+    assert [(len(ws), b) for ws, b in segs] == [(1, "Fast Lines BLOCKED"), (1, "Slow Lines BLOCKED")]
+    assert "London Victoria (Eastern)" in S4._alternatives("Victoria Eastern")
+    assert "Holloway" in S4._alternatives("Holloway (Excl.)")
+    # a timetable: 1A01 Alpha 01:50 -> Beta 02:10 Tue-Fri (Down); 1A02 Beta 02:00 -> Alpha 02:20 (Up); 1A03 at 05:00
+    d = tempfile.mkdtemp()
+    x = os.path.join(d, "plan.xml")
+
+    def tr(tid, a, t1, b, t2):
+        return (f'<train id="{tid}" daysRun="NNNYYYYNN" planType="L" validFrom="2026-12-13" validUntil="2027-05-15">'
+                f'<leg origin="{a}" dep="{t1}" dest="{b}" arr="{t2}" depPlat="1" arrPlat="1"/></train>')
+    with open(x, "w", encoding="utf-8") as fh:
+        fh.write('<diagramExchange xmlns="http://www.tracsis.com/TTVP_Interface" version="1.0" plantype="L" '
+                 'startdate="2026-12-13" enddate="2027-05-15"><trainList>'
+                 + tr("1A01XX", "AAA", "01:50:00", "BBB", "02:10:00") + tr("1A02XX", "BBB", "02:00:00", "AAA", "02:20:00")
+                 + tr("1A03XX", "AAA", "05:00:00", "BBB", "05:20:00")
+                 + '</trainList><locationList><location tiploc="AAA" longDesc="Alpha"/>'
+                 '<location tiploc="BBB" longDesc="Beta Jn"/></locationList></diagramExchange>')
+    plan = SB.read_plan(x)
+    per = S4.Period("Periods A and B", date(2026, 12, 13), date(2027, 2, 14))
+    later = S4.Period("Periods E to G", date(2027, 5, 16), date(2027, 10, 2))
+    both = S4.Possession("XX100 TEST", "Alpha and Beta Junction", "100.1", ("Alpha", "Beta Junction"), "MID WEEK",
+                         [per, later], S4.parse_windows("0140 T-F to 0350 T-F"), "Down and Up BLOCKED", "", "t")
+    down = S4.Possession("XX100 TEST", "Alpha and Beta Junction", "100.2", ("Alpha", "Beta Junction"), "MID WEEK",
+                         [per], S4.parse_windows("0140 T-F to 0350 T-F"), "Down Slow BLOCKED", "", "t")
+    gone = S4.Possession("XX100 TEST", "Gamma and Alpha", "100.3", ("Gamma", "Alpha"), "WEEK END", [per],
+                         S4.parse_windows("0100 Sun to 0600 Sun"), "BLOCKED", "", "t")
+    res = S4.check(plan, S4.Statement([both, down, gone]))
+    got = sorted((c.possession.number, c.train, c.direction) for c in res.clashes)
+    assert ("100.1", "1A01XX", "Down") in got and ("100.1", "1A02XX", "Up") in got
+    assert not any(t == "1A03XX" for _n, t, _d in got)                 # after the window
+    assert ("100.2", "1A02XX", "Up") not in got and ("100.2", "1A01XX", "Down") in got     # only Down blocked
+    assert not any(c.period is later for c in res.clashes)            # the XML ends before that period
+    assert res.not_found == {"Gamma": ["100.3 Gamma and Alpha"]}
+    assert both.every_line and not down.every_line and down.direction == "Down"
+    assert {c.day for c in res.clashes if c.train == "1A01XX" and c.possession.number == "100.1"} == {1, 2, 3, 4}
+    wb = S4.build_workbook(res, S4.Statement([both, down, gone], ["eas.pdf"]), x)
+    assert wb.sheetnames == ["Summary", "Clashes", "By Section", "Not Checked", "What Was Compared"]

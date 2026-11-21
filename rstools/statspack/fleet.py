@@ -142,6 +142,8 @@ def ensure_user_copy() -> str:
 _SEAT_COLS = ("First Class Seated Capacity", "Standard Class Seated Capacity", "Standing Capacity",
               "Total Capacity (excl. First Class)")
 _OLD_PLACEHOLDERS = {"379/0": ("0", "0", "0", "0")}
+# single values earlier versions shipped wrongly: replaced only while the user's copy still holds them
+_OLD_VALUES = {("171/8", "Unit Length (metres)"): "94.48"}
 
 
 def _upgrade(path: str):
@@ -167,6 +169,10 @@ def _upgrade(path: str):
             for c in _SEAT_COLS:
                 u[c] = d[c]
             changed = True
+        for (cls, col), was in _OLD_VALUES.items():
+            if cls == d["Class Name"] and str(u.get(col, "")).strip() == was and d.get(col) != was:
+                u[col] = d[col]
+                changed = True
         for col in COLUMNS:
             if d.get(col) and u.get(col, "") in ("", "Unknown"):
                 u[col] = d[col]

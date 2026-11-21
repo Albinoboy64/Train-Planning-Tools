@@ -630,6 +630,21 @@ def test_379_seats_replace_old_placeholders_only(monkeypatch):
         got = {r["Class Name"]: r for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
         assert [got["379/0"][c] for c in F._SEAT_COLS] == ["20", "189", "136", "325"]
         assert got["717/0"]["Standing Capacity"] == "500"
+    # unit lengths: blanks filled (379/0, 717/0), the old wrong 171/8 length corrected, a user's own kept
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "fleet.csv")
+        _h, rows = F._read_csv(F.DEFAULT_CSV)
+        for r in rows:
+            if r["Class Name"] in ("379/0", "717/0"):
+                r["Unit Length (metres)"] = ""
+            if r["Class Name"] == "171/8":
+                r["Unit Length (metres)"] = "94.48"
+            if r["Class Name"] == "377/4":
+                r["Unit Length (metres)"] = "81.0"
+        F._write(path, rows)
+        F._upgrade(path)
+        got = {r["Class Name"]: r["Unit Length (metres)"] for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
+        assert (got["379/0"], got["717/0"], got["171/8"], got["377/4"]) == ("80.77", "121.7", "70.86", "81.0")
 
 
 def test_vl11_vl05_and_merged_layouts():

@@ -4,11 +4,11 @@
 
 A portable Windows desktop app for GTR train planning (formerly *Rolling Stock Tools* and *CWN Compare*). It has four tabs:
 
-* **CWN Tools** compares two **Carriage Working Notices (CWNs)**, puts a multi-day CWN's day variants in order ([see below](#putting-day-variants-in-order)) and makes **TRACS-RS style station working books** from an Attune XML ([see below](#station-working-book-tracs-rs-layout)). A comparison produces:
+* **Stock Tools** compares two **Carriage Working Notices (CWNs)**, puts a multi-day CWN's day variants in order ([see below](#putting-day-variants-in-order)) and makes **TRACS-RS style station working books** from an Attune XML ([see below](#station-working-book-tracs-rs-layout)). A comparison produces:
   1. **A comparison CWN.** This is the updated CWN with every amendment highlighted in a colour you choose. Tabs that contain changes are highlighted too.
   2. **A change report.** This is a separate Excel workbook summarising every change by category, by location tab and by train.
 * **Stats Pack** builds the rolling stock stats pack (the same tabs and figures as the TRACS-RS stats pack), **unit reports** (washes and CETs, depot returns and swaps, captive units, the 171 fuel check) and **capacity reports** from an Attune diagram XML and the TRENT unit diagram prints (SNGX and TLGN). It can also compare two plans, or two stats packs, to show the mileage and other effects of a new plan. See [Stats Pack](#stats-pack).
-* **Timetable Comparison** checks a timetable against the Network Rail timetable, Attune **train prints** or an Attune **train list** (each as the reference) and writes the approved *Consolidated TT Comparison* workbook. It also compares two sets of train prints (PDF or Word) and two Attune train list exports (Excel). See [Timetable Comparison](#timetable-comparison).
+* **Timing Tools** checks a timetable against the Network Rail timetable, Attune **train prints** or an Attune **train list** (each as the reference) and writes the approved *Consolidated TT Comparison* workbook. It also compares two sets of train prints (PDF or Word) and two Attune train list exports (Excel). See [Timing Tools](#timetable-comparison).
 * **Live View** shows any of these comparisons inside the app, train by train, and refreshes as you save the files. See [Live View](#live-view).
 
 ## Running it (no admin rights needed)
@@ -42,15 +42,14 @@ Your option choices, theme and recent files are remembered per user in `%LOCALAP
 
 **Upgrading from 3.11.0 or earlier:** those versions look for updates in the app's previous repository, which is now private, so they report that GitHub did not allow access. Download **TrainPlanningTools.exe** from this repository's [Releases](https://github.com/Albinoboy64/Train-Planning-Tools/releases) once and replace the old exe; your settings are kept, and updates work from the app again after that.
 
-## Using the app (CWN Tools tab)
+## Using the app (Stock Tools tab)
 
 | Step | What to do |
 |---|---|
-| 1. What to do | **Compare two CWNs**, **Add a new round to an earlier comparison CWN**, **Compare two folders of CWNs (batch)**, or **Put each train's day variants in order (one CWN)** (see [Putting day variants in order](#putting-day-variants-in-order)) |
-| 2. Files | Choose the **Original CWN** and the **Updated CWN**, either with *Browse* or by **dragging and dropping** the files onto the boxes. If you drop both files at once, the older file becomes the original. Use *Swap* if they end up the wrong way round. In "add new comparisons" mode, the first file is a comparison CWN that this app made earlier. |
-| 3. Output | **Full CWN with changes highlighted**, or **ACWN** (amended trains only, with unchanged trains and unchanged tabs removed). Pick the highlight colour, the output folder and the output name. If you leave the name blank, today's date and the two CWN names are used, e.g. `19-11-2026 Proof 1 vs Proof 2`. *Keep links between tabs* keeps the clickable headcode links; it's off by default because they make the file much slower to open in Excel. |
-| 4. Changes to include | For each change type, choose whether it is **shown in the CWN**, whether the **previous value / note** is shown, and whether it is **included in the report** |
-| 5. Run | Press **Run comparison**, then use *Open output CWN*, *Open report* or *Open folder* |
+| 1. CWN comparison | **Compare two CWNs**, **Add a new round to an earlier comparison CWN** or **Compare two folders of CWNs (batch)**, then the **Original CWN** and the **Updated CWN** (in the same section), either with *Browse* or by **dragging and dropping** the files onto this section. If you drop both files at once, the older file becomes the original. Use *Swap* if they end up the wrong way round. In "add a new round" mode, the first file is a comparison CWN that this app made earlier. The **Utilities** section underneath has the one-file tools: **Put each train's day variants in order (one CWN)** ([see below](#putting-day-variants-in-order)) and the **Station Working Book** ([see below](#station-working-book-tracs-rs-layout)), with their own box and drop area. |
+| 2. Output | **Full CWN with changes highlighted**, or **ACWN** (amended trains only, with unchanged trains and unchanged tabs removed). Pick the highlight colour, the output folder and the output name. If you leave the name blank, today's date and the two CWN names are used, e.g. `19-11-2026 Proof 1 vs Proof 2`. *Keep links between tabs* keeps the clickable headcode links; it's off by default because they make the file much slower to open in Excel. |
+| 3. Changes to include | For each change type, choose whether it is **shown in the CWN**, whether the **previous value / note** is shown, and whether it is **included in the report** |
+| 4. Run | Press **Run comparison**, then use *Open output CWN*, *Open report* or *Open folder* |
 
 Supported input formats are `.xlsx`, `.xlsm`, `.xls`, `.xlsb`, `.xltx` and `.xltm`. The output is always `.xlsx`.
 
@@ -91,7 +90,7 @@ For each type you can:
 
 ### Comparing two folders of CWNs (batch)
 
-Choose **Compare two folders of CWNs (batch)** under *1. What to do* (or drop two folders on the tab), then choose the folder of original CWNs and the folder of updated CWNs.
+Choose **Compare two folders of CWNs (batch)** under *1. CWN comparison* (or drop two folders on the tab), then choose the folder of original CWNs and the folder of updated CWNs.
 * Each updated CWN is paired with its original: the same file name first, then the same name ignoring proof / version numbers, dates and words such as *final* or *CWN*, then the clearly most similar name. The pairs found are shown under the folders, and you confirm the list before it starts. Files that can't be paired are listed and left out.
 * Every pair gets the same options (output type, colour, report, change types) and its own comparison CWN and change report, named as usual.
 * Several pairs are compared at once, one per CPU core with one core left free for the window, and only as many as fit in free memory. One file that can't be read doesn't stop the others; it is shown in the log.
@@ -99,7 +98,7 @@ Choose **Compare two folders of CWNs (batch)** under *1. What to do* (or drop tw
 
 ### Checking only some days of the week
 
-Under *3. Output*, **Days to check** lists Mon-Sun. Once both CWNs are chosen, the app reads which days they cover and greys out the others. Untick days to check and output only the trains running on the ticked days. For example, tick only *Fri* to get just the Friday trains from a Monday-Friday CWN.
+Under *2. Output*, **Days to check** lists Mon-Sun. Once both CWNs are chosen, the app reads which days they cover and greys out the others. Untick days to check and output only the trains running on the ticked days. For example, tick only *Fri* to get just the Friday trains from a Monday-Friday CWN.
 * A train's days come from its DAYS cell: blank = every day the CWN covers, `MO` / `FO` / `ThFO` = those days only, `MX` / `FSX` = the CWN's days except those. The days a CWN covers come from its wording (e.g. *Mondays to Fridays* on the cover or above the headings), its file name (`SX`, `SO`, `Su`...) and the DAYS codes used. If none of these say, the note under the tickboxes says the days were judged from the DAYS codes.
 * The comparison CWN then holds only those trains, the change report says which days were checked, and the default name ends with the days, e.g. `... (Fri)`.
 * A train that still runs on other days but no longer on a chosen day is reported as a **Days** change ("No longer runs on the chosen day(s)"), never as cancelled.
@@ -107,7 +106,7 @@ Under *3. Output*, **Days to check** lists Mon-Sun. Once both CWNs are chosen, t
 
 ### Putting day variants in order
 
-A multi-day CWN often lists the day variants of the same train (for example 1A23 MO, 1A23 TWThO and 1A23 FO) in no particular order. Choose **Put each train's day variants in order (one CWN)**, choose the CWN and press **Put variants in order**. A copy is saved, e.g. `Proof 2 (variants in day order).xlsx`; the CWN itself is not touched.
+A multi-day CWN often lists the day variants of the same train (for example 1A23 MO, 1A23 TWThO and 1A23 FO) in no particular order. Choose **Put each train's day variants in order (one CWN)** under *Utilities*, choose the CWN (or drop it on Utilities) and press **Put variants in order**. A copy is saved, e.g. `Proof 2 (variants in day order).xlsx`; the CWN itself is not touched.
 * **By day** (default): the MO variant first, then the variants in day order through to FO, then SO and Su. A variant that runs on fewer days comes first when two start on the same day (MO before MTWThO).
 * **By departure time**: the earliest-departing variant first (an FO train at 05.30 before an MO train at 06.10), then day order for variants at the same time.
 * Only the variants of the same train swap places, within the rows they already used, so every other train stays exactly where it was. Rows move whole: values, formatting, row heights, notes and coupled-unit rows. Links from other tabs are re-pointed to the rows' new positions. Nothing is changed or removed.
@@ -116,7 +115,7 @@ A multi-day CWN often lists the day variants of the same train (for example 1A23
 
 ### Station Working Book (TRACS-RS layout)
 
-Choose **Station Working Book (TRACS-RS layout, from an Attune XML)** under *1. What to do*, then the Attune XML, the **station**, and optionally:
+Choose **Station Working Book (TRACS-RS layout, from an Attune XML)** under *Utilities*, then the Attune XML (in the Utilities box, or drop it there), the **station**, and optionally:
 * **Platforms**, e.g. `10-15` for the London Bridge low level book, or `1, 2, 4A`.
 * **Operator** and **Timetable** for the page header and file name, e.g. *GTR(TLGN)* and *Dec23* (the timetable is filled in from the XML), and **Services** for the header, e.g. *Thameslink and Great Northern services only*.
 * **Sheet name**, e.g. *London Bridge LL* (default: the station and the operator in brackets, e.g. *London Kings Cross (TLGN)*), and which **sheets**: SX, SO, Su.
@@ -212,7 +211,7 @@ Which locations are depots: any location named *T&RSMD*, *TMD*, *EMUD*, *Depot*,
 
 ### Output formats
 
-Every Stats Pack output (stats packs, comparisons and unit reports) can be saved as **Excel** (the default), **PDF** or **Word**: choose under *Save as* in *4. Output*. PDF and Word use A4 landscape pages with the heading row repeated on each page and the same highlighting; very wide tabs are split into parts. A whole stats pack is long as a document (hundreds of pages per day) - choose *totals only*, fewer days or *Changed rows only* for something shorter. The CWN Tools change report can also be PDF or Word (*Create change report as*); the highlighted CWN itself is always Excel.
+Every Stats Pack output (stats packs, comparisons and unit reports) can be saved as **Excel** (the default), **PDF** or **Word**: choose under *Save as* in *4. Output*. PDF and Word use A4 landscape pages with the heading row repeated on each page and the same highlighting; very wide tabs are split into parts. A whole stats pack is long as a document (hundreds of pages per day) - choose *totals only*, fewer days or *Changed rows only* for something shorter. The Stock Tools change report can also be PDF or Word (*Create change report as*); the highlighted CWN itself is always Excel.
 
 ### Fleet data
 
@@ -259,9 +258,9 @@ Then:
 | Headcodes (start with) | Optional: e.g. `1W; 1G`; `-2T` leaves those headcodes out |
 | Minimum route stations | Usually 2 |
 
-## Timetable Comparison
+## Timing Tools
 
-Choose what to compare under *1. What to compare*, choose the files (or drag and drop them anywhere on the tab: the comparison type and the boxes are picked from the files), then press **Compare** (or F5). Output can be Excel (default), PDF or Word.
+The tab has two sections. Under **1. Timetable comparison** choose what to compare and its two files (or drag and drop them on that section, or anywhere on the tab: the comparison type and the boxes are picked from the files), then press **Compare** (or F5). Under **Utilities** is the **Section 4 check** with its own boxes: the Attune XML and Network Rail's Section 4 PDF(s) (see [Section 4 check](#section-4-check)). Output can be Excel (default), PDF or Word.
 
 ### GTR timetable against the Network Rail timetable
 
@@ -292,6 +291,13 @@ Choose what to compare under *1. What to compare*, choose the files (or drag and
 * The heading row is found automatically (extra title rows and column order don't matter). Trains are paired by UID, days, STP and start date when there is a UID column, otherwise by headcode, days and origin departure time.
 * Every column present in both lists is compared; times compare as HHMM (`05:10`, `0510` and an Excel time are equal) and numbers as numbers. Output: *Summary*, *Changes by Train*, *Trains Added*, *Trains Removed* and *What Was Compared* (which columns were compared and how trains were paired).
 
+### Section 4 check
+
+* **Inputs:** the Attune XML of the timetable, and Network Rail's Engineering Access Statement **Section 4 (Standard Possession Opportunities)** PDFs for the routes it runs on (e.g. *2027 EAS V4 S4 - KS*, *- EC*, *- EMR*). Add several PDFs to the box, or drop them with the XML on the Utilities section.
+* The PDFs' tables are read from their drawn cells: each section (e.g. *Shepherds Lane Jn and Herne Hill 110.3*), each night (*WEEK END*, *SUN/MON*, *MID WEEK*), each period's windows (e.g. *0140 T-F to 0350 T-F* is 01:40-03:50 on Tuesday to Friday mornings) and what is blocked.
+* A train **clashes** when it calls at or passes both ends of a section at a time inside a window, on a day and in a period the possession applies to (only periods the XML's dates cover). Places are matched to the XML by name (Network Rail's and Attune's spellings, e.g. *Victoria Eastern* / *London Victoria*); sections whose places are not in the XML are listed under *Not Checked*.
+* The XML has no running lines, so each clash says **Every line blocked** or **Some lines: check the line used**. Where only the Down (or Up) line is blocked, a train is taken as Down when it reaches the first-named place first, and trains the other way are left out. Midweek possessions available only some weeks show it (e.g. *8 weeks a year*).
+
 ## Saved settings, notifications and help
 
 * **Save/Load** menu (Alt+S): *Save ... settings as...* stores the current tab's files and options under a name, e.g. *DEC26 Brighton CWN* or *AM peak seats*. Each tab keeps its own list, with as many saved settings as you like. The settings saved for the tab you are on are listed straight under it (click one to load it). Every tab also has a sub-menu listing its saved settings, where each one can be **loaded**, **loaded and run**, **replaced with the current settings**, **renamed** or **deleted** (the files themselves are never touched). If a file has been moved or deleted, the settings are loaded but not run, and the missing files are listed. Settings saved by earlier versions are kept.
@@ -311,7 +317,7 @@ The **Live View** tab shows any comparison in the app inside the window: CWNs, s
 
 **Export...** saves the trains currently listed (with the filter and search applied) to Excel, PDF or Word: an *About* sheet, a *Trains* sheet (each train's result and differences in words) and a *Differences* sheet (each differing call or field, coloured as on screen).
 
-The Live View uses exactly the same reading and matching as the other tabs, so it always agrees with their reports. For CWNs it has the same day tickboxes as the CWN Tools tab. It only reads the files; nothing is written.
+The Live View uses exactly the same reading and matching as the other tabs, so it always agrees with their reports. For CWNs it has the same day tickboxes as the Stock Tools tab. It only reads the files; nothing is written.
 
 ## Licence
 
@@ -322,6 +328,19 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.16.0** - Stock Tools, Timing Tools and the Section 4 check
+* **Tabs renamed**: *CWN Tools* is now **Stock Tools** and *Timetable Comparison* is now **Timing Tools** (tab, heading, window title, messages and help).
+* **Stock Tools is in two sections, each with its own files and drop area**:
+  * **1. CWN comparison** (compare two CWNs, add a new round, compare two folders) with the original and updated CWN boxes;
+  * **Utilities** (put day variants in order, Station Working Book) with one box that takes the CWN or the Attune XML.
+  
+  Dropping CWNs or folders on the comparison section puts them there; dropping a CWN on Utilities picks *day variants in order*, and an XML picks *Station Working Book*. The section not in use has its title greyed. Typing in a section's box picks that section.
+* **New: Section 4 check** (Timing Tools > Utilities, with its own Attune XML and Section 4 PDF boxes and drop area). It reads Network Rail's Engineering Access Statement **Section 4 (Standard Possession Opportunities)** PDFs. Each route's tables are read from their drawn cells, so a possession that covers several periods applies to each. Tested on the 2027 v4 Kent & Sussex, East Coast, Anglia, East Midlands and Wessex PDFs: 6,000+ possession rows. It then lists every train in the XML that runs over a section (calls at or passes both its ends) inside a possession window, on a night and in a period the possession applies to. Only the periods the XML's dates cover are checked.
+  * The report (Excel, PDF or Word) has *Summary*, *Clashes*, *By Section*, *Not Checked* (places in the PDFs that aren't in the XML, mostly other operators' lines) and *What Was Compared*.
+  * Each clash shows the section, period, night, window, how often it's available (e.g. *8 weeks a year*), what is blocked, the train, and its times at both ends on the day they fall.
+  * The Attune XML has no running lines, so a clash is marked **Every line blocked** (shaded, listed first) or **Some lines: check the line used** (e.g. only the slow lines are blocked). Where only the Down or only the Up line is blocked, trains in the other direction are left out.
+* **Fleet table**: 379/0 unit length 80.77 m (as the 387), 717/0 121.7 m, and 171/8 corrected to 70.86 m (3-car). Existing fleet tables get these where the cells were blank or still held the old shipped 171/8 length; lengths you entered yourself are kept.
 
 **3.15.0** - Network Rail planning rules
 * **Platform length check in the Station Working Book**: the app now carries the usable length of every platform in Network Rail's Timetable Planning Rules 2027 (Sussex, Kent, Wessex, Anglia, East Midlands and LNE: 2,994 platforms at 1,186 stations). Each departure's formation (unit lengths from the fleet table) is checked against its platform, and departures longer than the platform (by more than 3 m) are listed in the run's messages with the rules' own notes, e.g. *9V12ET 06 49 platform 1: 162 m on a 149 m platform*. Check these for selective door opening. Fleets with no unit length in the fleet table (currently 379/0 and 717/0) are named so their lengths can be added.
@@ -647,7 +666,7 @@ TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.
   * `writer.py` highlights the output, adds struck-through values and builds the ACWN.
   * `report.py` builds the change report.
   * `meta.py` stores the hidden data used for cumulative rounds.
-  * `gui.py` is the desktop interface (the window and the CWN Tools tab).
+  * `gui.py` is the desktop interface (the window and the Stock Tools tab).
 * The Stats Pack is in `rstools/statspack/`:
   * `trent.py` reads the TRENT VehicleLayout29 and TLGN unit diagram prints, `attune.py` the Attune XML.
   * `model.py` joins them into diagrams, trains and formation parts for one day.
@@ -655,7 +674,7 @@ TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.
   * `compare.py` compares packs and reads packs back from Excel; `engine.py` runs each mode; `gui_tab.py` is the Stats Pack tab.
   * `fleet_default.csv` is the built-in fleet table.
 * The Live View is in `rstools/live/`: `adapters.py` turns each comparison into items (one per train / row), `gui_tab.py` is the tab. CWN days are in `cwn_compare/days.py`.
-* The Timetable Comparison is in `rstools/timetable/`: `parse.py` reads the timetable grids, `compare.py` matches trains and finds issues, `output.py` fills `template.xlsx`, `prints.py` / `attune_print.py` and `trainlist.py` handle train prints and Attune lists, `base.py` turns a print or list into the reference timetable, `engine.py` runs them and `gui_tab.py` is the tab.
+* The Timing Tools is in `rstools/timetable/`: `parse.py` reads the timetable grids, `compare.py` matches trains and finds issues, `output.py` fills `template.xlsx`, `prints.py` / `attune_print.py` and `trainlist.py` handle train prints and Attune lists, `base.py` turns a print or list into the reference timetable, `engine.py` runs them and `gui_tab.py` is the tab.
 * Run from source with `pip install -r requirements.txt`, then `python TrainPlanningTools.py`.
 * Run the tests with `python -m pytest tests`. They generate synthetic CWNs, TRENT prints and XML, so no real data is needed.
 * The Windows exe is built by `.github/workflows/build-windows.yml` on every push, using PyInstaller and `packaging/TrainPlanningTools.spec`. The spec explains what is left out to keep the exe small. To build it locally on Windows, run `build_windows.bat`.

@@ -290,7 +290,7 @@ def statspack_cli(argv):
 def timetable_cli(argv):
     from rstools.timetable.engine import run
 
-    ap = argparse.ArgumentParser(prog="TrainPlanningTools timetable", description="Timetable Comparison")
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools timetable", description="Timing Tools")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--gtr", help="GTR timetable check workbook (compared with --nr)")
     g.add_argument("--prints", nargs="+", help="original train print(s), PDF or Word (compared with --vs)")

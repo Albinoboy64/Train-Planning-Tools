@@ -1,7 +1,7 @@
 """Every comparison in the app, turned into what the Live View shows.
 
-Each adapter runs the same reading and matching code as its tab (CWN Tools, Stats Pack,
-Timetable Comparison), so the Live View always agrees with the reports; it only lays the result
+Each adapter runs the same reading and matching code as its tab (Stock Tools, Stats Pack,
+Timing Tools), so the Live View always agrees with the reports; it only lays the result
 out train by train (or row by row) instead of writing a file.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, LiveRow
 
 MODES = {
-    "cwn": "CWN Tools: two CWNs",
+    "cwn": "Stock Tools: two CWNs",
     "sp_plans": "Stats Pack: two plans (XML + TRENT print each)",
     "sp_packs": "Stats Pack: two stats pack files",
     "timetables": "Timetable: GTR timetable against Network Rail",

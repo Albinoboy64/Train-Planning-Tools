@@ -228,6 +228,11 @@ def apply(root: tk.Tk, mode: str) -> dict:
         style.map("Run.TButton", background=[("disabled", p["panel"]), ("pressed", p["select"]),
                                              ("active", p["accent"])],
                   foreground=[("disabled", p["disabled"]), ("active", p["accent_fg"])])
+    # a section of a tab that is not the one chosen (e.g. Utilities while comparing CWNs): its title greyed
+    style.configure("Off.TLabelframe", **({} if native else dict(background=p["bg"], bordercolor=p["border"],
+                                                                  relief="groove")))
+    style.configure("Off.TLabelframe.Label", foreground=p["muted"],
+                    **({} if native else dict(background=p["bg"], font="AppBold")))
 
     # plain tk widgets: drop-down lists, logs, tooltips
     root.option_add("*TCombobox*Listbox.background", p["field"])
