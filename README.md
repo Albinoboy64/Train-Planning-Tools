@@ -342,6 +342,13 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.20.1** - rules indicator, pairing and build fixes
+* **Rules in use** (new): the header shows which Timetable Planning Rules and Section 4 rule set the app is using, e.g. *Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4*. It turns orange with *(check)* when a set is past its last date or no Section 4 set has been added; click it to open Rules and reference data.
+* **Next-day workings (Stock Tools)**: after matching by berth road and unit position, a left-over line is paired with another only when it cannot be a guess (one each, neither with a unit position). Two unrelated lines are no longer shown as one *changed from ... to ...*.
+* **Comparing two folders of CWNs**: only real dates are ignored when pairing files. Unit numbers (*377001*), impossible dates (*20261399*) and runs of numbers that are part of a name stay, so different CWNs are not mistaken for the same one; *v2 12 car* keeps its *12*.
+* **Command line**: a wrong `--between`, `--at` or `--direction` is reported the same way as every other mistake (the check no longer ends the program from inside).
+* **Building it yourself** (`build_windows.bat`) now matches the release build: it checks for Python 3.12, starts from a clean environment each time, stops if the version file step fails and finishes with a smoke test of the exe. The one deliberate difference (a ready-made PyInstaller bootloader instead of compiling it) is explained in the file.
+
 **3.20.0** - berthing charts
 * **Berthing charts** (new, Stock Tools tab): make SNGX's berthing chart from an Attune XML in the layout of an earlier chart, tidied (one font, consistent borders, no old formulas or counting sections); STP charts from an LTP and an STP XML with STP trains in bold on lavender; add a round of changes to a chart from the original and updated XML, highlighted in a colour with earlier highlights kept; and compare two charts. Each unit's arrival, departure, *Berth* days, *RP* (rear portion attached to that morning) and coupled formations come from the XML's diagrams and next-day workings; 387/2 in red and 387/3 in green. A change report comes with each round and comparison, and a Notes sheet lists anything to check.
 * The berth list links each berth on the charts to its TIPLOC and platform / road and can be edited in Excel (*Edit berth locations...*).

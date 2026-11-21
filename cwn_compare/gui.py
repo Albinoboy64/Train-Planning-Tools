@@ -513,6 +513,15 @@ class App(tk.Tk):
                 self.q.put(("update", rel))
         threading.Thread(target=work, daemon=True).start()
 
+    def refresh_rules_note(self):
+        """The header's line saying which TPRs and Section 4 rule set are in use (marked when one needs a look)."""
+        from rstools import rules
+        try:
+            text, stale = rules.in_use()
+        except Exception:                    # the rule list could not be read: say nothing rather than fail
+            text, stale = "", False
+        self.rules_note.configure(text=text, style="Warn.TLabel" if stale else "Small.TLabel")
+
     def show_rules(self):
         from rstools.rules_dialog import RulesDialog
         RulesDialog(self)
@@ -673,8 +682,13 @@ class App(tk.Tk):
         ttk.Label(head, text=APP_TITLE, style="Title.TLabel").grid(row=0, column=1, sticky="w")
         ttk.Label(head, text=f"v{__version__}", style="Small.TLabel").grid(row=0, column=2, sticky="sw",
                                                                            padx=(8, 0), pady=(0, 3))
+        # which Network Rail rules are in use (click to see or change them in Rules and reference data)
+        self.rules_note = ttk.Label(head, text="", style="Small.TLabel", cursor="hand2")
+        self.rules_note.grid(row=0, column=3, sticky="se", padx=(0, 12), pady=(0, 3))
+        self.rules_note.bind("<Button-1>", lambda _e: self.show_rules())
+        self.refresh_rules_note()
         self.update_note = ttk.Label(head, text="", style="Link.TLabel", cursor="hand2")
-        self.update_note.grid(row=0, column=3, sticky="e")
+        self.update_note.grid(row=0, column=4, sticky="e")
         self.update_note.bind("<Button-1>", lambda _e: self.check_for_updates(self._pending_release))
         self._pending_release = None
         self.notebook = ttk.Notebook(self)

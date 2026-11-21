@@ -462,18 +462,22 @@ def _compare_next_workings(ctx: _Ctx, o: Block, n: Block, lbl: str):
     old_only = [item for items in pool.values() for item in items]
     old_only.sort(key=lambda it: it[0])
     # pair a new line with a removed one only when they are the same working: the same berth road (a new
-    # time) first, then the same unit position '(n)', then any other line - but never two lines for
-    # different unit positions, which are unrelated workings (one removed, one added)
+    # time) first, then the same unit position '(n)'. Anything left is paired only when it cannot be a guess:
+    # one line left on each side and neither gives a unit position (a single unit's working that changed).
+    # Otherwise it is a removal and an addition - never a 'changed from' between unrelated workings.
     paired: Dict[int, tuple] = {}
     for same in (lambda a, b: _road(a[1]) == _road(b[1]),
-                 lambda a, b: _position(a[2]) != "" and _position(a[2]) == _position(b[2]),
-                 lambda a, b: not (_position(a[2]) and _position(b[2]))):
+                 lambda a, b: _position(a[2]) != "" and _position(a[2]) == _position(b[2])):
         for i, item in enumerate(new_only):
             if i not in paired:
                 match = next((it for it in old_only if same(it, item)), None)
                 if match is not None:
                     old_only.remove(match)
                     paired[i] = match
+    left = [i for i in range(len(new_only)) if i not in paired]
+    if len(left) == 1 and len(old_only) == 1 and not _position(new_only[left[0]][2]) \
+            and not _position(old_only[0][2]):
+        paired[left[0]] = old_only.pop()
     for i, (_r, key, disp) in enumerate(new_only):
         match = paired.get(i)
         if match is not None:

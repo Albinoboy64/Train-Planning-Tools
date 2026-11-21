@@ -582,3 +582,31 @@ def test_next_day_workings_paired_by_unit_position():
     _res, changes = _run_pair(old, other, "nw-other")
     descs = sorted(c["description"] for c in changes if c["category"] == "BERTHING")
     assert len(descs) == 2 and "added - Berth XX9" in descs[0] and "removed - Berth BI150" in descs[1], descs
+
+
+def _berth_changes(old_lines, new_lines, name):
+    old = [list(r) for r in BTN_ORIG] + _berth_rows(old_lines)
+    new = [list(r) for r in BTN_ORIG] + _berth_rows(new_lines)
+    _res, changes = _run_pair(old, new, name)
+    return sorted((c["kind"] if "kind" in c else "", c["old"], c["new"]) for c in changes
+                  if c["category"] == "BERTHING")
+
+
+def test_next_day_leftovers_are_never_guessed():
+    """After matching by road and unit position, a leftover pair is joined only when it cannot be a guess."""
+    # one unit's stabling moves (same position) while the other unit's working is dropped
+    got = _berth_changes([("Berth BI149 06+10MO (1)", "147"), ("Berth BI150 06+10MO (2)", "146")],
+                         [("Berth SU305 05+32MO (1)", "147")], "nw-move-drop")
+    assert [(o, n) for _k, o, n in got] == [("Berth BI149 06+10MO (1)", "Berth SU305 05+32MO (1)"),
+                                            ("Berth BI150 06+10MO (2)", "")], got
+    # a positioned line removed and an unrelated line without a position added: two changes, not one
+    got = _berth_changes([("Berth BI150 06+10MO (2)", "146"), ("Berth BI149 06+10MO (1)", "147")],
+                         [("Berth BI149 06+10MO (1)", "147"), ("Berth XX9 09+00MO", "149")], "nw-mixed")
+    assert sorted((o, n) for _k, o, n in got) == [("", "Berth XX9 09+00MO"), ("Berth BI150 06+10MO (2)", "")]
+    # two lines without positions both change: which became which is unknown, so removed + added
+    got = _berth_changes([("Berth AA1 06+10MO", "146"), ("Berth BB2 07+10MO", "147")],
+                         [("Berth CC3 05+00MO", "146"), ("Berth DD4 08+00MO", "147")], "nw-two")
+    assert all(not (o and n) for _k, o, n in got) and len(got) == 4, got
+    # a single unit's only line changing is still one change
+    got = _berth_changes([("Berth AA1 06+10MO", "146")], [("Berth CC3 05+00MO", "146")], "nw-one")
+    assert [(o, n) for _k, o, n in got] == [("Berth AA1 06+10MO", "Berth CC3 05+00MO")]

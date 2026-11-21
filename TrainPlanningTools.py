@@ -226,11 +226,11 @@ def statspack_cli(argv):
     ap.add_argument("--direction", choices=["arriving", "departing", "both"], default=None,
                     help="capacity report: count trains arriving at / departing from --at (default arriving)")
     a = ap.parse_args(argv)
-    window = _capacity_window(a)              # checked before the (slow) timetable is read
     from rstools.statspack.compare import CompareOptions
     cmp = CompareOptions(summary=not a.no_summary, changed_tabs_only=a.changed_tabs_only,
                          changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
     try:
+        window = _capacity_window(a)          # checked before the (slow) timetable is read
         from cwn_compare import __version__ as version
         if a.old_pack or a.new_pack:
             out, n = compare_packs(a.old_pack, a.new_pack, a.out, a.name, cmp, a.format)
@@ -292,7 +292,8 @@ def statspack_cli(argv):
 
 def _capacity_window(a):
     """--between / --at / --direction checked up front: (station, from, to) for the capacity report, or None.
-    Mistakes stop the run straight away with a plain message instead of being ignored."""
+    A mistake raises StatsPackError (reported by the caller) instead of being ignored; nothing here ends the
+    process, so it can be called from anywhere."""
     from rstools.statspack.engine import StatsPackError
     from rstools.statspack.seats import SeatsError, parse_time
     capacity = a.seats_group or a.seats_corridor or a.seats_from or a.seats_to
@@ -314,9 +315,8 @@ def _capacity_window(a):
                                  "from the first station. Leave out --at.")
         if not journey and not a.at:
             raise StatsPackError("--between needs --at STATION (the station the window is at).")
-    except (StatsPackError, SeatsError) as exc:
-        print("ERROR:", exc)
-        sys.exit(1)
+    except SeatsError as exc:                 # a time that is not a time
+        raise StatsPackError(str(exc)) from exc
     return (a.at, start, end)
 
 

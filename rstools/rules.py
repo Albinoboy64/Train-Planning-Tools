@@ -15,7 +15,7 @@ import os
 import re
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 RULES_URL = "https://www.networkrail.co.uk/industry-and-commercial/information-for-operators/operational-rules/"
 REMIND_FROM = "DEC27"           # the first timetable the new-timetable reminder applies to
@@ -136,6 +136,25 @@ def list_sets() -> List[dict]:
 
 def active_set_info() -> Optional[dict]:
     return next((s for s in list_sets() if s["active"]), None)
+
+
+def in_use(today: Optional[date] = None) -> Tuple[str, bool]:
+    """A short line saying which rules are in use - 'TPR 2027 (v4) · Section 4: 2027 EAS v4' - and whether any
+    of them is out of date (past its last date) or missing."""
+    today = today or date.today()
+    tpr = BUILT_IN[0]
+    tpr_name = tpr["name"].replace("Timetable Planning Rules", "TPR")
+    until = parse_date(tpr["to"])
+    stale = until is not None and today > until
+    info = active_set_info()
+    if info is None:
+        s4 = "Section 4: none added"
+        stale = True
+    else:
+        s4 = f"Section 4: {info['name']}"
+        s4_until = parse_date(info.get("to", ""))
+        stale = stale or (s4_until is not None and today > s4_until)
+    return f"Rules: {tpr_name} \u00b7 {s4}" + (" (check)" if stale else ""), stale
 
 
 def add_section4_set(name: str, pdfs: Sequence[str], log=lambda m: None) -> dict:

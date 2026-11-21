@@ -593,3 +593,98 @@ def test_window_times_stop_at_24_00():
     for bad in ("24:30", "24:59", "07:60", "7", ""):
         with pytest.raises(SeatsError):
             parse_time(bad)
+
+
+def test_batch_key_keeps_numbers_that_are_not_versions_or_dates():
+    from cwn_compare.batch import _key
+    assert _key("BTN_CWN_v1_2.xlsx") == _key("BTN_CWN_v2_0.xlsx") == "btn"            # underscore versions
+    assert _key("260918_-_GTRTLGN_Dec26_D12_Draft_CWN_-_SX.xlsx") == _key(
+        "261002_-_GTRTLGN_Dec26_D13_Draft_CWN_-_SX.xlsx") != _key("261002_-_GTRTLGN_Dec26_D13_Draft_CWN_-_SO.xlsx")
+    assert _key("Line 2 CWN Proof 1.xlsx") != _key("Line 3 CWN Proof 1.xlsx")
+    assert _key("Unit 377001 CWN.xlsx") != _key("Unit 377002 CWN.xlsx")                 # not a date: kept
+    assert _key("Diagram 20261399.xlsx") == "diagram 20261399"                           # month 13: not a date
+    assert _key("Route 12 13 14 CWN.xlsx") == "route 12 13 14"
+    assert _key("BTN v2 12 car.xlsx") == "btn 12 car"                                    # the version only
+    for dated in ("BTN 20260918.xlsx", "BTN 260918.xlsx", "BTN 14 12 26.xlsx", "BTN_14_12_2026.xlsx",
+                  "BTN 2026.12.14.xlsx", "BTN-14-12-2026.xlsx"):
+        assert _key(dated) == "btn", dated
+
+
+def _capacity_args(**kw):
+    import argparse
+    base = dict(seats_group="", seats_corridor="", seats_from="", seats_to="", between="", at="", direction=None)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def test_capacity_window_raises_instead_of_exiting():
+    import pytest
+    import TrainPlanningTools as cli
+    from rstools.statspack.engine import StatsPackError
+    with pytest.raises(StatsPackError, match="two times"):
+        cli._capacity_window(_capacity_args(seats_group="1A", between="07:00", at="Brighton"))
+    with pytest.raises(StatsPackError, match="not a time"):
+        cli._capacity_window(_capacity_args(seats_group="1A", between="07:00-25:00", at="Brighton"))
+    assert cli._capacity_window(_capacity_args(seats_group="1A", between="07:00-10:00", at="Brighton")) == (
+        "Brighton", "07:00", "10:00")
+    assert cli._capacity_window(_capacity_args(seats_group="1A")) is None
+
+
+def test_every_between_at_direction_combination():
+    """Each mix of capacity report, --between, --at and --direction: a plain message for every invalid one,
+    given before any file is read; the valid ones get past the checks."""
+    import contextlib
+    import io
+    import itertools
+    import TrainPlanningTools as cli
+    reports = {"none": [], "group": ["--capacity-group", "1A"], "corridor": ["--capacity-corridor", "BML"],
+               "journey": ["--capacity-from", "Brighton", "--capacity-to", "Victoria"]}
+    betweens = {"none": [], "ok": ["--between", "07:00-10:00"], "one": ["--between", "07:00"],
+                "late": ["--between", "23:00-24:30"]}
+    ats = {"none": [], "at": ["--at", "Brighton"]}
+    directions = {"none": [], "both": ["--direction", "both"]}
+    seen = 0
+    for (rk, r), (bk, b), (ak, at), (dk, d) in itertools.product(reports.items(), betweens.items(), ats.items(),
+                                                                 directions.items()):
+        if rk == "none" and bk == ak == dk == "none":
+            continue                                            # a stats pack: not a window question
+        if rk == "none":
+            expect = "are for a capacity report"
+        elif bk == "none" and (ak != "none" or dk != "none"):
+            expect = "go with --between"
+        elif bk == "one":
+            expect = "two times"
+        elif bk == "late":
+            expect = "'24:30' is not a time"
+        elif bk == "ok" and rk == "journey" and ak == "at":
+            expect = "Leave out --at"
+        elif bk == "ok" and rk != "journey" and ak == "none":
+            expect = "needs --at"
+        else:
+            expect = ""                                         # valid: fails later, on the missing XML
+        out, code = io.StringIO(), None
+        with contextlib.redirect_stdout(out):
+            try:
+                cli.statspack_cli(["--xml", "missing.xml", "--trent", "missing.docx"] + r + b + at + d)
+            except SystemExit as exc:
+                code = exc.code
+        text = out.getvalue()
+        assert code == 1, (rk, bk, ak, dk, text)
+        if expect:
+            assert expect in text, (rk, bk, ak, dk, text)
+        else:
+            assert "--between" not in text and "--at " not in text and "not a time" not in text, (rk, bk, ak, dk, text)
+        seen += 1
+    assert seen == 4 * 4 * 2 * 2 - 1
+
+
+def test_rules_in_use_line(monkeypatch, tmp_path):
+    import datetime
+    from rstools import rules
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    text, stale = rules.in_use(datetime.date(2027, 1, 10))
+    assert text.startswith("Rules: TPR 2027 (v4)") and "Section 4: none added" in text and stale
+    monkeypatch.setattr(rules, "active_set_info", lambda: {"name": "2027 EAS v4", "to": "2027-12-11"})
+    assert rules.in_use(datetime.date(2027, 1, 10)) == ("Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4", False)
+    assert rules.in_use(datetime.date(2028, 1, 10))[1]                       # both past their last date

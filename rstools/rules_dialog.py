@@ -157,3 +157,5 @@ class RulesDialog(tk.Toplevel):
         tab = getattr(self.app, "tt_tab", None)
         if tab is not None and hasattr(tab, "show_rule_set"):
             tab.show_rule_set()
+        if hasattr(self.app, "refresh_rules_note"):
+            self.app.refresh_rules_note()        # the header's 'Rules: ...' line

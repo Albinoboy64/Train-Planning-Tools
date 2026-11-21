@@ -15,3 +15,5 @@ dist/
 !packaging/TrainPlanningTools.spec
 !rstools/timetable/template.xlsx
 TrainPlanningTools-data/
+smoke/
+version_info.txt

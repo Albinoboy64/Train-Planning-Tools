@@ -14,16 +14,35 @@ from .loader import SUPPORTED_EXT
 from .options import Options
 
 # Underscores and hyphens are read as spaces first: they are word characters to a regular expression, so
-# 'BTN_CWN_v1.2' or '..._14-12-2026' would otherwise keep their version or date and never pair.
+# 'BTN_CWN_v1.2' or '..._14-12-2026' would otherwise keep their version or date and never pair. Digits joined by
+# an underscore ('V1_2', '14_12_2026') are read as one number ('1.2', '14.12.2026').
+_DIGIT_JOIN = re.compile(r"(?<=\d)_(?=\d)")
 _SEPARATORS = re.compile(r"[_\-]+")
 _NOISE = re.compile(
-    r"\b(?:version|ver|v)\s*\.?\s*\d+(?:[. ]\d+)*[a-z]?\b"            # v2, v1.2, V1_2, Version 3
+    r"\b(?:version|ver|v)\s*\.?\s*\d+(?:\.\d+)*[a-z]?\b"                  # v2, v1.2, V1_2, Version 3
     r"|\b(?:proof|draft|issue|iss|rev|p|d)\s*\.?\s*\d+(?:\.\d+)*[a-z]?\b"  # Proof 2, Issue 2a, rev2, P2, D12
     r"|\b(?:final|copy|new|old|updated|original|amended|cwn)\b"
-    r"|\(\d+\)"                                                          # Windows' ' (1)' copies
-    r"|\b\d{1,2}[-./ ]\d{1,2}[-./ ]\d{2,4}\b"                             # 14-12-2026, 14_12_2026, 14.12.26
-    r"|\b(?:\d{6}|\d{8})\b",                                              # date stamps: 260918, 20260918
+    r"|\(\d+\)",                                                         # Windows' ' (1)' copies
     re.I)
+_DATE = re.compile(r"\b(\d{1,4})[./ ](\d{1,2})[./ ](\d{2,4})\b|\b(\d{6}|\d{8})\b")
+
+
+def _real_date(day: int, month: int, year: str) -> bool:
+    return 1 <= day <= 31 and 1 <= month <= 12 and (len(year) == 2 or year[:2] in ("19", "20"))
+
+
+def _is_date(m: "re.Match") -> bool:
+    """Only a real date is left out (14.12.2026, 26 09 18, 260918, 20260918) - not a unit number such as
+    377001 or a run of numbers that is part of the name."""
+    if m.group(4):
+        t = m.group(4)
+        if len(t) == 6:     # yymmdd or ddmmyy
+            return _real_date(int(t[4:]), int(t[2:4]), t[:2]) or _real_date(int(t[:2]), int(t[2:4]), t[4:])
+        return _real_date(int(t[6:]), int(t[4:6]), t[:4]) or _real_date(int(t[:2]), int(t[2:4]), t[4:])
+    a, b, c = m.group(1), m.group(2), m.group(3)
+    if len(a) == 4:         # yyyy mm dd
+        return _real_date(int(c), int(b), a)
+    return _real_date(int(a), int(b), c) or (len(a) == 2 and _real_date(int(c), int(b), a))
 
 
 def _stem(path: str) -> str:
@@ -32,7 +51,9 @@ def _stem(path: str) -> str:
 
 def _key(path: str) -> str:
     """'BTN CWN Proof 2 (1).xlsx' -> 'btn' : the part of the name that says which CWN it is."""
-    text = _NOISE.sub(" ", _SEPARATORS.sub(" ", _stem(path)))
+    text = _SEPARATORS.sub(" ", _DIGIT_JOIN.sub(".", _stem(path)))
+    text = _DATE.sub(lambda m: " " if _is_date(m) else m.group(0), text)
+    text = _NOISE.sub(" ", text)
     return " ".join(text.split()).casefold()
 
 
