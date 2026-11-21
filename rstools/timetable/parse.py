@@ -148,7 +148,8 @@ def section_of(sheet: str, headings: List[str]) -> Optional[str]:
         day = ("SX" if "mondays to fridays" in text else "SO" if "saturday" in text
                else "SUO" if "sunday" in text else None)
     if direction is None:
-        direction = "RTN" if re.search(r"\blondon to\b", text) else ("OUT" if re.search(r"\bto london\b", text) else None)
+        direction = ("RTN" if re.search(r"\blondon to\b", text)
+                     else "OUT" if re.search(r"\bto london\b", text) else None)
     if not direction or not day:
         return None
     return f"{direction} {'SuO' if day in ('SUO', 'SU') else day}"
@@ -181,7 +182,8 @@ def read_timetable(path: str) -> Timetable:
             rows = [list(r) for r in ws.iter_rows(values_only=True)]
             headings = [str(r[0]) for r in rows[:12] if r and isinstance(r[0], str)]
             if not identifier:
-                m = next((re.match(r"^table\s+(\S+)", h, re.I) for h in headings if re.match(r"^table\s", h, re.I)), None)
+                m = next((re.match(r"^table\s+(\S+)", h, re.I) for h in headings
+                          if re.match(r"^table\s", h, re.I)), None)
                 identifier = m.group(1).rstrip("R") if m else ""
             trains, locs = _read_sheet(rows)
             if not trains:
@@ -271,10 +273,10 @@ def _read_sheet(rows: List[list]):
             t = norm_time(raw)
             if t:
                 train.events.append(Event(loc, name.strip(), role, t, str(raw).strip()))
-    for t in trains:
-        if not t.days:
-            t.days = ""
-    return [t for t in trains if t.events], locs
+    for tr in trains:
+        if not tr.days:
+            tr.days = ""
+    return [tr for tr in trains if tr.events], locs
 
 
 def _meta(row: list, block: dict) -> bool:

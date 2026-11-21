@@ -8,7 +8,7 @@ per fleet, per hour) list every figure, changed or not, so the totals can be rea
 from __future__ import annotations
 
 from collections import Counter
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple, cast
 
 from .units import Report
 
@@ -54,7 +54,9 @@ def compare_report(old: Report, new: Report) -> Tuple[Report, Counter]:
     order = list(a) + [k for k in b if k not in a]
     if show_all:                                   # keep the updated plan's order (totals last)
         order = [k for k in b] + [k for k in a if k not in b]
-    rows, kinds, counts = [], [], Counter()
+    rows: List[list] = []
+    kinds: List[str] = []
+    counts: Counter = Counter()
     for k in order:
         key = list(k[:nkeys])
         if k not in b:
@@ -79,8 +81,9 @@ def compare_report(old: Report, new: Report) -> Tuple[Report, Counter]:
             if same and not show_all:
                 continue
             changed |= not same
+            change: object
             if _num(va) and _num(vb):
-                diff = round(vb - va, 2)
+                diff = round(cast(float, vb) - cast(float, va), 2)
                 change = diff if diff != int(diff) else int(diff)
             else:
                 change = "" if same else "Changed"

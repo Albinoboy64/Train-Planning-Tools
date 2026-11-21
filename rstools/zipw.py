@@ -33,9 +33,9 @@ def _dos_time() -> Tuple[int, int]:
             ((max(t.tm_year, 1980) - 1980) << 9) | (t.tm_mon << 5) | t.tm_mday)
 
 
-def write_zip(path: str, parts: Iterable[Tuple[str, bytes]]):
-    """Write `parts` [(name inside the zip, bytes)] to `path` (replacing it only once complete)."""
-    parts: List[Tuple[str, bytes]] = list(parts)
+def write_zip(path: str, items: Iterable[Tuple[str, bytes]]):
+    """Write `items` [(name inside the zip, bytes)] to `path` (replacing it only once complete)."""
+    parts: List[Tuple[str, bytes]] = list(items)
     big = [d for _n, d in parts if len(d) > 64 * 1024]
     if len(big) > 1 and workers() > 1:
         with ThreadPoolExecutor(max_workers=workers()) as pool:

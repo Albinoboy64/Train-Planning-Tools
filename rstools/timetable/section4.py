@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 DAY_CODES = {"m": 0, "mo": 0, "mon": 0, "t": 1, "tu": 1, "tue": 1, "tues": 1, "w": 2, "we": 2, "wed": 2,
@@ -97,9 +97,10 @@ class Statement:
 def _days(code: str) -> List[int]:
     """'T-F' -> [1, 2, 3, 4]; 'Sun' -> [6]; 'Th-S' -> [3, 4, 5]; '' / unknown -> []."""
     parts = [p.strip().lower() for p in re.split(r"\s*[-/]\s*", code.strip()) if p.strip()]
-    nums = [DAY_CODES.get(p) for p in parts]
-    if not nums or any(n is None for n in nums):
+    found = [DAY_CODES.get(p) for p in parts]
+    if not found or any(n is None for n in found):
         return []
+    nums = [n for n in found if n is not None]
     if len(nums) == 1:
         return nums
     a, b = nums[0], nums[-1]
@@ -187,7 +188,8 @@ def _read_pdf(path: str, st: Statement):
         pdf = pdfium.PdfDocument(path)
     except Exception as exc:
         raise Section4Error(f"'{os.path.basename(path)}' could not be opened as a PDF ({exc}).")
-    route, section, number, ends, remarks_last = "", "", "", (), ""
+    route, section, number = "", "", ""
+    ends: Tuple[str, ...] = ()
     try:
         for pno in range(len(pdf)):
             page = pdf[pno]
@@ -394,7 +396,7 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
     used_keys = {(p.name, p.start) for p in used}
     # each train version: the times it reaches each place, by day
     versions = []
-    for hc, vs in plan.trains.items():
+    for _hc, vs in plan.trains.items():
         for t in vs:
             times: Dict[str, List[Tuple[int, int]]] = {}
             for n, c in enumerate(t.calls):
@@ -505,8 +507,8 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                ["Places not in the XML (sections not checked)", len(result.not_found)]]
     add_sheet(wb, "Summary", ["Figure", "Count"], summary, [62, 12], center=[2],
               fills={2: "bad" if every else "ok"})
-    rows = []
-    fills = {}
+    rows: List[list] = []
+    fills: Dict[int, str] = {}
     for c in sorted(result.clashes, key=lambda c: (not c.possession.every_line, c.possession.route,
                                                     _num_key(c.possession.number), c.period.start, c.day, c.at_a)):
         p = c.possession
@@ -521,10 +523,10 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                               "Second place", "Time there", "Direction", "Remarks"], rows,
               [20, 28, 9, 34, 16, 10, 24, 14, 30, 9, 8, 22, 10, 22, 10, 9, 40], fills=fills,
               center=[3, 10, 11, 13, 15, 16])
-    sec_rows = sorted(([k, v] for k, v in by_section.items()), key=lambda r: (-r[1], r[0]))
+    sec_rows = [[k, v] for k, v in sorted(by_section.items(), key=lambda kv: (-kv[1], kv[0]))]
     add_sheet(wb, "By Section", ["Section", "Clashes"], sec_rows, [60, 10], center=[2])
-    nf = sorted([[k, len(v), "; ".join(v[:6]) + (" ..." if len(v) > 6 else "")] for k, v in
-                 result.not_found.items()], key=lambda r: r[0])
+    nf = [[k, len(v), "; ".join(v[:6]) + (" ..." if len(v) > 6 else "")] for k, v in
+          sorted(result.not_found.items())]
     add_sheet(wb, "Not Checked", ["Place in Section 4", "Sections", "e.g."], nf, [36, 10, 90], center=[2])
     audit = [["Timetable (Attune XML)", os.path.basename(xml)]]
     audit += [["Section 4", os.path.basename(f)] for f in statement.files]
@@ -555,10 +557,11 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
         statement = read_statement(pdfs, log)
     else:
         info = rules.active_set_info()
-        statement = rules.load_set() if info else None
-        if statement is None:
+        stored = rules.load_set() if info else None
+        if info is None or stored is None:
             raise Section4Error("Choose the Section 4 PDF(s), or add a Section 4 rule set in Options > Rules and "
                                 f"reference data.\n\nThe latest rules can be downloaded from {rules.RULES_URL}")
+        statement = stored
         log(f"Section 4 rule set in use: {info['name']} ({len(statement.possessions)} possession rows)")
     if not statement.possessions:
         raise Section4Error("No Section 4 possessions were found. Use Network Rail's Engineering Access Statement "

@@ -32,7 +32,7 @@ Ways to stop the warning, from quickest to most complete:
    `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx")) | Set-Clipboard`.
    A certificate from an internal GTR certificate authority is trusted on GTR-managed PCs. A public one is trusted everywhere. A brand-new public certificate can still show a SmartScreen notice until it builds up reputation.
 
-Your option choices, theme and recent files are remembered per user in `%LOCALAPPDATA%\TrainPlanningTools\settings.json` (settings, fleet data and the depot list saved by Rolling Stock Tools 2.x are copied across automatically the first time 3.0 runs). Press **F5** or **Ctrl+Enter** to run the current tab. *Options > Theme* switches between *Follow Windows*, *Light*, *Dark* and *High contrast*.
+Your option choices, theme, recent files, rule sets, fleet data and the error log are kept in a **TrainPlanningTools-data** folder beside the exe, so the app is portable: move or copy the exe and that folder together. If the exe's folder cannot be written to, they are kept in `%LOCALAPPDATA%\TrainPlanningTools` instead (nothing is written to the registry). The first time the data folder is made, settings already saved in `%LOCALAPPDATA%` are copied into it. *Options > Open settings folder* shows where they are. Press **F5** or **Ctrl+Enter** to run the current tab. *Options > Theme* switches between *Follow Windows*, *Light*, *Dark* and *High contrast*.
 
 **Accessibility.** *Options > Text size* makes all text in the app *Small*, *Normal*, *Large* or *Extra large* (also **Ctrl +**, **Ctrl -** and **Ctrl 0**); boxes, columns and tables grow with it. *High contrast* is white text on black with yellow buttons and focus outlines and cyan selections (the Windows high-contrast colours), and *Follow Windows* switches to it automatically when Windows high-contrast mode is on. Both only change the app window, not the outputs. The app uses the Windows fonts: Segoe UI Variable (Windows 11) or Segoe UI for text and Cascadia Mono or Consolas for logs.
 
@@ -215,7 +215,7 @@ Every Stats Pack output (stats packs, comparisons and unit reports) can be saved
 
 ### Fleet data
 
-Each fleet's operator, seats, vehicles per unit, fleet size and unit length (for the Fleet tab, the per-vehicle figures and formation lengths) come from a built-in table. Press **Edit fleet data...** to open your own copy (`%LOCALAPPDATA%\TrainPlanningTools\fleet.csv`) in Excel; changes are used from the next run. New classes and columns from later versions are added to your copy automatically, and blank cells are filled from the built-in table, without changing anything you have entered.
+Each fleet's operator, seats, vehicles per unit, fleet size and unit length (for the Fleet tab, the per-vehicle figures and formation lengths) come from a built-in table. Press **Edit fleet data...** to open your own copy (`fleet.csv` in the settings folder) in Excel; changes are used from the next run. New classes and columns from later versions are added to your copy automatically, and blank cells are filled from the built-in table, without changing anything you have entered.
 
 The built-in table has no unit length for **379/0** or **717/0** (they aren't in the TRACS-RS pack it comes from), so their formation lengths show as `?` until you add them in *Edit fleet data*. The **379/0** seats are 20 First Class and 189 Standard Class (fixed seats; its 10 tip-up seats are not counted), with standing room for 136.
 
@@ -328,6 +328,14 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.19.0** - pre-release audit: steadier, quicker, safer and portable
+* **Portable**: settings, recent files, rule sets, fleet data and the error log now live in a **TrainPlanningTools-data** folder beside the exe, so copying the exe and that folder takes everything with it. Nothing is written to the registry. If the exe's folder cannot be written to, `%LOCALAPPDATA%\TrainPlanningTools` is used as before. The first time the folder is made, the settings already saved in `%LOCALAPPDATA%` are copied into it (the originals are left alone).
+* **Files open in Excel, read-only folders and full disks** now get a plain message on every tab, including the Station Working Book and *Put day variants in order*, which showed a raw error before. Unexpected errors are all recorded the same way, in `error.log` in the settings folder.
+* **No more pauses when dropping files**: Timing Tools now reads only a workbook's sheet names to tell timetables from train lists (about 1 ms instead of up to half a second per file), and checks dropped PDFs for Section 4 only while every file could still be one.
+* A stats pack that is compared is closed as soon as it has been read, so it is never left locked. Timers are stopped when the app closes.
+* **Security**: text in a CWN that starts with `=` stays text in the highlighted CWN and in reordered CWNs, even on rows the app moves; it can no longer become a live formula. The minimum PDF reader version (pypdf 6.21.4) now includes all its published security fixes. Every output was checked against 3.18.0 and is identical.
+* Housekeeping: the build checks code style (ruff) and types (mypy) before the tests; `build_windows.bat` builds the current app again; leftover code removed; PDF reader notices no longer printed.
 
 **3.18.0** - sharp on every display
 * **No more blurry window on high-resolution screens**: the app now tells Windows it handles each display's own scaling, so Windows no longer stretches it. Text and controls are drawn sharply on a 4K laptop at 200% as well as on a 1440p monitor at 100%.

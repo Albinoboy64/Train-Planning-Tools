@@ -295,7 +295,8 @@ def test_unit_reports():
     xml = ('<diagramExchange plantype="L" xmlns="http://www.tracsis.com/TTVP_Interface"><trainList>'
            '<train id="5A01BI" daysRun="NNYNNNNNN" planType="L"><leg origin="LOVRSWS" dep="05:00:00" dest="BRGHTN" '
            'arr="05:30:00"/></train></trainList><locationList>'
-           '<location tiploc="LOVRSWS" longDesc="Lovers Walk T&amp;R.S.M.D"/><location tiploc="BRGHTN" longDesc="Brighton"/>'
+           '<location tiploc="LOVRSWS" longDesc="Lovers Walk T&amp;R.S.M.D"/>'
+           '<location tiploc="BRGHTN" longDesc="Brighton"/>'
            '<location tiploc="HOVEY36" longDesc="Hove Yard Sidings 3-6"/><location tiploc="EBOUSID" '
            'longDesc="Eastbourne Sidings"/></locationList><diagramList>'
            '<unitDiagram id="1" daysrun="NNYNNNNNN"><depot id="BI"/><details><diagStatic legno="9" loc="HOVEY36">'
@@ -422,10 +423,12 @@ def test_seats_report(monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", d)                 # the editable list is created in a scratch folder
         import openpyxl
         from rstools.statspack.engine import seats_report
-        paths, _w, summary = seats_report(plan, opts(d, [0]), "Corridor", "Brighton Main Line (East Croydon - Brighton)",
+        paths, _w, summary = seats_report(plan, opts(d, [0]), "Corridor",
+                                          "Brighton Main Line (East Croydon - Brighton)",
                                           True, ("East Croydon", "06:00", "07:00"), "both")
         assert os.path.isfile(paths[0]) and summary.startswith("1 train(s), 388 total capacity")
-        assert openpyxl.load_workbook(paths[0]).sheetnames == ["Capacity Summary", "Capacity by Hour", "Capacity by Train", "Notes"]
+        assert openpyxl.load_workbook(paths[0]).sheetnames == ["Capacity Summary", "Capacity by Hour",
+                                                               "Capacity by Train", "Notes"]
 
 
 def test_unit_and_seats_reports_compare_two_timetables(monkeypatch):
@@ -443,7 +446,8 @@ def test_unit_and_seats_reports_compare_two_timetables(monkeypatch):
                                           "Brighton Main Line (East Croydon - Brighton)", True, old=old)
         assert summary.endswith("0 -> 1 train(s), 0 -> 388 total capacity (+388).")
         wb = openpyxl.load_workbook(paths[0])
-        assert wb.sheetnames == ["Comparison Summary", "Capacity Summary", "Capacity by Hour", "Capacity by Train", "Notes"]
+        assert wb.sheetnames == ["Comparison Summary", "Capacity Summary", "Capacity by Hour", "Capacity by Train",
+                                 "Notes"]
         rows = [r for r in wb["Capacity by Train"].iter_rows(values_only=True) if r[0] == "Monday"]
         assert rows == [("Monday", "1A02BI", "(whole row)", "-", "Present", "Only in the updated", None)]
         seats = {r[1]: r[2:5] for r in wb["Capacity Summary"].iter_rows(values_only=True) if r[0] == "Monday"}
@@ -452,7 +456,8 @@ def test_unit_and_seats_reports_compare_two_timetables(monkeypatch):
         wb = openpyxl.load_workbook(paths[0])
         assert wb.sheetnames[0] == "Comparison Summary" and "Depot Moves by Day" in wb.sheetnames
         same, _w = unit_reports(new, opts(d, [0, 1]), ["washes"], False, old=new)
-        summary_rows = list(openpyxl.load_workbook(same[0])["Comparison Summary"].iter_rows(min_row=4, values_only=True))
+        summary_rows = list(openpyxl.load_workbook(same[0])["Comparison Summary"].iter_rows(min_row=4,
+                                                                                             values_only=True))
         assert summary_rows and all(r[2] == 0 and r[3] == 0 and r[4] == 0 for r in summary_rows)
 
 
@@ -564,9 +569,7 @@ def write_tlgn(folder):
 
 
 def test_tlgn_print_and_unit_reports():
-    from rstools.statspack.engine import unit_reports
     from rstools.statspack.trent import parse_vehicle_layout
-    from rstools.statspack.units import follow_units
     with tempfile.TemporaryDirectory() as d:
         a, b = write_tlgn(d)
         t = parse_vehicle_layout(a)

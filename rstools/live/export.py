@@ -23,7 +23,8 @@ def export(path: str, result, items: Iterable, filt: str, find: str):
               [[it.group, it.label, STATE_TEXT.get(it.state, it.state), it.status, "\n".join(it.notes[:12])]
                for it in items], [18, 18, 16, 36, 80],
               fills={i: STATE_FILL[it.state] for i, it in enumerate(items) if it.state in STATE_FILL})
-    rows, fills = [], {}
+    rows: list = []
+    fills: dict = {}
     for it in items:
         for row in it.rows:
             if row.state in (SAME, "muted"):

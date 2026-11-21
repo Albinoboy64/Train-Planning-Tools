@@ -214,8 +214,9 @@ def can_replace_in_place() -> bool:
 
 def download_target(rel: Release) -> str:
     """Where to save the new exe: next to the running one if possible, else Downloads."""
-    if can_replace_in_place():
-        return running_exe() + ".new"
+    exe = running_exe()
+    if exe and can_replace_in_place():
+        return exe + ".new"
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     folder = downloads if os.path.isdir(downloads) else tempfile.gettempdir()
     return os.path.join(folder, f"TrainPlanningTools-{rel.version or 'latest'}.exe")

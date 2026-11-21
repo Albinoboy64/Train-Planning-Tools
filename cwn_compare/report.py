@@ -5,7 +5,7 @@ import datetime as _dt
 import os
 import re
 from collections import defaultdict, Counter
-from typing import List
+from typing import Dict, List
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -130,7 +130,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
     # by location
     ws.cell(row=r, column=1, value="Changes by location tab").font = Font(bold=True, size=12)
     r += 1
-    loc = defaultdict(Counter)
+    loc: Dict[str, Counter] = defaultdict(Counter)
     for c in changes:
         loc[c.sheet_title][c.category] += 1
     loc_rows = [[t, sum(cn.values()), ", ".join(f"{CATEGORY_LABELS[k]} ({v})" for k, v in
@@ -177,7 +177,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
 
     # new and cancelled trains, in time order
     w = wb.create_sheet("New and Cancelled Trains")
-    seen = {}
+    seen: Dict[tuple, list] = {}
     for c in changes:
         if c.category in ("NEW", "CANCELLED"):
             seen.setdefault((c.category, c.train), []).append(c)

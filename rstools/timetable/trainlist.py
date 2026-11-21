@@ -126,7 +126,8 @@ def read_train_list(path: str) -> TrainList:
     _score, title, hr, rows = best
     raw_heads = rows[hr]
     width = max(i + 1 for i, h in enumerate(raw_heads) if h not in (None, ""))
-    headers, seen = [], {}
+    headers: List[str] = []
+    seen: Dict[str, int] = {}
     for i in range(width):
         h = " ".join(str(raw_heads[i]).split()) if raw_heads[i] not in (None, "") else f"Column {i + 1}"
         seen[h] = seen.get(h, 0) + 1
@@ -188,7 +189,8 @@ def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
             out.setdefault(tuple(row[c].casefold() for c in cols), []).append(r)
         return out
     left, right = index(a, ia), index(b, ib)
-    pairs, removed = [], []
+    pairs: List[Tuple[int, int]] = []
+    removed: List[int] = []
     for k, rows in left.items():
         others = right.get(k, [])
         pairs.extend(zip(rows, others))
@@ -247,7 +249,7 @@ def build_workbook(cmp: ListComparison):
     widths = [max(10, min(30, len(h) + 4)) for h in a.headers]
     add_sheet(wb, "Trains Removed", ["Original row"] + a.headers,
               [[a.excel_rows[i]] + a.rows[i] for i in cmp.removed], [11] + widths, center=[1])
-    audit = [["Original file", os.path.basename(a.path)],
+    audit: List[list] = [["Original file", os.path.basename(a.path)],
              ["Original sheet / heading row", f"{a.sheet}, row {a.header_row}"],
              ["Updated file", os.path.basename(b.path)],
              ["Updated sheet / heading row", f"{b.sheet}, row {b.header_row}"],

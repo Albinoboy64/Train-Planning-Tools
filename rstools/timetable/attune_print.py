@@ -36,7 +36,8 @@ FIELDS = ("TrainID", "SignalID", "Train Class", "Train Category", "TOC TrainID",
           "Timing Load", "Publication Date", "Train Length (m)", "Power Type", "Limiting Speed", "Trailing Load",
           "Bank Holidays", "Sleepers", "Catering", "Reservations", "Brand", "Ops Char", "Business Sector",
           "Accommodation", "UIC Number")
-_FIELD_RE = re.compile(r"(?<!\S)(" + "|".join(re.escape(f).replace(r"\ ", r"\s+") for f in sorted(FIELDS, key=len, reverse=True))
+_FIELD_RE = re.compile(r"(?<!\S)("
+                       + "|".join(re.escape(f).replace(r"\ ", r"\s+") for f in sorted(FIELDS, key=len, reverse=True))
                        + r")\s*:?(?=\s|$)")
 TOC_CODES = {"southern": "SN", "thameslink": "TL", "gatwick express": "GX", "great northern": "GN"}
 TIME_COLS = ("wtt_arr", "wtt_dep", "pub_arr", "pub_dep")
@@ -226,7 +227,8 @@ def _by_column(line, start: int, text: str, cols: "_Nearest", mid: float):
     ('3 Bay Up UML' -> Plat '3 Bay Up', Line 'UML'); otherwise the whole run under its nearest heading."""
     if not isinstance(line, PlacedLine) or " " not in text:
         return [(cols.nearest(mid), text)]
-    out, pos = [], start
+    out: List[tuple] = []
+    pos = start
     for w in text.split(" "):
         col = cols.nearest(centre(line, pos, pos + len(w)))
         if out and out[-1][0] == col:
@@ -243,7 +245,7 @@ def _split_values(a: int, b: int, text: str):
     for w in text.split(" "):
         words.append((pos, pos + len(w), w))
         pos += len(w) + 1
-    out = []
+    out: List[tuple] = []
     for s, e, w in words:
         lone = bool(_TIME.match(w) or _DWELL.match(w))
         if out and not lone and not out[-1][3]:

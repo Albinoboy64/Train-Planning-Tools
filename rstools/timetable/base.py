@@ -28,7 +28,9 @@ TIPLOCS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiplocs.csv"
 def trains_from_prints(atrains, working: bool = False) -> Tuple[List[TTrain], List[str]]:
     """TTrains from Attune Single Train Report trains: public calls only, or with working=True (the
     timetable being checked shows half minutes) the working times, half minutes and passes included."""
-    out, notes, no_public = [], [], []
+    out: list = []
+    notes: List[str] = []
+    no_public: list = []
     cols = (("arr", "wtt_arr"), ("dep", "wtt_dep"), ("dep", "pass")) if working else (("arr", "pub_arr"),
                                                                                       ("dep", "pub_dep"))
     for t in atrains:
@@ -143,7 +145,8 @@ def trains_from_list(lst, working: bool = False) -> Tuple[List[TTrain], List[str
                           events[0].name, events[-1].name))
     if skipped:
         notes.append(f"{len(skipped)} empty-stock / non-passenger train(s) in the list are not compared (a public "
-                     f"timetable does not show them): {', '.join(skipped[:12])}" + (" ..." if len(skipped) > 12 else ""))
+                     f"timetable does not show them): {', '.join(skipped[:12])}"
+                     + (" ..." if len(skipped) > 12 else ""))
     if unknown:
         notes.append(f"{len(unknown)} location code(s) in the train list have no known station name, so trains "
                      f"there can only match where the timetable uses the same code: {', '.join(sorted(unknown)[:15])}")
@@ -164,7 +167,7 @@ def _order_score(train: TTrain, rows: Sequence[Tuple[str, str]]) -> Tuple[int, i
     first: Dict[str, int] = {}
     for i, (loc, _role) in enumerate(rows):
         first.setdefault(loc, i)
-    seq = []
+    seq: list = []
     for e in train.events:
         if e.loc in first and (not seq or seq[-1] != first[e.loc]):
             seq.append(first[e.loc])

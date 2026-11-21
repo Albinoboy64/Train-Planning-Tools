@@ -12,6 +12,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from xml.sax.saxutils import escape as _escape
 import re as _re
 
+from .branding import APP_NAME
+from .zipw import write_zip
+
 _BAD_XML = _re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
 
 
@@ -21,8 +24,6 @@ def escape(text) -> str:
     the document unopenable."""
     return _escape(_BAD_XML.sub("", str(text)))
 
-from .branding import APP_NAME
-from .zipw import write_zip
 
 HEAD_FILL = "99CCFF"
 MAX_COLS = 16                       # columns per page part (A4 landscape stays readable)
@@ -254,9 +255,10 @@ def sections_from_workbook(wb) -> List[Section]:
     a one-cell row above it becomes its heading, and solid cell fills are kept."""
     out: List[Section] = []
     for ws in wb.worksheets:
-        heading, block = ws.title, []
+        heading = ws.title
+        block: List[tuple] = []
 
-        def flush():
+        def flush(heading, block):
             if block:
                 head, *body = block
                 width = max(len(r) for r, _f in block)
@@ -269,7 +271,7 @@ def sections_from_workbook(wb) -> List[Section]:
             while values and values[-1] in (None, ""):
                 values.pop()
             if not values:
-                flush()
+                flush(heading, block)
                 continue
             filled = [v for v in values if v not in (None, "")]
             if len(filled) == 1 and values[0] not in (None, "") and not block:
@@ -281,7 +283,7 @@ def sections_from_workbook(wb) -> List[Section]:
                 if f is not None and f.fill_type == "solid" and isinstance(f.fgColor.rgb, str):
                     fills[ci] = f.fgColor.rgb[-6:]
             block.append((values, fills))
-        flush()
+        flush(heading, block)
     return out
 
 

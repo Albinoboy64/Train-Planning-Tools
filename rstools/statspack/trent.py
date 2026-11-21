@@ -44,7 +44,7 @@ import zipfile
 from datetime import datetime
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, cast
 
 from .days import days_of_code
 
@@ -61,20 +61,21 @@ _SHORT_HEADCODE = re.compile(r"^[0-9][A-Z][0-9]{2}$")
 _TOTALS = re.compile(r"Mileage:\s*\(Loaded\)\s*(?P<l>[\d.]+|\?+)\s*\(Empty\)\s*(?P<e>[\d.]+|\?+)\s*"
                      r"\(Total\)\s*(?P<t>[\d.]+|\?+)")
 _HEADCODE = re.compile(r"^[0-9][A-Z][0-9]{2}[A-Z0-9]{2}$")
-_ROUTE = re.compile(r"^\d+[A-Z]?\(\d+\)(?:[\\/]\d+[A-Z]?\(\d+\))*$")     # VL29 '1(1)\10(2)', VL23 '10(1)/1(2)' 
+_ROUTE = re.compile(r"^\d+[A-Z]?\(\d+\)(?:[\\/]\d+[A-Z]?\(\d+\))*$")     # VL29 '1(1)\10(2)', VL23 '10(1)/1(2)'
 _POS = re.compile(r"(\d+[A-Z]?)\((\d+)\)")
 _TIME = re.compile(r"^(\d{1,2})[.+:/](\d{2})½?$")         # VL23 prints half minutes ('06+09½'): to the minute
 _NUM = re.compile(r"^-?\d+(?:\.\d+)?$")
 _OTHER_LAYOUTS = (re.compile(r"FROM - \d\d/\d\d/\d{4}\s*UNTIL"),)
 # VehicleLayout11 / 05 headers, dates and totals (tabs read as spaces)
-_HEADER11 = re.compile(r"^\s*DIAGRAM\s*:\s*(?P<depot>[A-Z]{1,4})\s*(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)\s+Fleet\s+(?P<fleet>\S+)")
-_HEADER05 = re.compile(r"^\s*Diagram\s+:\s*(?P<depot>[A-Z]{1,4})\s+(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)\s+(?P<fleet>\S+)\s*$")
+_HEADER11 = re.compile(r"^\s*DIAGRAM\s*:\s*(?P<depot>[A-Z]{1,4})\s*(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)"
+                       r"\s+Fleet\s+(?P<fleet>\S+)")
+_HEADER05 = re.compile(r"^\s*Diagram\s+:\s*(?P<depot>[A-Z]{1,4})\s+(?P<num>\d+[A-Z]?)\s+(?P<days>\S+)"
+                       r"\s+(?P<fleet>\S+)\s*$")
 _DATES = re.compile(r"(?:Start Date\s*:\s*|Runs from:\s*)(?P<frm>\d\d/\d\d/\d{4})\s+(?:End Date\s*:\s*|until\s+)"
                     r"(?P<until>\d\d/\d\d/\d{4})")
 _TOTALS11 = re.compile(r"Loaded\s+(?P<l>[\d.]+)\s+Empty\s+(?P<e>[\d.]+)\s+Total Mileage\s+(?P<t>[\d.]+)")
 _TOTALS05 = re.compile(r"MILES\s*:\s*\(LD\)\s*(?P<l>[\d.]+)\s*\(ETY\)\s*(?P<e>[\d.]+)\s*\(TOT\)\s*(?P<t>[\d.]+)")
 _ACTIVITY = re.compile(r"^[A-Z][A-Z ]{2,}$")
-LAYOUT_RANK = {"VL29": 0, "VL23": 1, "VL11": 2, "VL05": 3}     # most complete first
 
 
 class TrentFormatError(Exception):
@@ -241,7 +242,8 @@ def name_table() -> Dict[str, Dict[str, str]]:
     if not _NAMES:
         import csv
         import os
-        to_tip, names = {}, {}
+        to_tip: Dict[str, str] = {}
+        names: Dict[str, str] = {}
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trent_names.csv")
         try:
             with open(path, encoding="utf-8-sig") as fh:
@@ -337,8 +339,8 @@ def parse_vehicle_layout(path: str) -> TrentData:
                         "blank. Use the VehicleLayout29, 23 or 11 print (or add one of them) for mileage.")
 
     if not diagrams:
-        head = "\n".join(lines[:60])
-        if any(p.search(head) for p in _OTHER_LAYOUTS):
+        start_text = "\n".join(lines[:60])
+        if any(p.search(start_text) for p in _OTHER_LAYOUTS):
             raise TrentFormatError("This TRENT print is not one of the layouts the app reads. " + FORMAT_HELP)
         raise TrentFormatError("No unit diagrams were found in this file. " + FORMAT_HELP)
 
@@ -354,8 +356,8 @@ def parse_vehicle_layout(path: str) -> TrentData:
     if mismatched:
         warnings.append(f"{len(mismatched)} diagram(s) in the TRENT print have service miles that do not add up to "
                         f"the printed mileage total (e.g. {', '.join(mismatched[:8])}) - part of the print may not "
-                        "have been read, or TRENT's own total counts miles no printed move carries. Check the file is a "
-                        "complete TRENT unit diagram print.")
+                        "have been read, or TRENT's own total counts miles no printed move carries. Check the file "
+                        "is a complete TRENT unit diagram print.")
     return TrentData(path, [d for d in diagrams if d.days], warnings, layout)
 
 
@@ -379,8 +381,8 @@ def _totals_match(d: TrentDiagram, tol: float = 0.5) -> bool:
     moves = [r for r in d.rows if r.headcode]
     if any(r.miles is None for r in moves):
         return True                     # '???' miles: nothing to check against
-    loaded = sum(r.miles for r in moves if not is_empty_headcode(r.headcode))
-    total = sum(r.miles for r in moves)
+    loaded = sum(cast(float, r.miles) for r in moves if not is_empty_headcode(r.headcode))   # none are None
+    total = sum(cast(float, r.miles) for r in moves)
     return abs(loaded - d.loaded) <= tol and abs(total - d.total) <= tol
 
 

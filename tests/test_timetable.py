@@ -500,7 +500,8 @@ def test_section4_windows_sections_and_check():
     with open(x, "w", encoding="utf-8") as fh:
         fh.write('<diagramExchange xmlns="http://www.tracsis.com/TTVP_Interface" version="1.0" plantype="L" '
                  'startdate="2026-12-13" enddate="2027-05-15"><trainList>'
-                 + tr("1A01XX", "AAA", "01:50:00", "BBB", "02:10:00") + tr("1A02XX", "BBB", "02:00:00", "AAA", "02:20:00")
+                 + tr("1A01XX", "AAA", "01:50:00", "BBB", "02:10:00")
+                 + tr("1A02XX", "BBB", "02:00:00", "AAA", "02:20:00")
                  + tr("1A03XX", "AAA", "05:00:00", "BBB", "05:20:00")
                  + '</trainList><locationList><location tiploc="AAA" longDesc="Alpha"/>'
                  '<location tiploc="BBB" longDesc="Beta Jn"/></locationList></diagramExchange>')

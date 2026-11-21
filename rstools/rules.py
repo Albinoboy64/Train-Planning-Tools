@@ -15,7 +15,7 @@ import os
 import re
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 RULES_URL = "https://www.networkrail.co.uk/industry-and-commercial/information-for-operators/operational-rules/"
 REMIND_FROM = "DEC27"           # the first timetable the new-timetable reminder applies to
@@ -111,7 +111,8 @@ def new_timetable_reminder(start: str) -> Optional[str]:
     lines.append(f"  - Section 4 rule set in use: {active['name']}" if active else
                  "  - Section 4: no rule set added yet")
     for b in BUILT_IN:
-        stale = parse_date(b["to"]) and day > parse_date(b["to"])
+        until = parse_date(b["to"])
+        stale = until is not None and day > until
         lines.append(f"  - {b['name']} (built in){' - out of date for this timetable' if stale else ''}")
     lines += ["", f"The latest rules can be downloaded from Network Rail:\n{RULES_URL}"]
     return "\n".join(lines)
@@ -210,7 +211,11 @@ def _dump(p) -> dict:
 
 def _load(d: dict):
     from rstools.timetable.section4 import Period, Possession, Window
-    periods = [Period(x["name"], parse_date(x["start"]), parse_date(x["end"])) for x in d.get("periods", [])]
+    periods = []
+    for x in d.get("periods", []):
+        start, end = parse_date(x.get("start", "")), parse_date(x.get("end", ""))
+        if start is not None and end is not None:       # a damaged rule set: periods without dates are left out
+            periods.append(Period(x.get("name", ""), start, end))
     windows = [Window(int(w["start"]), int(w["end"]), w["text"]) for w in d.get("windows", [])]
     return Possession(d.get("route", ""), d.get("section", ""), d.get("number", ""), tuple(d.get("ends", [])),
                       d.get("night", ""), periods, windows, d.get("blocked", ""), d.get("remarks", ""),

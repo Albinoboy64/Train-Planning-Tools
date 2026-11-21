@@ -13,7 +13,7 @@ import os
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Collection, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 from .attune import AttuneData
 from .days import DAYS, DAY_NAMES, days_of_code
@@ -74,8 +74,6 @@ class Depots:
                 except UnicodeDecodeError:
                     continue
                 except OSError:                 # missing / locked list: the name rules still apply
-                    break
-                except OSError:
                     break
         return cls(table, names)
 
@@ -141,7 +139,7 @@ def day_diagrams(trent: TrentData, day: int) -> List[DayDiagram]:
             continue
         timed = [r for r in rows if (r.dep if r.dep is not None else r.arr) is not None]
         first = next((r for r in rows if r.dep is not None), rows[0])
-        last_time = max(((r.arr if r.arr is not None else r.dep) for r in timed), default=0)
+        last_time = max((cast(int, r.arr if r.arr is not None else r.dep) for r in timed), default=0)
         acts = Counter(r.activity for r in rows if r.activity)
         fuel_times, when = [], first.dep or 0
         for r in rows:                      # a FUEL line has no time of its own: the unit's last arrival
@@ -166,7 +164,8 @@ def _next_day(day: int, code: str) -> List[int]:
 def xml_links(attune: Optional[AttuneData]) -> Tuple[Dict[Tuple[int, str], Tuple[int, str]], set, set]:
     """({(day, diagram): (next day, next diagram)}, {(day, diagram) that end 'Stabld'}, days covered)."""
     links: Dict[Tuple[int, str], Tuple[int, str]] = {}
-    stabled, covered = set(), set()
+    stabled: Set[Tuple[int, str]] = set()
+    covered: Set[int] = set()
     if attune is None:
         return links, stabled, covered
     from .model import PLAN_PRIORITY
@@ -323,27 +322,28 @@ def wash_cet_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]]
                 kinds.append("body")
         by_fleet = _fleet_totals([(x.fleet, x.washes, x.cets, x.fuels) for diags in per_day.values() for x in diags],
                                  "Diagrams")
-        return [Report("Washes and CETs by Diagram", "Washes and CETs by diagram", ["Day", "Diagram", "Fleet", "Washes", "CETs",
-                                                                       "Fuel", "Ends at"], rows, kinds,
+        return [Report("Washes and CETs by Diagram", "Washes and CETs by diagram",
+                       ["Day", "Diagram", "Fleet", "Washes", "CETs", "Fuel", "Ends at"], rows, kinds,
                        "WASH, CET and FUEL lines on each diagram in the TRENT print."), by_fleet]
     rows = []
     for u in sorted(units, key=lambda u: (u.diagrams[0].fleet, u.diagrams[0].day, u.diagrams[0].key)):
         first = u.diagrams[0]
         rows.append([first.label, first.fleet, len(u.diagrams), u.washes, u.cets,
                      sum(x.fuels for x in u.diagrams), _gap(u), _chain(u),
-                     (" + ".join(sorted(set(u.links))) if "inferred" not in u.links else f"{u.links.count('inferred')} inferred")])
+                     (" + ".join(sorted(set(u.links))) if "inferred" not in u.links
+                      else f"{u.links.count('inferred')} inferred")])
     by_fleet = _fleet_totals([(u.diagrams[0].fleet, u.washes, u.cets, sum(x.fuels for x in u.diagrams))
                               for u in units], "Units")
-    return [Report("Washes and CETs by Unit", "Washes and CETs per unit", ["Unit (first diagram)", "Fleet", "Days", "Washes",
-                                                                  "CETs", "Fuel", "Most diagrams without a wash",
-                                                                  "Diagrams worked", "Linked by"],
+    return [Report("Washes and CETs by Unit", "Washes and CETs per unit",
+                   ["Unit (first diagram)", "Fleet", "Days", "Washes", "CETs", "Fuel",
+                    "Most diagrams without a wash", "Diagrams worked", "Linked by"],
                    rows, ["body"] * len(rows),
-                   "Each unit followed through the week with the next-day workings ('>' from the XML or TRENT print, '>?' "
-                   "inferred from where it stabled)."), by_fleet]
+                   "Each unit followed through the week with the next-day workings ('>' from the XML or TRENT "
+                   "print, '>?' inferred from where it stabled)."), by_fleet]
 
 
 def _fleet_totals(items, what: str) -> Report:
-    agg = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
+    agg: Dict[str, List[int]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
     for fleet, w, c, f in items:
         a = agg[fleet]
         a[0] += 1
@@ -352,8 +352,8 @@ def _fleet_totals(items, what: str) -> Report:
         a[3] += f
         a[4] += 0 if w else 1
         a[5] += 0 if c else 1
-    rows = [[fl, a[0], a[1], a[2], a[3], round(a[1] / a[0], 2) if a[0] else 0, a[4], a[5]]
-            for fl, a in sorted(agg.items())]
+    rows: List[list] = [[fl, a[0], a[1], a[2], a[3], round(a[1] / a[0], 2) if a[0] else 0, a[4], a[5]]
+                        for fl, a in sorted(agg.items())]
     tot = [sum(r[i] for r in rows) for i in range(1, 5)]
     rows.append(["Total", *tot, round(tot[1] / tot[0], 2) if tot[0] else 0, sum(r[6] for r in rows),
                  sum(r[7] for r in rows)])
@@ -372,7 +372,9 @@ def _move_type(a: str, b: str) -> str:
 
 
 def depot_reports(per_day: Dict[int, List[DayDiagram]], depots: Depots, names: Dict[str, str]) -> List[Report]:
-    rows, counts, pairs = [], defaultdict(Counter), Counter()
+    rows: List[list] = []
+    counts: Dict[int, Counter] = defaultdict(Counter)
+    pairs: Counter = Counter()
     for d, diags in per_day.items():
         for x in diags:
             a, b = depots.depot_of(x.start_loc), depots.depot_of(x.end_loc)
@@ -385,7 +387,8 @@ def depot_reports(per_day: Dict[int, List[DayDiagram]], depots: Depots, names: D
     order = {k: i for i, k in enumerate(MOVE_TYPES)}
     # returns and swaps first, then depot departures / arrivals, diagrams away from any depot last
     rows.sort(key=lambda r: (r[3] == "Away from depot", DAYS.index(r[0]), order[r[3]], r[2], r[1]))
-    summary = [[DAY_NAMES[d], *[counts[d][k] for k in MOVE_TYPES], sum(counts[d].values())] for d in per_day]
+    summary: List[list] = [[DAY_NAMES[d], *[counts[d][k] for k in MOVE_TYPES], sum(counts[d].values())]
+                           for d in per_day]
     summary.append(["Total", *[sum(r[i + 1] for r in summary) for i in range(len(MOVE_TYPES) + 1)]])
     pair_rows = [[a, b, "Return" if a == b else "Swap", n] for (a, b), n in sorted(pairs.items())]
     return [
@@ -404,6 +407,7 @@ def captive_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]],
                     names: Dict[str, str], week: bool, days: Sequence[int]) -> List[Report]:
     def at_depot(x: DayDiagram) -> bool:
         return bool(depots.depot_of(x.start_loc) or depots.depot_of(x.end_loc))
+    rows: List[list]
     if not week:
         rows = [[DAYS[d], x.key, x.fleet, names.get(x.start_loc, x.start_loc), names.get(x.end_loc, x.end_loc)]
                 for d, diags in per_day.items() for x in diags if not at_depot(x)]
@@ -438,7 +442,7 @@ def _when(minute: int) -> str:
     return f"{DAYS[minute // 1440]} {minute % 1440 // 60:02d}:{minute % 60:02d}"
 
 
-def fuel_reports(units: List[UnitWeek], diesel: Sequence[str], days: Sequence[int]) -> List[Report]:
+def fuel_reports(units: List[UnitWeek], diesel: Collection[str], days: Sequence[int]) -> List[Report]:
     """Each diesel unit (e.g. the 171s) followed through the week: is it fuelled at least every 48 hours?
     A unit followed for the whole week is taken to repeat weekly, so the gap from its last fuel to its
     first fuel the next week counts too. For a unit followed for part of the week, the time before its

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, cast
 
 from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, LiveRow
 
@@ -229,7 +229,7 @@ def prints(cmp) -> LiveResult:
 def lists(cmp) -> LiveResult:
     from rstools.timetable.trainlist import _ident
     a, b = cmp.original, cmp.updated
-    changed = defaultdict(dict)
+    changed: Dict[tuple, dict] = defaultdict(dict)
     for i, j, h, old, new in cmp.changes:
         changed[(i, j)][h] = (old, new)
     items: List[LiveItem] = []
@@ -264,7 +264,7 @@ def _table_items(group: str, old, new, items: List[LiveItem]):
 
     def keyed(t):
         out, seen = {}, defaultdict(int)
-        for i, r in enumerate(t.rows if t else []):
+        for _i, r in enumerate(t.rows if t else []):
             k = tuple(_norm(r.cells[c]) if c < len(r.cells) else None for c in kc)
             seen[k] += 1
             out[k + (seen[k],)] = r
@@ -284,12 +284,14 @@ def _table_items(group: str, old, new, items: List[LiveItem]):
             if a in (None, "") and b in (None, ""):
                 continue
             name = headers[c] if c < len(headers) and headers[c] else f"Column {c + 1}"
-            st = ADDED if ro is None else REMOVED if rn is None else (SAME if a == b or _norm(a) == _norm(b) else CHANGED)
+            st = (ADDED if ro is None else REMOVED if rn is None
+                  else SAME if a == b or _norm(a) == _norm(b) else CHANGED)
             if st == CHANGED:
                 diff.append(name)
             rows.append(LiveRow([name, str(_show(a)), str(_show(b))], st))
         state = ADDED if ro is None else REMOVED if rn is None else (CHANGED if diff else SAME)
-        status = {ADDED: "Row added", REMOVED: "Row removed", SAME: "No change"}.get(state, ", ".join(diff) + " changed")
+        status = {ADDED: "Row added", REMOVED: "Row removed", SAME: "No change"}.get(
+            state, ", ".join(diff) + " changed")
         items.append(LiveItem(f"{group}|{k}", group, label(rn or ro), state, status, rows, [], len(items)))
 
 
@@ -325,8 +327,9 @@ def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) ->
     old_t = _tables_by_key(old_pd, _info(old, __version__), True)
     new_t = _tables_by_key(new_pd, _info(new, __version__), True)
     items: List[LiveItem] = []
-    for key in ["week"] + days:
-        label = "Week" if key == "week" else DAYS[key]
+    keys: List[object] = ["week", *days]
+    for key in keys:
+        label = "Week" if key == "week" else DAYS[cast(int, key)]
         names = list(new_t.get(key, {})) + [n for n in old_t.get(key, {}) if n not in new_t.get(key, {})]
         for name in names:
             if name != "Glossary":

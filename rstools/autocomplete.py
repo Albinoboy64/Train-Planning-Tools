@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import tkinter as tk
-from typing import Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 MAX_ROWS = 10
 _NAV = {"Up", "Down", "Return", "KP_Enter", "Escape", "Tab", "Shift_L", "Shift_R", "Control_L", "Control_R",
@@ -36,7 +36,7 @@ class Suggest:
     """Attach a suggestion list to an Entry or editable Combobox. `names` returns the names to suggest
     (called each time, so the list follows the files chosen); `on_pick` runs after a name is taken."""
 
-    def __init__(self, entry: tk.Widget, names: Callable[[], Sequence[str]],
+    def __init__(self, entry: Any, names: Callable[[], Sequence[str]],
                  on_pick: Optional[Callable[[str], None]] = None):
         self.entry, self.names, self.on_pick = entry, names, on_pick
         self.popup: Optional[tk.Toplevel] = None
@@ -75,19 +75,22 @@ class Suggest:
     def show(self, items: Sequence[str]):
         if not items:
             return self.hide()
-        if self.popup is None:
+        if self.popup is None or self.box is None:
             self._make()
+        popup, box = self.popup, self.box
+        if popup is None or box is None:
+            return
         from rstools import theme
         p = theme.CURRENT or theme.PALETTES["light"]          # the theme in use now (it can be changed)
-        self.box.configure(background=p["field"], foreground=p["fg"], selectbackground=p["select"],
-                           selectforeground=p.get("select_fg", p["fg"]))
-        self.box.delete(0, "end")
+        box.configure(background=p["field"], foreground=p["fg"], selectbackground=p["select"],
+                      selectforeground=p.get("select_fg", p["fg"]))
+        box.delete(0, "end")
         for n in items:
-            self.box.insert("end", n)
-        self.box.configure(height=min(len(items), MAX_ROWS))
+            box.insert("end", n)
+        box.configure(height=min(len(items), MAX_ROWS))
         self._place()
-        self.popup.deiconify()
-        self.popup.lift()
+        popup.deiconify()
+        popup.lift()
 
     def _place(self):
         e = self.entry
@@ -133,12 +136,15 @@ class Suggest:
         if not self.shown:
             self.show(matches(self.entry.get(), self.names()) or list(self.names())[:200])
             return "break"
-        cur = self.box.curselection()
-        n = self.box.size()
+        box = self.box
+        n = box.size() if box is not None else 0
+        if box is None or not n:
+            return "break"
+        cur = box.curselection()
         i = (cur[0] + step) % n if cur else (0 if step > 0 else n - 1)
-        self.box.selection_clear(0, "end")
-        self.box.selection_set(i)
-        self.box.see(i)
+        box.selection_clear(0, "end")
+        box.selection_set(i)
+        box.see(i)
         return "break"
 
     def _down(self, _e):

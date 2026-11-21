@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 import tkinter as tk
+from typing import Dict, Literal, Tuple
 from tkinter import ttk
 
 MODES = {"system": "Follow Windows", "light": "Light", "dark": "Dark", "contrast": "High contrast"}
@@ -62,9 +63,9 @@ def setup_fonts(root: tk.Tk, size: str = "normal"):
     pt = lambda n: max(7, round(n * scale))
     if FONT == "TkDefaultFont":
         FONT = _first_family(root, _UI_FAMILIES) or font.nametofont("TkDefaultFont", root).actual("family")
-        root._mono_family = _first_family(root, _MONO_FAMILIES) or font.nametofont("TkFixedFont", root).actual(
-            "family")
-    mono = root._mono_family
+        setattr(root, "_mono_family", _first_family(root, _MONO_FAMILIES)
+                or font.nametofont("TkFixedFont", root).actual("family"))
+    mono = getattr(root, "_mono_family")
     for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkCaptionFont",
                  "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont"):
         try:
@@ -72,9 +73,10 @@ def setup_fonts(root: tk.Tk, size: str = "normal"):
         except tk.TclError:
             pass
     font.nametofont("TkFixedFont", root).configure(family=mono, size=pt(BASE_PT))
-    named = {"AppBold": (BASE_PT, "bold", 0), "AppHead": (14, "bold", 0), "AppTitle": (15, "bold", 0),
-             "AppRun": (11, "bold", 0), "AppLink": (BASE_PT, "bold", 1), "AppSmall": (BASE_PT, "normal", 0),
-             "AppNotice": (10, "bold", 0), "AppNoticeSmall": (8, "normal", 0)}
+    named: Dict[str, Tuple[int, Literal["normal", "bold"], bool]] = {
+        "AppBold": (BASE_PT, "bold", False), "AppHead": (14, "bold", False), "AppTitle": (15, "bold", False),
+        "AppRun": (11, "bold", False), "AppLink": (BASE_PT, "bold", True), "AppSmall": (BASE_PT, "normal", False),
+        "AppNotice": (10, "bold", False), "AppNoticeSmall": (8, "normal", False)}
     for name, (size_pt, weight, underline) in named.items():
         if name in font.names(root):
             font.nametofont(name, root).configure(family=FONT, size=pt(size_pt), weight=weight, underline=underline)
@@ -376,8 +378,8 @@ def _recolour(widget, p: dict):
         widget.configure(background=p["bg"])
     elif isinstance(widget, tk.Menu):
         widget.configure(background=p["panel"], foreground=p["fg"], activebackground=p["select"],
-                         activeforeground=p.get("select_fg", p["fg"]), selectcolor=p["fg"], disabledforeground=p["disabled"],
-                         relief="flat", borderwidth=1)
+                         activeforeground=p.get("select_fg", p["fg"]), selectcolor=p["fg"],
+                         disabledforeground=p["disabled"], relief="flat", borderwidth=1)
     for child in widget.winfo_children():
         _recolour(child, p)
 

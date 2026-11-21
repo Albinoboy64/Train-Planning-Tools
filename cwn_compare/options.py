@@ -37,7 +37,7 @@ class Options:
     variant_order: str = "day"       # reorder mode: day (MO first ... FO, SO, Su) | time (departure time first)
     book_station: str = ""           # station working book: station, platforms, title parts, day sheets
     book_platforms: str = ""
-    book_list: str = ""              # several stations: 'London Kings Cross; London Bridge [10-15]; Cambridge' 
+    book_list: str = ""              # several stations: 'London Kings Cross; London Bridge [10-15]; Cambridge'
     book_operator: str = "GTR(TLGN)"
     book_timetable: str = ""
     book_services: str = "Thameslink and Great Northern services only"

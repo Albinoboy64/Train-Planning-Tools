@@ -1,0 +1,27 @@
+# Tooling settings (the app itself is built with PyInstaller - see packaging/TrainPlanningTools.spec).
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = [
+    "B904",   # 'raise ... from err': the app's own error messages replace the library's on purpose
+    "B905",   # zip() without strict=: several zips pair lists of deliberately different lengths
+    "E731",   # short lambdas assigned to names are used as small local helpers
+    "E741",   # 'l' / 'O' as short local names in tight loops
+    "B009",   # getattr/setattr with a fixed name: used for attributes the app adds to Tk widgets, so the
+    "B010",   #   type checker does not flag them
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E702"]          # compact one-line test set-up
+
+[tool.mypy]
+python_version = "3.12"
+platform = "win32"          # the app is built for Windows (ctypes.windll, winreg)
+ignore_missing_imports = true
+warn_unused_configs = true
+files = ["cwn_compare", "rstools", "TrainPlanningTools.py"]

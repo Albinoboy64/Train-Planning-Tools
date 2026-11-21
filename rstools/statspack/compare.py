@@ -81,7 +81,8 @@ def _change(old, new) -> str:
             return "0"
         if _is_time(old) or _is_time(new):
             return ("+" if d >= 0 else "") + fmt_dur(int(d))
-        return ("+" if d >= 0 else "") + (f"{d:.2f}" if isinstance(d, float) and not float(d).is_integer() else f"{d:g}")
+        shown = f"{d:.2f}" if isinstance(d, float) and not float(d).is_integer() else f"{d:g}"
+        return ("+" if d >= 0 else "") + shown
     return ""
 
 
@@ -97,6 +98,7 @@ def diff_table(old: Table, new: Table, headers: List[str], flag_over: Optional[f
     # vehicle miles are unit miles x cars, so only train / unit / formation mileage is flagged
     miles = ({c for c, h in enumerate(headers) if is_mileage(h)}
              if flag_over and "Vehicle" not in new.name else set())
+    limit = flag_over or 0.0                # only used when flagging is on (miles is empty otherwise)
 
     def label_of(row: Row) -> str:
         """How a row is named in the Differences tab, e.g. '1A02BI / 05:40:00'."""
@@ -104,7 +106,8 @@ def diff_table(old: Table, new: Table, headers: List[str], flag_over: Optional[f
                           if c < len(row.cells) and row.cells[c] not in (None, ""))
 
     def keyed(t: Table):
-        out, seen = {}, defaultdict(int)
+        out: Dict[tuple, int] = {}
+        seen: Dict[tuple, int] = defaultdict(int)
         for i, r in enumerate(t.rows):
             k = tuple(_norm(r.cells[c]) if c < len(r.cells) else None for c in kc)
             seen[k] += 1
@@ -123,7 +126,7 @@ def diff_table(old: Table, new: Table, headers: List[str], flag_over: Optional[f
             diffs.append(Diff(new.name, label, "(row)", "", "added", ""))
             for c in miles:
                 v = _norm(nrow.cells[c]) if c < len(nrow.cells) else None
-                if isinstance(v, (int, float)) and v > flag_over and nrow.kind != "total":
+                if isinstance(v, (int, float)) and v > limit and nrow.kind != "total":
                     marks[(ni, c)] = "flagged"
                     diffs.append(Diff(new.name, label, headers[c], "", _show(nrow.cells[c]), f"+{v:g}", True))
             continue
@@ -136,7 +139,7 @@ def diff_table(old: Table, new: Table, headers: List[str], flag_over: Optional[f
             if a != b and _norm(a) != _norm(b):
                 na, nb = _norm(a), _norm(b)
                 up = (c in miles and isinstance(na, (int, float)) and isinstance(nb, (int, float))
-                      and nb - na > flag_over)
+                      and nb - na > limit)
                 marks[(ni, c)] = "flagged" if up else "changed"
                 diffs.append(Diff(new.name, label, headers[c] if c < len(headers) else f"Column {c + 1}",
                                   _show(a), _show(b), _change(a, b), up))
@@ -217,7 +220,7 @@ def _sum_col(t: Optional[Table], col: int):
     if t is None:
         return None
     shift = 1 if t.has_day else 0
-    total = 0
+    total: float = 0
     for r in t.rows:
         if r.kind == "total":
             continue
@@ -328,7 +331,7 @@ def write_comparison(sink, entries, title: str, opts: CompareOptions, summary=No
     """entries: [(sheet name, title, new Table, old Table or None)]. Writes the Differences tab
     and each tab with its differences highlighted; returns the number of differences."""
     diffs: List[Diff] = []
-    prepared = []
+    prepared: List[tuple] = []
     for sheet, title_text, t_new, t_old in entries:
         if t_new.name == "Glossary":
             prepared.append((sheet, title_text, t_new, None, (), True))
@@ -382,6 +385,14 @@ def read_pack(path: str) -> List[Tuple[str, Table]]:
     path = long_path(path)              # files in very deep folders
     try:
         z = zipfile.ZipFile(path)
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise PackReadError(f"'{path}' is not a readable Excel stats pack: {exc}")
+    with z:                             # closed straight away, so the pack is never left locked
+        return _read_pack(z, path)
+
+
+def _read_pack(z: zipfile.ZipFile, path: str) -> List[Tuple[str, Table]]:
+    try:
         from rstools.fsutil import check_zip
         check_zip(z)
         wb = ET.fromstring(z.read("xl/workbook.xml"))
@@ -393,13 +404,13 @@ def read_pack(path: str) -> List[Tuple[str, Table]]:
     if "xl/sharedStrings.xml" in z.namelist():
         for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(NS + "si"):
             sst.append("".join(t.text or "" for t in si.iter(NS + "t")))
-    out = []
+    out: List[Tuple[str, Table]] = []
     for sh in wb.iter(NS + "sheet"):
-        name = sh.get("name")
+        name = sh.get("name") or ""
         base = _base_name(name)
         if base is None or base == "Glossary":
             continue
-        target = targets.get(sh.get(RNS), "").lstrip("/")
+        target = (targets.get(sh.get(RNS)) or "").lstrip("/")
         target = target if target.startswith("xl/") else "xl/" + target
         try:
             rows = _sheet_cells(z.read(target), sst)
@@ -429,6 +440,7 @@ def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
     faster than building the element tree for these large, flat sheets."""
     if b"<c " not in data and b"<c\n" not in data:
         return _sheet_cells_et(data, sst)     # prefixed namespaces etc.
+    val: object
     fast = _FAST_CELL.findall(data)
     if len(fast) == data.count(b"<c "):        # every cell in the simple form this app writes
         rows: Dict[int, Dict[int, object]] = {}
@@ -466,17 +478,18 @@ def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
             val = html.unescape(b"".join(_T.findall(body)).decode("utf-8"))
         else:
             v = _V.search(body)
-            val = v.group(1).decode("utf-8") if v else None
-            if val is not None:
+            raw = v.group(1).decode("utf-8") if v else None
+            val = raw
+            if raw is not None:
                 if t == b"s":
-                    val = sst[int(val)]
+                    val = sst[int(raw)]
                 elif t in (None, b"n"):
-                    f = float(val)
-                    val = int(f) if f.is_integer() and "." not in val and "E" not in val.upper() else f
+                    f = float(raw)
+                    val = int(f) if f.is_integer() and "." not in raw and "E" not in raw.upper() else f
                 elif t == b"b":
-                    val = val == "1"
+                    val = raw == "1"
                 else:
-                    val = html.unescape(val)
+                    val = html.unescape(raw)
         rows.setdefault(r, {})[col] = val
     return rows
 
@@ -488,14 +501,15 @@ def _sheet_cells_et(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]
         if not ref:
             continue
         t, v = c.get("t"), c.find(NS + "v")
-        val = v.text if v is not None else None
-        if t == "s" and val is not None:
-            val = sst[int(val)]
+        text = v.text if v is not None else None
+        val: object = text
+        if t == "s" and text is not None:
+            val = sst[int(text)]
         elif t == "inlineStr":
             val = "".join(x.text or "" for x in c.iter(NS + "t"))
-        elif t in (None, "n") and val is not None:
-            f = float(val)
-            val = int(f) if f.is_integer() and "." not in val else f
+        elif t in (None, "n") and text is not None:
+            f = float(text)
+            val = int(f) if f.is_integer() and "." not in text else f
         rows.setdefault(int(ref.group(2)), {})[_col(ref.group(1))] = val
     return rows
 

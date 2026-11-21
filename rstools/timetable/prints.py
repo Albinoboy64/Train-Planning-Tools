@@ -19,12 +19,13 @@ is compared location by location, so a removed call shows once rather than shift
 from __future__ import annotations
 
 import difflib
+import logging
 import os
 import re
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _TIME = re.compile(r"(?<![\d/:.])([01]\d|2[0-3])[:.]?([0-5]\d)(½|H)?(?![\d/])")
@@ -39,6 +40,11 @@ _NOISE = re.compile(r"(\bpage\s+\d+(\s+of\s+\d+)?\b|\bprinted\b|\bprint\s+date\b
                     r"^\s*[-=_.\s]{4,}\s*$)", re.I)
 _COLUMN_WORDS = {"arr": "arr", "arrive": "arr", "arrival": "arr", "dep": "dep", "depart": "dep",
                  "departure": "dep", "pass": "pass", "pas": "pass", "passing": "pass"}
+
+
+# pypdf logs its own notes about damaged files ('EOF marker not found'); a file that cannot be read is
+# reported to the user as a PrintError instead
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 
 class PrintError(Exception):
@@ -194,7 +200,7 @@ def _pdfium_page(page) -> List[str]:
             cs = merged.pop()[1] + cs
         fragment = min(c[0] for c in cs) > left + 20
         merged.append([y, cs, fragment])
-    out = []
+    out: List[str] = []
     for _y, cs, _frag in merged:
         cs.sort(key=lambda c: c[0])
         text, spans, last = "", [], None
@@ -587,7 +593,7 @@ def _call_details(c: Optional[Call]) -> List[str]:
 
 def train_details(a: Optional[PrintTrain], b: Optional[PrintTrain]) -> List[Tuple[str, str, str]]:
     """(detail, original, updated) for the top of a side-by-side train: days run, IDs, dates, class..."""
-    x, y = a or b, b or a
+    x, y = cast(PrintTrain, a or b), cast(PrintTrain, b or a)     # at least one side is a train
     rows = [("Days run", a.days if a else "", b.days if b else ""),
             ("Train", (a.ident or a.headcode) if a else "", (b.ident or b.headcode) if b else ""),
             ("UID", a.uid if a else "", b.uid if b else "")]
@@ -639,7 +645,7 @@ def _location_rows(ca: Optional[Call], cb: Optional[Call]) -> List[Tuple[List[st
             if n == 0:
                 diffs += [f"{name} changed" for name, x, y in zip(names, da, db) if x != y]
             state, result = ("changed", ", ".join(diffs)) if diffs else ("same", "Match")
-        loc = (ca or cb).loc if n == 0 else ""
+        loc = cast(Call, ca or cb).loc if n == 0 else ""
         out.append(([loc, _ROLE_SHOWN.get(role, role), ta, tb, _both(pa, pb)] + details + [result], state))
     return out
 
@@ -691,17 +697,19 @@ def build_workbook(cmp: PrintComparison):
             ["Trains added (updated only)", len(cmp.added)],
             ["Trains removed (original only)", len(cmp.removed)],
             ["Individual changes", len(cmp.changes)]]
-    fills = {3: "bad" if changed else "ok", 5: "bad" if cmp.added else "ok", 6: "bad" if cmp.removed else "ok"}
-    add_sheet(wb, "Summary", ["Figure", "Count"], rows, [38, 12], fills=fills, center=[2])
+    add_sheet(wb, "Summary", ["Figure", "Count"], rows, [38, 12], center=[2],
+              fills={3: "bad" if changed else "ok", 5: "bad" if cmp.added else "ok", 6: "bad" if cmp.removed else "ok"})
     add_sheet(wb, "Changes by Train", ["Train", "Days", "Location", "Change", "Original", "Updated"],
               [[c.train, c.days, c.location, c.change, c.original, c.updated] for c in cmp.changes],
               [16, 10, 26, 34, 40, 40])
     # side by side: every train with a difference (and every added / removed train) laid out like the
     # timetable comparison, with the train's details on top and the prints' own details by each call
-    side, fills = [], {}
+    side: List[list] = []
+    fills: Dict[int, str] = {}
     shade = {"changed": "review", "removed": "bad", "added": "ok"}
-    blocks = [(a, b, f"{a.label()} {a.days}".strip() + ("" if a.label() == b.label() else f" / {b.label()}"))
-              for a, b, _how, n in cmp.pairs if n]
+    blocks: List[Tuple[Optional[PrintTrain], Optional[PrintTrain], str]] = [
+        (a, b, f"{a.label()} {a.days}".strip() + ("" if a.label() == b.label() else f" / {b.label()}"))
+        for a, b, _how, n in cmp.pairs if n]
     blocks += [(t, None, f"{t.label()} {t.days} - removed".strip()) for t in cmp.removed]
     blocks += [(None, t, f"{t.label()} {t.days} - added".strip()) for t in cmp.added]
     for a, b, title in blocks:

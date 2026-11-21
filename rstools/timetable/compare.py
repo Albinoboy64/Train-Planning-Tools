@@ -124,7 +124,7 @@ class SectionResult:
 
     @property
     def headcode_mismatches(self) -> List[Match]:
-        return [m for m in self.matched if m.gtr.headcode != m.nr.headcode]
+        return [m for m in self.matched if m.gtr is not None and m.gtr.headcode != m.nr.headcode]
 
 
 @dataclass
@@ -214,8 +214,8 @@ def _compare_section(sec: str, g_trains: List[TTrain], n_trains: List[TTrain], o
     pairs.sort(key=lambda p: (-p[0][0], p[0][1], p[0][4], p[1].column, p[2].column))
     used_n, used_g = set(), set()
     chosen: Dict[int, Tuple[tuple, TTrain]] = {}
-    per_nr = defaultdict(int)
-    for score, n, g in pairs:
+    per_nr: Dict[int, int] = defaultdict(int)
+    for _sc, n, _gt in pairs:
         per_nr[id(n)] += 1
     for score, n, g in pairs:
         if id(n) in used_n or id(g) in used_g:
@@ -261,7 +261,7 @@ def _shared_events(t: TTrain, locs: Set[str], rows: Set[Tuple[str, str]]) -> Lis
 
 
 def _index(g: TTrain) -> Dict[Tuple[str, str], Event]:
-    out = {}
+    out: Dict[Tuple[str, str], Event] = {}
     for e in g.events:
         out.setdefault((e.loc, e.role), e)
     return out

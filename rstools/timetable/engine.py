@@ -197,16 +197,16 @@ def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, na
                  f"{len(cmp.added)} added, {len(cmp.removed)} removed, {len(cmp.changes)} individual change(s)"]
         return RunResult(path, lines, list(cmp.warnings), len(cmp.changes) + len(cmp.added) + len(cmp.removed))
     if mode == "lists":
-        from .trainlist import build_workbook
+        from .trainlist import build_workbook as lists_workbook
         path = _out(out_dir, clip(name or default_name("lists", first, second)), fmt)
-        _save(build_workbook(cmp), path)
+        _save(lists_workbook(cmp), path)
         changed = len({i for i, *_ in cmp.changes})
         lines = [f"{len(cmp.pairs)} train(s) paired by {', '.join(cmp.key_headers)}: {changed} changed",
                  f"{len(cmp.added)} added, {len(cmp.removed)} removed, {len(cmp.changes)} changed cell(s)"]
         return RunResult(path, lines, list(cmp.warnings), len(cmp.changes) + len(cmp.added) + len(cmp.removed))
-    from .output import build_workbook, document_sections, output_name, summary_lines
+    from .output import build_workbook as timetable_workbook, document_sections, output_name, summary_lines
     path = _out(out_dir, clip(name or output_name(cmp)), fmt)
-    wb = build_workbook(cmp)
+    wb = timetable_workbook(cmp)
     _save(wb, path, None if path.endswith(".xlsx") else document_sections(wb))
     diffs = sum(len(r.missing) + len(r.gaps) + len(r.headcode_mismatches) + sum(len(m.issues) for m in r.matched)
                 for r in cmp.sections)

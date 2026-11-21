@@ -179,12 +179,11 @@ def test_outputs_never_contain_formulas_from_input_text():
     assert openpyxl.load_workbook(p).active["A2"].value == '=cmd|"/c calc"!A1'
 
 
-def test_zip_bomb_is_refused():
-    import tempfile
+def test_zip_bomb_is_refused(tmp_path):
     import zipfile
     from rstools.fsutil import UnsafeFileError, check_office_file
     from cwn_compare.loader import LoadError, load_any
-    p = os.path.join(tempfile.mkdtemp(), "bomb.xlsx")
+    p = str(tmp_path / "bomb.xlsx")
     with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", "<Types/>")
         z.writestr("xl/worksheets/sheet1.xml", b"\0" * (600 * 1024 * 1024))   # 600 MB of nothing, ~0.6 MB packed
@@ -450,3 +449,60 @@ def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch)
             assert int(app.outer.columnconfigure(0)["minsize"]) == col
         finally:
             app._on_close()
+
+
+def test_data_folder_beside_the_exe(monkeypatch, tmp_path):
+    """The exe keeps its data beside itself; a new data folder starts with the settings from AppData."""
+    from rstools import branding
+    appdata, exe_dir = tmp_path / "appdata", tmp_path / "app"
+    (appdata / branding.FOLDER / "rules").mkdir(parents=True)
+    (appdata / branding.FOLDER / "settings.json").write_text('{"theme": "dark"}')
+    (appdata / branding.FOLDER / "rules" / "s4.json.gz").write_bytes(b"x")
+    exe_dir.mkdir()
+    monkeypatch.setenv("LOCALAPPDATA", str(appdata))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe_dir / "TrainPlanningTools.exe"))
+    monkeypatch.setattr(branding, "_chosen", {})
+    path = branding.settings_dir()
+    assert path == str(exe_dir / branding.PORTABLE_FOLDER)
+    assert open(os.path.join(path, "settings.json")).read() == '{"theme": "dark"}'
+    assert os.path.isfile(os.path.join(path, "rules", "s4.json.gz"))
+    assert os.path.isfile(appdata / branding.FOLDER / "settings.json")        # the original is left alone
+    assert not [n for n in os.listdir(path) if n.endswith(".tmp")]           # the write test leaves nothing
+
+
+def test_data_folder_falls_back_when_the_exe_folder_is_read_only(monkeypatch, tmp_path):
+    from rstools import branding
+    appdata = tmp_path / "appdata"
+    monkeypatch.setenv("LOCALAPPDATA", str(appdata))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "ro" / "TrainPlanningTools.exe"))
+    monkeypatch.setattr(branding, "_chosen", {})
+    monkeypatch.setattr(branding, "_writable", lambda path: False)          # e.g. a shared, read-only folder
+    assert branding.settings_dir() == str(appdata / branding.FOLDER)
+    assert os.path.isdir(appdata / branding.FOLDER)
+    assert not os.path.exists(tmp_path / "ro" / branding.PORTABLE_FOLDER)
+
+
+def test_data_folder_from_source_is_appdata(monkeypatch, tmp_path):
+    from rstools import branding
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    assert branding.settings_dir() == str(tmp_path / branding.FOLDER)
+
+
+def test_error_messages(monkeypatch, tmp_path):
+    """Files open in Excel and full disks get plain messages; anything else is logged for support."""
+    import errno
+    from rstools import errorlog
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    locked = errorlog.describe(PermissionError(13, "Permission denied", "C:\\out\\pack.xlsx"))
+    assert "Close it in Excel" in locked and "pack.xlsx" in locked
+    assert "disk is full" in errorlog.describe(OSError(errno.ENOSPC, "No space left on device"))
+    try:
+        raise KeyError("unexpected")
+    except KeyError as exc:
+        msg = errorlog.describe(exc)
+    assert msg.startswith("Unexpected error") and errorlog.log_path() in msg
+    assert "KeyError" in open(errorlog.log_path(), encoding="utf-8").read()

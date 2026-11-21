@@ -1,8 +1,8 @@
 """Fleet reference data (operator, capacities, units available, spare units, unit length).
 
 None of this is in the XML or the TRENT print, so a default table (taken from the
-DEC26 stats pack) ships with the app. Users can edit their own copy (fleet.csv in
-%LOCALAPPDATA%\\TrainPlanningTools) - the app creates it on first use and adds any new
+DEC26 stats pack) ships with the app. Users can edit their own copy (fleet.csv in the
+app's data folder, see branding.py) - the app creates it on first use and adds any new
 classes / columns from later versions without touching the user's own values.
 """
 from __future__ import annotations

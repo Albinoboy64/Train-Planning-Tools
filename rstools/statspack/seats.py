@@ -17,7 +17,7 @@ import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 from .days import DAY_NAMES
 from .fleet import FleetTable, user_fleet_path
@@ -479,7 +479,7 @@ class Matcher:
 
     def heading(self, cs: List[Call]) -> str:
         """'forward' when the train reaches the corridor's stations in their listed order, else 'reverse'."""
-        order = []
+        order: List[int] = []
         for c in cs:
             for i, tips in enumerate(self.route):
                 if c.tiploc in tips and (not order or order[-1] != i):
@@ -536,7 +536,7 @@ def seats_for_day(model: DayModel, fleet: FleetTable, matcher: Matcher, window: 
         if not matcher.matches(cs, fleets, tr.headcode):
             continue
         if matcher.group.kind == JOURNEY:
-            i, j = matcher.journey_span(cs)
+            i, j = cast(Tuple[int, int], matcher.journey_span(cs))   # matches() found the journey
             dep = cs[i].time
             if window is not None and not window.contains(dep):
                 continue

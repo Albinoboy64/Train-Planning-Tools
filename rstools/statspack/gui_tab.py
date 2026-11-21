@@ -6,21 +6,22 @@ import os
 import queue
 import threading
 import time
-import traceback
 import tkinter as tk
+from functools import partial
+from typing import Dict, List, Tuple
 from collections import Counter
 from tkinter import ttk, filedialog, messagebox
 
-from rstools import theme
+from rstools import errorlog, theme
 from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 from rstools.fsutil import write_json
 
 from .days import DAYS, DAY_NAMES
-from .engine import (OUTPUTS, PackOptions, PlanInputs, StatsPackError, build_pack, cached, compare_packs, compare_plans,
-                     day_availability, load_plan, pack_name, packs_name, plans_name, seats_name, seats_report, timetable,
-                     UNIT_REPORTS, unit_reports, write_pack)
+from .engine import (OUTPUTS, PackOptions, PlanInputs, StatsPackError, build_pack, cached, compare_packs,
+                     compare_plans, day_availability, load_plan, pack_name, packs_name, plans_name, seats_name,
+                     seats_report, timetable, UNIT_REPORTS, unit_reports, write_pack)
 from .compare import CompareOptions
 from .fleet import FleetTable, ensure_user_copy, user_fleet_path
 from .model import OPERATOR_DEPOTS, OPERATORS, OTHER, operator_of
@@ -106,7 +107,8 @@ class StatsPackTab(ttk.Frame):
         ttk.Label(self, text="Stats Pack", style="Head.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         theme.tip(ttk.Label(self, text="Stats packs, unit reports and capacity reports from an Attune XML and the "
                                        "TRENT VL29 print.",
-                            style="Small.TLabel", wraplength=1000, justify="left")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
+                            style="Small.TLabel", wraplength=1000, justify="left")).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
         left, right = ttk.Frame(self), ttk.Frame(self)
         left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         right.grid(row=2, column=1, sticky="nsew")
@@ -218,7 +220,7 @@ class StatsPackTab(ttk.Frame):
         dayf = ttk.Frame(sel)
         dayf.grid(row=1, column=0, sticky="w")
         self.day_vars = []
-        for i, code in enumerate(DAYS):
+        for i, _code in enumerate(DAYS):
             v = tk.BooleanVar(value=True)
             ttk.Checkbutton(dayf, text=DAY_NAMES[i][:3], variable=v, command=self._days_changed).grid(
                 row=0, column=i, padx=(0, 8))
@@ -723,10 +725,10 @@ class StatsPackTab(ttk.Frame):
         for w in self.fleet_frame.winfo_children():
             w.destroy()
         table = FleetTable.load()
-        groups = {op: [] for op in OPERATORS}
+        groups: Dict[str, List[str]] = {op: [] for op in OPERATORS}
         in_print = {}
         if found:
-            best = {}
+            best: Dict[str, Tuple[str, int]] = {}
             for (fleet, op), n in found.items():
                 if fleet not in best or n > best[fleet][1]:
                     best[fleet] = (op, n)
@@ -745,7 +747,7 @@ class StatsPackTab(ttk.Frame):
             if op == OTHER and not fleets:
                 continue
             cb = ttk.Checkbutton(self.fleet_frame, text=OP_LABEL[op], variable=self.op_vars[op],
-                                 command=lambda o=op: self._set_operator(o), style="Bold.TCheckbutton")
+                                 command=partial(self._set_operator, op), style="Bold.TCheckbutton")
             cb.grid(row=row, column=0, columnspan=FLEET_COLS, sticky="w", pady=(4 if row else 0, 0))
             row += 1
             for i, f in enumerate(fleets):
@@ -758,7 +760,7 @@ class StatsPackTab(ttk.Frame):
                                                                                       else 0, 10))
                 if not present:
                     c.state(["disabled"])
-                    c._keep_disabled = True
+                    setattr(c, "_keep_disabled", True)
                 new_vars[f] = v
                 self.fleet_info[f] = (op, present)
             row += (len(fleets) + FLEET_COLS - 1) // FLEET_COLS or 1
@@ -1062,18 +1064,8 @@ class StatsPackTab(ttk.Frame):
             self.q.put(("done", outs, warnings, summary))
         except StatsPackError as exc:
             self.q.put(("error", str(exc)))
-        except PermissionError as exc:
-            self.q.put(("error", "A file could not be opened or saved. Close it in Excel or Word if it is open, "
-                                 f"check the folder can be written to, then try again.\n\n{exc.filename or exc}"))
         except Exception as exc:
-            where = ""
-            try:
-                from cwn_compare.gui import _write_error_log
-                where = _write_error_log(traceback.format_exc())
-            except Exception:
-                pass
-            self.q.put(("error", f"Unexpected error: {exc}" + (f"\n\nDetails were saved to {where}" if where else
-                                                              f"\n\n{traceback.format_exc()}")))
+            self.q.put(("error", errorlog.describe(exc)))
 
     def _finish(self, ok: bool):
         self.running = False

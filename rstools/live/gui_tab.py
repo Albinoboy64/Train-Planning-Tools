@@ -12,11 +12,11 @@ import os
 import queue
 import threading
 import time
-import traceback
 import tkinter as tk
+from typing import Dict, List, Tuple
 from tkinter import ttk, filedialog, messagebox
 
-from rstools import theme
+from rstools import errorlog, theme
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 
@@ -25,10 +25,12 @@ from .model import ADDED, CHANGED, DIFF_STATES, ISSUE, PAIRED, REMOVED, SAME, vi
 TITLE = f"{APP_NAME} - Live View"
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _CWN = (".xlsx", ".xlsm", ".xls", ".xlsb")
-FILES = {     # box key, label, accepted extensions, several files?
+FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, label, file types, several?
     "cwn": [("a", "Original CWN:", _CWN, False), ("b", "Updated CWN:", _CWN, False)],
-    "sp_plans": [("xa", "Original Attune XML:", (".xml",), False), ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
-                 ("xb", "Updated Attune XML:", (".xml",), False), ("tb", "Updated TRENT VL29 print(s):", (".docx",), True)],
+    "sp_plans": [("xa", "Original Attune XML:", (".xml",), False),
+                 ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
+                 ("xb", "Updated Attune XML:", (".xml",), False),
+                 ("tb", "Updated TRENT VL29 print(s):", (".docx",), True)],
     "sp_packs": [("a", "Original stats pack:", _XL, False), ("b", "Updated stats pack:", _XL, False)],
     "timetables": [("a", "GTR timetable:", _XL, False), ("b", "Network Rail timetable:", _XL, False)],
     "print_tt": [("a", "Train print(s) - reference:", _PR, True), ("b", "Timetable to check:", _XL, False)],
@@ -100,7 +102,7 @@ class LiveTab(ttk.Frame):
         self.files_frame.columnconfigure(1, weight=1)
         self.vars, self.rows = {}, {}
         self.clear_btns = {}
-        for i, key in enumerate(("a", "b", "xa", "ta", "xb", "tb")):
+        for key in ("a", "b", "xa", "ta", "xb", "tb"):
             var = self.vars[key] = tk.StringVar()
             lab = ttk.Label(self.files_frame, text="")
             box = self.app.file_box(self.files_frame, var, f"live_{key}")
@@ -419,7 +421,9 @@ class LiveTab(ttk.Frame):
 
     # ------------------------------------------------------------------ comparing
     def stop(self):
-        for job in (self._poll_id, self._watch_id):
+        for job in (self._poll_id, self._watch_id, getattr(self, "_search_after", None)):
+            if not job:
+                continue
             try:
                 self.after_cancel(job)
             except tk.TclError:
@@ -469,13 +473,7 @@ class LiveTab(ttk.Frame):
             if type(exc).__name__ in known_types:
                 msg = str(exc)
             else:
-                where = ""
-                try:
-                    from cwn_compare.gui import _write_error_log
-                    where = _write_error_log(traceback.format_exc())
-                except Exception:
-                    pass
-                msg = f"Unexpected error: {exc}" + (f"\n\nDetails were saved to {where}" if where else "")
+                msg = errorlog.describe(exc)
             self.q.put(("error", msg, refresh, stamps))
 
     def _finished(self):
@@ -551,10 +549,8 @@ class LiveTab(ttk.Frame):
                 from .export import export
                 export(path, res, items, filt, find)
                 self.q.put(("exported", path, ""))
-            except PermissionError:
-                self.q.put(("exported", path, "The file could not be saved - is it open in another program?"))
             except Exception as exc:
-                self.q.put(("exported", path, f"The export failed: {exc}"))
+                self.q.put(("exported", path, errorlog.file_problem(exc) or f"The export failed: {exc}"))
         threading.Thread(target=work, daemon=True).start()
 
     def _clear(self):

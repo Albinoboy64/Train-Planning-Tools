@@ -42,7 +42,8 @@ class RulesDialog(tk.Toplevel):
         bf.columnconfigure(0, weight=1)
         today = date.today()
         for i, b in enumerate(rules.BUILT_IN):
-            stale = rules.parse_date(b["to"]) and today > rules.parse_date(b["to"])
+            until = rules.parse_date(b["to"])
+            stale = until is not None and today > until
             ttk.Label(bf, text=f"{b['name']} - {b['use']}. {b['covers']}; {_d(b['from'])} to {_d(b['to'])}."
                                + (" Out of date: a newer app version will carry the new rules." if stale else ""),
                       wraplength=px(self, 740), justify="left").grid(row=i, column=0, sticky="w")

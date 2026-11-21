@@ -29,7 +29,8 @@ class UpdateDialog(tk.Toplevel):
         body.rowconfigure(2, weight=1)
         self.head = ttk.Label(body, text="Checking GitHub for a newer version...", style="Head.TLabel")
         self.head.grid(row=0, column=0, sticky="w")
-        self.sub = ttk.Label(body, text=f"You have version {current}.", style="Small.TLabel", wraplength=theme.px(body, 480),
+        self.sub = ttk.Label(body, text=f"You have version {current}.", style="Small.TLabel",
+                             wraplength=theme.px(body, 480),
                              justify="left")
         self.sub.grid(row=1, column=0, sticky="w", pady=(2, 8))
         self.notes = tk.Text(body, height=10, wrap="word", font="TkTextFont")
@@ -105,7 +106,8 @@ class UpdateDialog(tk.Toplevel):
 
     def _downloaded(self, path: str):
         self.prog.configure(value=1.0)
-        if updater.can_replace_in_place() and path == updater.download_target(self.release):
+        if self.release is not None and updater.can_replace_in_place() \
+                and path == updater.download_target(self.release):
             if messagebox.askokcancel("Check for updates", f"Version {self.release.version} is ready.\n\n"
                                       "Train Planning Tools will close, update and reopen.", parent=self):
                 self.app.save_app_settings()            # before the new version starts and reads them

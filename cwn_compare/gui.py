@@ -11,10 +11,10 @@ import threading
 import traceback
 import tkinter as tk
 import webbrowser
-from typing import Dict
+from typing import Dict, List
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
-from rstools import theme, updater
+from rstools import errorlog, theme, updater
 from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.update_dialog import UpdateDialog
@@ -35,26 +35,6 @@ REPORT_FORMATS = {"xlsx": "Excel", "pdf": "PDF", "docx": "Word"}
 ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                       "rstools", "assets")
 HAS_OLD = {k: has_old for k, _label, has_old, _desc in CATEGORIES}
-ERROR_LOG = os.path.join(os.path.dirname(Options.settings_path()), "error.log")
-
-
-def _write_error_log(text: str) -> str:
-    """Keep the details of an unexpected error for support; returns the log path ('' if unwritable)."""
-    try:
-        os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
-        if os.path.exists(ERROR_LOG) and os.path.getsize(ERROR_LOG) > 1024 * 1024:   # keep it small: newest half
-            with open(ERROR_LOG, "rb") as fh:
-                fh.seek(-512 * 1024, os.SEEK_END)
-                tail = fh.read()
-            with open(ERROR_LOG, "wb") as fh:
-                fh.write(b"(older entries removed)\n" + tail[tail.find(b"\n=====") + 1:])
-        with open(ERROR_LOG, "a", encoding="utf-8") as fh:
-            fh.write(f"\n===== {datetime.datetime.now():%d/%m/%Y %H:%M:%S}  v{__version__} =====\n{text}\n")
-        return ERROR_LOG
-    except OSError:
-        return ""
-
-
 OPENABLE = (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".csv", ".txt", ".log")
 
 
@@ -265,9 +245,9 @@ class App(tk.Tk):
     def _size_columns(self, scale: float):
         """Two-column tabs keep room for their text at the chosen text size."""
         for frame, widths in ((self.outer, (500, 480)), (self.stats_tab, (520, 470)), (self.tt_tab, (520, 470))):
-            for col, w in enumerate(widths):
-                frame.columnconfigure(col, minsize=round(w * scale))
-        stack = [self]
+            for col, width in enumerate(widths):
+                frame.columnconfigure(col, minsize=round(width * scale))
+        stack: List[tk.Misc] = [self]
         while stack:                                         # wrapped text keeps the same number of words a line
             w = stack.pop()
             stack.extend(w.winfo_children())
@@ -275,9 +255,10 @@ class App(tk.Tk):
                 base = getattr(w, "_base_wrap", None)
                 if base is None:
                     try:
-                        base = w._base_wrap = int(str(w.cget("wraplength")) or 0)
+                        base = int(str(w.cget("wraplength")) or 0)
                     except (tk.TclError, ValueError):
-                        base = w._base_wrap = 0
+                        base = 0
+                    setattr(w, "_base_wrap", base)       # the label's own wrap at 100%, kept for rescaling
                 if base:
                     w.configure(wraplength=round(base * scale))
 
@@ -334,10 +315,12 @@ class App(tk.Tk):
         help_menu.add_command(label="User guide (README on GitHub)", accelerator="F1",
                               command=lambda: webbrowser.open(f"https://github.com/{updater.REPO}#readme"))
         help_menu.add_command(label="Keyboard shortcuts", command=lambda: messagebox.showinfo(
-            "Keyboard shortcuts", "F5 or Ctrl+Enter\tRun the current tab\nCtrl+1 / 2 / 3 / 4\tStock Tools / Stats Pack / "
+            "Keyboard shortcuts",
+            "F5 or Ctrl+Enter\tRun the current tab\nCtrl+1 / 2 / 3 / 4\tStock Tools / Stats Pack / "
             "Timing Tools / Live View\nF3 / Shift+F3\tLive View: next / previous difference\n"
             "Ctrl++ / Ctrl+- / Ctrl+0\tLarger / smaller / normal text\nAlt+O / Alt+S / Alt+H\tOptions / Save/Load / "
-            "Help menu\nF1\t\tUser guide\n\nFiles can also be dragged onto any tab: each goes to the right box.", parent=self))
+            "Help menu\nF1\t\tUser guide\n\nFiles can also be dragged onto any tab: each goes to the right box.",
+            parent=self))
         help_menu.add_command(label="Third-party software and licences", command=self._licences)
         help_menu.add_command(label=f"About {APP_NAME}", command=self._about)
         bar.add("Help", help_menu)
@@ -521,7 +504,8 @@ class App(tk.Tk):
         from rstools import rules
         try:
             text = rules.new_timetable_reminder(start)
-        except Exception:
+        except Exception:                  # only a reminder: never interrupt the run, but keep the details
+            errorlog.write(traceback.format_exc())
             return
         if text and messagebox.askyesno(f"{APP_NAME} - new timetable", text + "\n\nOpen Rules and reference data now?",
                                         parent=self):
@@ -609,17 +593,19 @@ class App(tk.Tk):
             self.save_app_settings()
         except Exception:
             pass
-        self.after_cancel(self._poll_id)
-        self.after_cancel(self._theme_id)
+        for job in (self._poll_id, self._theme_id, self._dpi_after, self._days_after):
+            if job:
+                try:
+                    self.after_cancel(job)
+                except tk.TclError:
+                    pass
         self.stats_tab.stop()
         self.tt_tab.stop()
         self.live_tab.stop()
         self.destroy()
 
     def report_callback_exception(self, exc, val, tb):
-        where = _write_error_log("".join(traceback.format_exception(exc, val, tb)))
-        messagebox.showerror(APP_TITLE, f"Something went wrong: {val}"
-                             + (f"\n\nDetails were saved to:\n{where}" if where else ""))
+        messagebox.showerror(APP_TITLE, errorlog.describe(val, "".join(traceback.format_exception(exc, val, tb))))
 
     def _set_icon(self):
         """The window / taskbar / Alt+Tab icon. The .ico (several sizes) is used on Windows; the PNGs are
@@ -1381,9 +1367,7 @@ class App(tk.Tk):
             except StationBookError as exc:
                 self.q.put(("error", str(exc)))
             except Exception as exc:
-                where = _write_error_log(traceback.format_exc())
-                self.q.put(("error", f"Unexpected error: {exc}"
-                                     + (f"\n\nDetails were saved to:\n{where}" if where else "")))
+                self.q.put(("error", errorlog.describe(exc)))
         threading.Thread(target=work, daemon=True).start()
 
     def _run_reorder(self, o: Options):
@@ -1414,9 +1398,7 @@ class App(tk.Tk):
             except (ReorderError, LoadError) as exc:
                 self.q.put(("error", str(exc)))
             except Exception as exc:
-                where = _write_error_log(traceback.format_exc())
-                self.q.put(("error", f"Unexpected error: {exc}"
-                                     + (f"\n\nDetails were saved to:\n{where}" if where else "")))
+                self.q.put(("error", errorlog.describe(exc)))
         threading.Thread(target=work, daemon=True).start()
 
     # ------------------------------------------------------------ batch (two folders)
@@ -1485,9 +1467,7 @@ class App(tk.Tk):
                     ("batch_one", n, total, a, b, res, err)))
                 self.q.put(("batch_done", results))
             except Exception as exc:
-                where = _write_error_log(traceback.format_exc())
-                self.q.put(("error", f"Unexpected error: {exc}" + (f"\n\nDetails were saved to:\n{where}"
-                                                                    if where else "")))
+                self.q.put(("error", errorlog.describe(exc)))
         threading.Thread(target=work, daemon=True).start()
 
     # ------------------------------------------------------------ saved comparisons (this tab)
@@ -1705,9 +1685,7 @@ class App(tk.Tk):
             except (RunError, LoadError) as exc:
                 self.q.put(("error", str(exc)))
             except Exception as exc:
-                where = _write_error_log(traceback.format_exc())
-                self.q.put(("error", f"Unexpected error: {exc}"
-                                     + (f"\n\nDetails were saved to:\n{where}" if where else "")))
+                self.q.put(("error", errorlog.describe(exc)))
         threading.Thread(target=work, daemon=True).start()
 
     def _stop_spin(self):

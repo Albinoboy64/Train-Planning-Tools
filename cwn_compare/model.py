@@ -126,7 +126,7 @@ def canon_day_code(code: str) -> str:
     if parsed is None:
         return code
     tokens, suffix = parsed
-    days = sorted({_DAY_CANON[t.lower()] for t in tokens}, key=_DAY_ORDER.get)
+    days = sorted({_DAY_CANON[t.lower()] for t in tokens}, key=lambda d: _DAY_ORDER[d])
     return "".join(days) + suffix
 
 

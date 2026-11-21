@@ -6,14 +6,18 @@ Command-line use:
     TrainPlanningTools.exe --previous PREVIOUS_OUTPUT.xlsx --updated NEW.xlsx --colour 92D050
     TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days FO   (Friday trains only)
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
-    TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15] [--sheets SX,SO,Su]
+    TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
+                                       [--sheets SX,SO,Su]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--name NAME] [--out DIR]  (day variants in order)
-    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO] [--output totals_days|totals|days]
-    TrainPlanningTools.exe statspack --trent "TLGN_SX.docx;TLGN_SO.docx;TLGN_SU.docx" --unit-reports washes,depots,captive
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO]
+                                     [--output totals_days|totals|days]
+    TrainPlanningTools.exe statspack --trent "LTP_VL29.docx;STP_VL29.docx" --unit-reports washes,depots,captive
     TrainPlanningTools.exe statspack --xml NEW.xml --trent NEW.docx --old-xml OLD.xml --old-trent OLD.docx
     TrainPlanningTools.exe statspack --old-pack OLD.xlsx --new-pack NEW.xlsx
-    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-group 1W --between 07:00-10:00 --at "London Victoria"
-    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-from Brighton --capacity-to "London Victoria" --no-standing
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-group 1W --between 07:00-10:00
+                                     --at "London Victoria"
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-from Brighton
+                                     --capacity-to "London Victoria" --no-standing
     TrainPlanningTools.exe timetable --gtr GTR.xlsx --nr NR.xlsx [--format xlsx|pdf|docx]
     TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...]
     TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx

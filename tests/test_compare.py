@@ -43,7 +43,8 @@ BTN_ORIG = [
 ]
 VIC_ORIG = [
     T("1W08BT", "06.00", "14", "Brighton", "387/2", "VIC", "54", "", "Berth", "", ""),
-    T("1G06BT", "05.43", "13", "Gatwick Airport", "387/2", "XSL", "65", "03+55", "Stewarts Lane Depot", "04+13", "5D97BT"),
+    T("1G06BT", "05.43", "13", "Gatwick Airport", "387/2", "XSL", "65", "03+55", "Stewarts Lane Depot", "04+13",
+      "5D97BT"),
 ]
 
 
@@ -161,6 +162,33 @@ def _run_pair(btn_o, btn_u, name, vic_o=None, vic_u=None, **kw):
     res = run(opts)
     meta = read_meta_file(res["cwn"])
     return res, meta["changes"]
+
+
+def test_copied_text_never_becomes_a_formula():
+    """A CWN cell holding text such as '=cmd|...' stays text in the output, even on rows the writer moves."""
+    import zipfile
+    evil = "=cmd|' /C calc'!A0"
+    o = [list(r) for r in BTN_ORIG]
+    o[6][4] = evil                                  # 1W07BT's destination, after the cancelled 2C08BT
+    u, _vic = _upd_rows()
+    u = [r if r[0] != "1W07BT" else r[:4] + [evil] + r[5:] for r in u]
+    d = tempfile.mkdtemp()
+    paths = os.path.join(d, "o.xlsx"), os.path.join(d, "u.xlsx")
+    for p, rows in zip(paths, (o, u)):
+        make(p, rows, VIC_ORIG)
+        wb = openpyxl.load_workbook(p)
+        for row in wb["BTN"].iter_rows():
+            for c in row:
+                if c.value == evil:
+                    c.data_type = "s"               # text in the CWN, as typed in Excel with a leading '
+        wb.save(p)
+    res = run(Options(original=paths[0], updated=paths[1], output_dir=d, output_name="formula"))
+    with zipfile.ZipFile(res["cwn"]) as z:
+        for name in z.namelist():
+            if name.startswith("xl/worksheets/sheet"):
+                assert b"<f>" not in z.read(name), name
+    ws = openpyxl.load_workbook(res["cwn"])["BTN"]
+    assert evil in [c.value for row in ws.iter_rows() for c in row]
 
 
 def test_days_only_and_split_and_diag():

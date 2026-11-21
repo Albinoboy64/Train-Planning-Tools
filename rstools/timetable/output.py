@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import copy
 import os
-from typing import List, Sequence
+from typing import List, Sequence, cast
 
 from .compare import Comparison, service_groups
+from .parse import TTrain
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "template.xlsx")
@@ -56,7 +57,7 @@ def build_workbook(cmp: Comparison):
             cell = ws.cell(start, 1, NONE)
             cell.font = Font(italic=True, color="FF595959")
             return
-        styles = {}                                 # each column's finished style, built once and copied
+        styles: dict = {}                           # each column's finished style, built once and copied
         for r, row in enumerate(rows, start=start):
             for c, value in enumerate(row, start=1):
                 cell = ws.cell(r, c, clean_cell(value))
@@ -81,6 +82,7 @@ def build_workbook(cmp: Comparison):
     for r in range(2, 8):
         name = ws.cell(r, 1).value
         res = next((s for s in sections if s.section == name), None)
+        vals: list
         if res is None:
             vals = ["-"] * 7 + ["Not in both timetables"]
         else:
@@ -103,8 +105,9 @@ def build_workbook(cmp: Comparison):
     rows = []
     for res in sections:
         for m in res.matched:
+            g = cast(TTrain, m.gtr)                     # matched trains always have their GTR train
             for i in m.issues:
-                rows.append([res.section, m.nr.headcode, m.gtr.headcode, m.gtr.days, i.location, _role(i.role),
+                rows.append([res.section, m.nr.headcode, g.headcode, g.days, i.location, _role(i.role),
                              i.nr_time, i.gtr_time or "-", i.summary, i.others, m.confidence])
     write(wb["Issues"], rows, {7: "@", 8: "@", 11: '0.0"%"'})
     # Missing Trains: per section, NR trains missing from GTR then isolated GTR gaps, in timetable order
@@ -120,10 +123,11 @@ def build_workbook(cmp: Comparison):
     rows = []
     for res in sections:
         for m in res.headcode_mismatches:
-            finding = (f"All {m.nr_points} timings match; headcode differs ({B} {m.nr.headcode}, {O} {m.gtr.headcode})"
-                       if not m.issues else f"Headcode differs ({B} {m.nr.headcode}, {O} {m.gtr.headcode}); "
+            g = cast(TTrain, m.gtr)
+            finding = (f"All {m.nr_points} timings match; headcode differs ({B} {m.nr.headcode}, {O} {g.headcode})"
+                       if not m.issues else f"Headcode differs ({B} {m.nr.headcode}, {O} {g.headcode}); "
                        f"{len(m.issues)} timing issue(s) on the Issues sheet")
-            rows.append([res.section, m.nr.headcode, m.gtr.headcode, m.gtr.days, finding, m.confidence])
+            rows.append([res.section, m.nr.headcode, g.headcode, g.days, finding, m.confidence])
     write(wb["Headcode Mismatches"], rows, {6: '0.0"%"'})
     # Service Group Review
     rows = [[res.section, *row] for res in sections for row in service_groups(res)]
@@ -160,8 +164,8 @@ def build_workbook(cmp: Comparison):
     notes = [f"Operators compared: {', '.join(sorted(cmp.operators))} (other operators are out of scope)."]
     notes += list(cmp.warnings)
     ws.cell(len(rows) + 3, 1, "Notes").font = Font(bold=True)
-    for i, text in enumerate(notes, start=len(rows) + 4):
-        ws.cell(i, 1, text).alignment = Alignment(vertical="top")
+    for n, text in enumerate(notes, start=len(rows) + 4):
+        ws.cell(n, 1, text).alignment = Alignment(vertical="top")
     # print settings: landscape, fit to one page wide, heading row on every page
     for ws in wb.worksheets:
         ws.page_setup.orientation = "landscape"

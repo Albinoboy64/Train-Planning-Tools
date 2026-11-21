@@ -140,7 +140,7 @@ def glossary(info: dict) -> Table:
 
 
 def fleet_tab(model: DayModel) -> Table:
-    in_use = defaultdict(int)
+    in_use: Dict[str, int] = defaultdict(int)
     for d in model.diagrams:
         in_use[d.fleet] += 1
     rows = []
@@ -181,11 +181,11 @@ def service_miles(model: DayModel) -> Table:
 
 
 def formation_tabs(model: DayModel, parts) -> List[Table]:
-    count = defaultdict(lambda: [0, 0, 0])
+    count: Dict[str, List[int]] = defaultdict(lambda: [0, 0, 0])
     miles = defaultdict(list)
     diag_t = defaultdict(list)
     wheel_t = defaultdict(list)
-    for t, p in parts:
+    for _t, p in parts:
         k = formation_key(p, model)
         st = service_type(p.headcode)
         c = count[k]
@@ -279,9 +279,9 @@ def _stabled(model: DayModel):
 
 
 def stops_tabs(model: DayModel) -> List[Table]:
-    stops = defaultdict(lambda: [0, 0])          # loc -> [empty, in service] vehicles stopping
-    hourly = defaultdict(lambda: [[0] * 5 for _ in range(24)])
-    peak = defaultdict(lambda: [[0] * 5 for _ in range(len(PEAK_BANDS))])
+    stops: Dict[str, List[int]] = defaultdict(lambda: [0, 0])     # loc -> [empty, in service] vehicles stopping
+    hourly: Dict[str, List[List[int]]] = defaultdict(lambda: [[0] * 5 for _ in range(24)])
+    peak: Dict[str, List[List[int]]] = defaultdict(lambda: [[0] * 5 for _ in range(len(PEAK_BANDS))])
     for t in model.trains:
         first = True
         for loc, time, kind, cars, st in _train_events(t, model):
@@ -370,7 +370,7 @@ def _pub(work: int, pub: Optional[int]):
 
 def formation_data(model: DayModel, parts) -> Table:
     rows = []
-    for t, p in sorted(parts, key=lambda tp: (tp[1].headcode, tp[1].dep)):
+    for _t, p in sorted(parts, key=lambda tp: (tp[1].headcode, tp[1].dep)):
         rows.append(Row(["Y", p.headcode, None, None, None, p.origin, model.name(p.origin), Clock(p.dep),
                          _pub(p.dep, p.dep_pub), p.dest, model.name(p.dest), Clock(p.arr), _pub(p.arr, p.arr_pub),
                          p.miles, "/".join(p.formation), formation_ordered(p, model),

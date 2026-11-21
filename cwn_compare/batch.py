@@ -8,7 +8,7 @@ import os
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .loader import SUPPORTED_EXT
 from .options import Options
@@ -46,7 +46,7 @@ def pair_files(orig_dir: str, upd_dir: str) -> Tuple[List[Tuple[str, str]], List
     pairs: List[Tuple[str, str]] = []
     left, right = list(origs), list(upds)
     for match in (lambda p: _stem(p).casefold(), _key):
-        index = {}
+        index: Dict[str, List[str]] = {}
         for o in left:
             index.setdefault(match(o), []).append(o)
         for u in list(right):

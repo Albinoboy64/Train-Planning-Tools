@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 from .attune import AttuneData, Leg, Train
 from .fleet import FleetTable
@@ -113,7 +113,7 @@ class TrainRun:
     def miles(self) -> Optional[float]:
         if any(p.miles is None for p in self.parts):
             return None
-        return sum(p.miles for p in self.parts)
+        return sum(cast(float, p.miles) for p in self.parts)
 
     @property
     def stype(self): return service_type(self.headcode)
@@ -367,7 +367,7 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
                         nxt.arr is not None and nxt.dep is not None
                         and _new_train_here(attune, r.headcode, day, nxt.loc, nxt.arr, nxt.dep)):
                     break
-                miles = None if (unknown or nxt.miles is None) else miles + nxt.miles
+                miles = None if (unknown or nxt.miles is None) else cast(float, miles) + nxt.miles
                 unknown = unknown or nxt.miles is None
                 j += 1
                 continue
@@ -417,7 +417,8 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
         if train is not None and len(headcode) == 4 and train.id[:4] == headcode:
             headcode = train.id
         dg.moves.append(Move(headcode, start_loc, stop_loc, dep, arr, dep_pub, arr_pub,
-                             None if unknown else round(miles, 4), formation, legs, found=train is not None))
+                             None if unknown else round(cast(float, miles), 4), formation, legs,
+                             found=train is not None))
         i = j
 
 

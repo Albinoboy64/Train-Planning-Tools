@@ -41,7 +41,7 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
     body_font = Font(name="Calibri", size=11)
     left, middle = Alignment(vertical="top", wrap_text=True), Alignment(vertical="top", horizontal="center",
                                                                          wrap_text=True)
-    formats, fills, center = formats or {}, fills or {}, set(center)
+    formats, fills, centred = formats or {}, fills or {}, set(center)
     for c, text in enumerate(headers, start=1):
         cell = ws.cell(1, c, text)
         cell.font, cell.fill, cell.alignment, cell.border = head_font, head_fill, head_align, border
@@ -53,7 +53,7 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
         ws.cell(2, 1, NONE).font = Font(name="Calibri", size=11, italic=True, color="FF595959")
     shaded = {k: PatternFill("solid", fgColor=v) for k, v in FILLS.items()}
     bold = Font(name="Calibri", size=11, bold=True)
-    styles = {}                         # (column, fill, bold) -> finished style, built once and copied
+    styles: dict = {}                   # (column, fill, bold) -> finished style, built once and copied
     for r, row in enumerate(rows, start=2):
         fill_key = fills.get(r - 2, "")
         is_bold = bold_last and r == len(rows) + 1
@@ -64,7 +64,7 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
                 cell._style = copy(styles[key])
                 continue
             cell.font = bold if is_bold else body_font
-            cell.alignment = middle if c in center else left
+            cell.alignment = middle if c in centred else left
             cell.border = border
             if fill_key in shaded:
                 cell.fill = shaded[fill_key]

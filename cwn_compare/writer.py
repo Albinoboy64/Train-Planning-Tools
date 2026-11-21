@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from copy import copy
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
@@ -82,7 +82,7 @@ class _SheetOps:
         self.cells: Dict[tuple, dict] = {}
         self.row_fill: Dict[int, str] = {}
         self.inserts: Dict[int, list] = defaultdict(list)
-        self.changed_blocks = set()
+        self.changed_blocks: Set[str] = set()
         self.notes: Dict[int, List[tuple]] = defaultdict(list)    # row -> [(note, colour)]
         self.rounds: List[tuple] = []   # (round, colour) of applied changes
 
@@ -130,7 +130,7 @@ def apply_changes(wb, model: CWNModel, changes: List[Change], opts: Options,
         orig_heights = {r: ws.row_dimensions[r].height for r in range(sm.header_row + 1, ws.max_row + 1)}
         _write_cell_ops(ws, ops)
         if ops.inserts or acwn or only_blocks:
-            keep = None
+            keep: Optional[Set[int]] = None
             if acwn or only_blocks:
                 keep = set()
                 for b in sm.blocks:
@@ -178,8 +178,8 @@ def _apply_one(c: Change, ops: _SheetOps, blocks: Dict[str, Block], opts: Option
     ops.changed_blocks.add(blk.key)
 
     if c.kind == "add_block":
-        for r in range(blk.start_row, blk.end_row + 1):
-            ops.row_fill[r] = colour
+        for row in range(blk.start_row, blk.end_row + 1):
+            ops.row_fill[row] = colour
         return True
     if c.kind == "add_row":
         r = resolve_row(c, blk)
@@ -351,6 +351,8 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
             for c, (v, style, link) in enumerate(cells, start=1):
                 cell = ws.cell(row=t, column=c)
                 cell.value = v
+                if cell.data_type == "f":      # the CWN is read as values, so this is text: never a live formula
+                    cell.data_type = "s"
                 cell._style = copy(style)
                 if link is not None:
                     cell.hyperlink = copy(link)
@@ -389,7 +391,8 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
     return row_map
 
 
-def _fix_hyperlinks(wb, row_maps: Dict[str, Dict[int, Optional[int]]], removed_titles: set):
+def _fix_hyperlinks(wb, row_maps: "Dict[str, Dict[int, Optional[int]]] | Dict[str, Dict[int, int]]",
+                    removed_titles: set):
     """CWN cells link to rows on other tabs: re-point them after rows were inserted/removed."""
     if not row_maps and not removed_titles:
         return

@@ -22,7 +22,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 DAY_GROUPS = {"SX": (0, 1, 2, 3, 4), "SO": (5,), "Su": (6,)}
@@ -123,7 +123,8 @@ class Plan:
 
 def _unroll(values: List[Optional[int]]) -> List[Optional[int]]:
     """Times after midnight continue past 24:00 so they always increase."""
-    out, base, last = [], 0, None
+    out: List[Optional[int]] = []
+    base, last = 0, None
     for v in values:
         if v is None:
             out.append(None)
@@ -163,7 +164,8 @@ def read_plan(path: str) -> Plan:
                     if el.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
                         plan = "D"
                     cur_train, legs = Train(el.get("id", ""), _days(el.get("daysRun", "")), plan,
-                                            valid_from=el.get("validFrom", ""), valid_until=el.get("validUntil", "")), []
+                                            valid_from=el.get("validFrom", ""),
+                                            valid_until=el.get("validUntil", "")), []
                 elif tag == "unitDiagram":
                     cur_diag = Diagram("", "", _days(el.get("daysrun", "")), plan=el.get("type", ""))
                     cur_diag.key = el.get("id", "").strip()          # depot added when its <depot> is read
@@ -209,8 +211,8 @@ def read_plan(path: str) -> Plan:
                     move = None
                 elif tag == "unitDiagram":
                     times = _unroll([t for m in cur_diag.moves for t in (m.dep, m.arr)])
-                    for i, m in enumerate(cur_diag.moves):
-                        m.dep, m.arr = times[2 * i], times[2 * i + 1]
+                    for i, m in enumerate(cur_diag.moves):     # every move has both times (see above)
+                        m.dep, m.arr = cast(int, times[2 * i]), cast(int, times[2 * i + 1])
                     diagrams.append(cur_diag)
                     cur_diag = None
                     el.clear()
@@ -250,7 +252,9 @@ def _calls(legs: List[dict]) -> List[Call]:
 # --------------------------------------------------------------------------- #
 # times and names as TRACS-RS writes them
 # --------------------------------------------------------------------------- #
-def _clock(sec: int, sep: str) -> str:
+def _clock(sec: Optional[int], sep: str) -> str:
+    if sec is None:                     # a time missing from the XML: shown blank rather than failing
+        return ""
     sec %= 86400
     return f"{sec // 3600:02d}{sep}{sec % 3600 // 60:02d}"
 
@@ -267,7 +271,7 @@ def show_arr(train: Train, call: Call) -> str:
     if train.passenger:
         if call.arr_pub is not None:
             return _clock(call.arr_pub, " ")
-        return _clock(call.arr + 59, " ")              # a public arrival is never shown early
+        return _clock(call.arr + 59 if call.arr is not None else None, " ")   # never shown early
     return _clock(call.arr, "+")
 
 
@@ -341,7 +345,7 @@ class Builder:
 
     def build(self, day: int) -> List[Row]:
         self.day_diagrams = {day: day_diagrams(self.plan.diagrams, day)}
-        self._index = {day: defaultdict(list)}
+        self._index: Dict[int, Dict[str, list]] = {day: defaultdict(list)}
         for d in self.day_diagrams[day]:
             for i, m in enumerate(d.moves):
                 self._index[day][m.train].append((d, i))
@@ -361,8 +365,9 @@ class Builder:
 
     def _row(self, t: Train, i: int, day: int) -> Row:
         c = t.calls[i]
+        dep = cast(int, c.dep)                  # build() only makes rows for calls with a departure
         origin, dest = t.calls[0], t.calls[-1]
-        units = self._move_at(t.id, day, c.dep, t, i)
+        units = self._move_at(t.id, day, dep, t, i)
         formation = self._formation(units)
         inward = self._inward(t, i, day, units, formation)
         stock = "\n".join(f"({self.by_key[k].fleet if k in self.by_key else '?'})" for k in formation)
@@ -370,7 +375,7 @@ class Builder:
         f = show_dep(t, c) + (f"\n({c.plat})" if c.plat else "")
         g = self._calling(t, i, day, units, formation) if t.passenger else f"Empty to {self.name(dest.loc)}"
         cells = [inward, b, show_dep(t, origin), self.name(origin.loc), self.name(dest.loc), f, g]
-        return Row((self._day_time(c.dep, units), t.id), cells)
+        return Row((self._day_time(dep, units), t.id), cells)
 
     @staticmethod
     def _day_time(dep: int, units) -> int:
@@ -500,7 +505,7 @@ class Builder:
                 d, n = other[keys[0]]
                 nxt = d.moves[n + 1] if n + 1 < len(d.moves) else None
                 t2 = self.train(nxt.train, day) if nxt is not None else None
-                if t2 is None or nxt.origin != at or nxt.dep - d.moves[n].arr > DIVIDE_WINDOW:
+                if nxt is None or t2 is None or nxt.origin != at or nxt.dep - d.moves[n].arr > DIVIDE_WINDOW:
                     return None
                 text = self._stops_text(t2, t2.calls[1:])
             groups.append((word, coaches or "?", text))
@@ -671,8 +676,8 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     # the station as the book names it (Origin / Destination columns): the sheet name without '(TLGN)'
     shown = re.sub(r"\s*\([^)]*\)\s*$", "", label).strip() or station.strip()
     builder = Builder(plan, tips, shown, plats, cars=cars)
-    groups = [(dt, DAY_GROUPS.get(dt) or SINGLE_DAYS.get(dt)) for dt in day_types]
-    groups = [(dt, days) for dt, days in groups if days]
+    wanted = [(dt, DAY_GROUPS.get(dt) or SINGLE_DAYS.get(dt)) for dt in day_types]
+    groups = [(dt, days) for dt, days in wanted if days]
     if not groups:
         raise StationBookError("Choose at least one day type (SX, SO or Su).")
     sheets, warnings, total = [], [], 0
@@ -767,7 +772,7 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
                 parts = [(idx, pool.submit(_books_job, xml, [entries[i] for i in idx], kw)) for idx in order]
                 done = {i: r for idx, part in parts for i, r in zip(idx, part.result())}
             results = [done[i] for i in range(len(entries))]
-            for st, path, _w, summary, err in results:
+            for st, _path, _w, summary, err in results:
                 log(f"{st}: {summary or err}")
             return results
         except Exception as exc:                    # helpers unavailable: make them here instead

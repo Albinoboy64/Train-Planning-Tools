@@ -7,11 +7,10 @@ import queue
 import re
 import threading
 import time
-import traceback
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-from rstools import theme
+from rstools import errorlog, theme
 from rstools.branding import APP_NAME, settings_dir
 from rstools.naming import file_label
 from rstools.fsutil import write_json
@@ -83,16 +82,23 @@ def split_paths(text: str) -> list:
     return [p.strip().strip('"') for p in text.split(SEP.strip()) if p.strip().strip('"')]
 
 
+def sheet_names(path: str) -> list[str]:
+    """The workbook's sheet names, in order, read from its index part alone - the same names openpyxl
+    gives, without loading the shared strings and styles (a big workbook took up to half a second)."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from rstools.fsutil import check_zip
+    with zipfile.ZipFile(path) as z:
+        check_zip(z, "xl/workbook.xml")     # refuse a 'zip bomb' before unpacking
+        root = ET.fromstring(z.read("xl/workbook.xml"))
+    return [el.get("name") or "" for el in root.iter() if el.tag.rsplit("}", 1)[-1] == "sheet"]
+
+
 def sniff_timetable(path: str) -> str:
     """'nr' for a Network Rail timetable table, 'gtr' for a GTR timetable check workbook, '' otherwise
     (judged from the sheet names, which is quick)."""
     try:
-        import openpyxl
-        from rstools.fsutil import check_office_file
-        check_office_file(path)     # refuse a 'zip bomb' before unpacking
-        wb = openpyxl.load_workbook(path, read_only=True)
-        names = wb.sheetnames
-        wb.close()
+        names = sheet_names(path)
     except Exception:
         return ""
     if any(re.search(r"notes$", n, re.I) or re.match(r"^(OUT|RTN)_", n) for n in names):
@@ -285,8 +291,8 @@ class TimetableTab(ttk.Frame):
     def _on_drop(self, event, key=None, util=False):
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data) if os.path.isfile(p)]
         xmls = [p for p in paths if p.lower().endswith(".xml")]
-        s4 = [p for p in paths if is_section4(p)]
-        if util or xmls or (s4 and len(s4) == len(paths)):
+        # Section 4 PDFs only when every file is one: stop reading at the first that is not
+        if util or xmls or (paths and all(is_section4(p) for p in paths)):
             self.place_section4(paths)
         else:
             self.place_files(paths, key)
@@ -597,9 +603,9 @@ class TimetableTab(ttk.Frame):
             return messagebox.showwarning(TITLE, "Choose the Attune XML.")
         from rstools import rules
         if not pdfs and not rules.active_set_info():
-            return messagebox.showwarning(TITLE, "Choose the Section 4 PDF(s), or add a Section 4 rule set in Options > "
-                                                 f"Rules and reference data.\n\nThe latest rules can be downloaded "
-                                                 f"from Network Rail:\n{rules.RULES_URL}")
+            return messagebox.showwarning(TITLE, "Choose the Section 4 PDF(s), or add a Section 4 rule set in "
+                                                 "Options > Rules and reference data.\n\nThe latest rules can be "
+                                                 f"downloaded from Network Rail:\n{rules.RULES_URL}")
         for p in [xml] + pdfs:
             if not os.path.isfile(p):
                 return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}")
@@ -650,17 +656,7 @@ class TimetableTab(ttk.Frame):
         except (Section4Error, TimetableRunError) as exc:
             self.q.put(("error", str(exc)))
         except Exception as exc:
-            if isinstance(exc, PermissionError):
-                self.q.put(("error", "A file could not be opened or saved. Close it if it is open, then try "
-                                     f"again.\n\n{exc.filename or exc}"))
-                return
-            where = ""
-            try:
-                from cwn_compare.gui import _write_error_log
-                where = _write_error_log(traceback.format_exc())
-            except Exception:
-                pass
-            self.q.put(("error", f"Unexpected error: {exc}" + (f"\n\nDetails were saved to {where}" if where else "")))
+            self.q.put(("error", errorlog.describe(exc)))
 
     def _work(self, mode, first, second, out_dir, name, fmt):
         try:
@@ -674,18 +670,7 @@ class TimetableTab(ttk.Frame):
             if known:
                 self.q.put(("error", str(exc)))
                 return
-            if isinstance(exc, PermissionError):
-                self.q.put(("error", "A file could not be opened or saved. Close it in Excel or Word if it is open, "
-                                     f"then try again.\n\n{exc.filename or exc}"))
-                return
-            where = ""
-            try:
-                from cwn_compare.gui import _write_error_log
-                where = _write_error_log(traceback.format_exc())
-            except Exception:
-                pass
-            self.q.put(("error", f"Unexpected error: {exc}" + (f"\n\nDetails were saved to {where}" if where else
-                                                              f"\n\n{traceback.format_exc()}")))
+            self.q.put(("error", errorlog.describe(exc)))
 
     def _finish(self, ok: bool):
         self.running = False

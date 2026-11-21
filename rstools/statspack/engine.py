@@ -117,7 +117,8 @@ def empty_attune() -> AttuneData:
     return AttuneData(path="", plan="", start="", end="", locations=names, trains={}, diagram_days=set(), warnings=[])
 
 
-def load_plan(inputs: PlanInputs, log: Callable[[str], None] = lambda m: None, xml_optional: bool = False) -> LoadedPlan:
+def load_plan(inputs: PlanInputs, log: Callable[[str], None] = lambda m: None,
+              xml_optional: bool = False) -> LoadedPlan:
     trents = split_paths(inputs.trent)
     if not trents:
         raise StatsPackError("Choose the TRENT unit diagram print.")
@@ -223,7 +224,8 @@ def _info(plan: LoadedPlan, version: str) -> dict:
 
 
 def build_pack(plan: LoadedPlan, opts: PackOptions, version: str,
-               progress: Callable[[float, str], None] = lambda f, m: None) -> Tuple[List[Tuple[int, List[Table]]], List[str]]:
+               progress: Callable[[float, str], None] = lambda f, m: None
+               ) -> Tuple[List[Tuple[int, List[Table]]], List[str]]:
     fleet = FleetTable.load()
     info = _info(plan, version)
     per_day, warnings = [], ([fleet.warning] if fleet.warning else [])
@@ -316,7 +318,7 @@ def compare_plans(old: LoadedPlan, new: LoadedPlan, opts: PackOptions, version: 
         sink = sink_for(opts.fmt)
         entries = [(sheet, title, new_t[key][name], old_t.get(key, {}).get(name)) for sheet, title, name, key in tabs]
         key = "week" if any(k == "week" for *_x, k in tabs) else tabs[0][3]
-        label = "plans" if key == "week" else DAY_NAMES[key]
+        label = "plans" if key == "week" else DAY_NAMES[int(key)]
         total += write_comparison(sink, entries, f"Differences between {label}" if key == "week" else
                                   f"Differences - {label}", opts.compare,
                                   summary_rows(old_t.get(key, {}), new_t[key]))
@@ -382,8 +384,9 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
     span = "week" if week else ("+".join(DAYS[d] for d in days) if len(days) < 7 else "each day")
     reports.append(Report("Notes", f"How this report was made ({span})", ["Note"],
                           [[w] for w in warnings] + [[
-                              "Days: " + ", ".join(DAY_NAMES[d] for d in days) + ". Depots: locations named T&RSMD, "
-                              "TMD, EMUD, Depot, Shed or Traincare, plus the depot list (Options > Edit depot list)."]]))
+                              "Days: " + ", ".join(DAY_NAMES[d] for d in days) + ". Depots: locations named "
+                              "T&RSMD, TMD, EMUD, Depot, Shed or Traincare, plus the depot list (Options > Edit "
+                              "depot list)."]]))
     return reports, warnings
 
 

@@ -11,7 +11,7 @@ import math
 import os
 import re
 from functools import lru_cache
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from xml.sax.saxutils import escape
 
 from rstools.zipw import write_zip
@@ -186,14 +186,14 @@ class SheetWriter:
         self._measure = True
         self.widths = {}
 
-    def row(self, cells: Sequence[Tuple[int, object, int]], height: Optional[float] = None):
+    def row(self, cells: Sequence[Tuple[int, Any, int]], height: Optional[float] = None):
         """cells: (column number, value, style index), in column order. Hot path: written once
         per row of every tab, so it avoids per-cell helper calls."""
         self.r += 1
         r = str(self.r)
         sst = self.sst.get
         widths = self.widths if self._measure else None
-        parts = []
+        parts: List[str] = []
         add = parts.append
         for c, v, s in cells:
             ref = col_letter(c) + r
@@ -292,8 +292,10 @@ class Workbook:
                             f'<Relationship Id="rId1" Type="{REL}/officeDocument" Target="xl/workbook.xml"/>'
                             "</Relationships>"),
             ("xl/workbook.xml", f'{XML_HEAD}<workbook xmlns="{MAIN}" xmlns:r="{REL}">'
-                                f'<bookViews><workbookView activeTab="0"/></bookViews><sheets>{sheets}</sheets></workbook>'),
-            ("xl/_rels/workbook.xml.rels", f'{XML_HEAD}<Relationships xmlns="{PKG}/relationships">{rels}</Relationships>'),
+                                f'<bookViews><workbookView activeTab="0"/></bookViews>'
+                                f'<sheets>{sheets}</sheets></workbook>'),
+            ("xl/_rels/workbook.xml.rels",
+             f'{XML_HEAD}<Relationships xmlns="{PKG}/relationships">{rels}</Relationships>'),
         ]
         parts += [(f"xl/worksheets/sheet{i}.xml", xml) for i, (_n, xml) in enumerate(self.sheets, start=1)]
         parts += [("xl/styles.xml", self.styles.xml()), ("xl/sharedStrings.xml", self.sst.xml())]

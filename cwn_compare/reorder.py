@@ -93,7 +93,8 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Block]) -> Dict[int, int]:
     mc = max(ws.max_column, sm.max_col)
     by_start = {b.start_row: b for b in sm.blocks}
     # the data area as a list of chunks: whole blocks, and any rows between them (kept in place)
-    chunks, r = [], first
+    chunks: List[tuple] = []
+    r = first
     while r <= last:
         b = by_start.get(r)
         if b is not None:
@@ -132,6 +133,8 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Block]) -> Dict[int, int]:
         for c, (v, style, link, comment) in enumerate(cells, start=1):
             cell = ws.cell(row=target, column=c)
             cell.value = v
+            if cell.data_type == "f":               # read as values, so this is text: never a live formula
+                cell.data_type = "s"
             cell._style = style                     # a copy already, used once
             cell.hyperlink = link
             cell.comment = comment
@@ -172,7 +175,8 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
             continue
         ws = wb[sm.title]
         merged = [m for m in ws.merged_cells.ranges
-                  if m.max_row >= min(b.start_row for b in sm.blocks) and m.min_row <= max(b.end_row for b in sm.blocks)]
+                  if m.max_row >= min(b.start_row for b in sm.blocks)
+                  and m.min_row <= max(b.end_row for b in sm.blocks)]
         new_order, moved = plan_sheet(sm, base, by_time)
         if not moved:
             continue
@@ -181,7 +185,8 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
             continue
         formulas = sum(1 for b in sm.blocks for r in range(b.start_row, b.end_row + 1)
                        for c in range(1, sm.max_col + 1)
-                       if isinstance(ws.cell(row=r, column=c).value, str) and ws.cell(row=r, column=c).value.startswith("="))
+                       if isinstance(ws.cell(row=r, column=c).value, str)
+                       and ws.cell(row=r, column=c).value.startswith("="))
         if formulas:
             warnings.append(f"Tab '{sm.title}' has {formulas} formula cell(s) among its trains, so it was left as "
                             "it was (moving rows could change what the formulas refer to).")

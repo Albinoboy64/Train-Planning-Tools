@@ -10,7 +10,8 @@ from __future__ import annotations
 import re
 
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict, fields
+import dataclasses
+from dataclasses import dataclass, asdict, fields
 from typing import Dict, List, Optional, Tuple
 
 from .model import Block, CWNModel, SheetModel, FIELD_LABELS, UnitRow, is_next_working
@@ -55,7 +56,7 @@ class Change:
     description: str = ""
     note: str = ""             # note row added when "show previous" is on
     kind: str = "modify"       # modify | add_block | remove_block | add_row | remove_row
-    rows: List[dict] = field(default_factory=list)   # old row specs for removed rows/blocks
+    rows: List[dict] = dataclasses.field(default_factory=list)   # old row specs for removed rows/blocks
     anchor: Optional[str] = None                      # new-sheet block key to insert after
     sort_time: Optional[int] = None
     round: int = 1
@@ -75,11 +76,11 @@ def _fl(f: str) -> str:
     return FIELD_LABELS.get(f, f)
 
 
-def _show(v: str) -> str:
+def _show(v: Optional[str]) -> str:
     return v if v else "(blank)"
 
 
-def _origin(frm: str) -> str:
+def _origin(frm: Optional[str]) -> str:
     if not frm:
         return "nothing"
     if frm.strip().casefold() == "berth":
@@ -242,7 +243,9 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
     for i, sk in enumerate(keys):
         so = old.sheets.get(sk)
         sn = new.sheets.get(sk)
-        title = (sn or so).title
+        sheet = sn or so
+        assert sheet is not None                # every key comes from one side or the other
+        title = sheet.title
         if progress:
             progress(i, len(keys), title)
         ctx = _Ctx(sk, title, loose, single)
@@ -261,7 +264,7 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
 
         for o in removed:
             anchor = "__TOP__"
-            for prev in reversed(so.blocks[:o.order]):
+            for prev in reversed(so.blocks[:o.order] if so else []):
                 if prev.key in pair_map:
                     anchor = pair_map[prev.key][0]
                     break
@@ -411,7 +414,7 @@ def _compare_units(ctx: _Ctx, o: Block, n: Block, lbl: str):
 
 def _compare_notes(ctx: _Ctx, o: Block, n: Block, lbl: str):
     key = loose_text if ctx.loose else (lambda t: t)
-    pool = defaultdict(int)
+    pool: Dict[str, int] = defaultdict(int)
     for _r, t, _d in o.notes:
         pool[key(t)] += 1
     for _r, t, d in n.notes:
@@ -449,7 +452,7 @@ def _compare_next_workings(ctx: _Ctx, o: Block, n: Block, lbl: str):
             new_only.append(item)
     old_only = [item for items in pool.values() for item in items]
     old_only.sort(key=lambda it: it[0])
-    for r, key, disp in new_only:
+    for _r, key, disp in new_only:
         match = next((it for it in old_only if _road(it[1]) == _road(key)), old_only[0] if old_only else None)
         if match is not None:
             old_only.remove(match)
