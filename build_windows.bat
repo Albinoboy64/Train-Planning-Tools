@@ -3,8 +3,9 @@ REM Optional: build TrainPlanningTools.exe yourself on a Windows PC (no admin ri
 REM Requires Python 3.12 installed for the current user (python.org installer, "Install for me only").
 python -m venv .venv
 call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip
-pip install -r requirements.txt pyinstaller pytest pillow ruff==0.17.6 mypy==2.4.1
+python -m pip install pip==26.3
+pip install --no-deps -r packaging\build-requirements.txt || goto :failed
+pip check || goto :failed
 ruff check . || goto :failed
 mypy || goto :failed
 python -m pytest -q tests || goto :failed

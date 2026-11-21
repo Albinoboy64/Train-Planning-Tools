@@ -321,6 +321,7 @@ class App(tk.Tk):
             "Ctrl++ / Ctrl+- / Ctrl+0\tLarger / smaller / normal text\nAlt+O / Alt+S / Alt+H\tOptions / Save/Load / "
             "Help menu\nF1\t\tUser guide\n\nFiles can also be dragged onto any tab: each goes to the right box.",
             parent=self))
+        help_menu.add_command(label="Open error log", command=self._open_error_log)
         help_menu.add_command(label="Third-party software and licences", command=self._licences)
         help_menu.add_command(label=f"About {APP_NAME}", command=self._about)
         bar.add("Help", help_menu)
@@ -515,6 +516,15 @@ class App(tk.Tk):
         messagebox.showinfo(f"About {APP_NAME}",
                             f"{APP_NAME} v{__version__}\n\nStock Tools, Stats Pack, Timing Tools and Live View for GTR "
                             f"Train Planning.\n\nhttps://github.com/{updater.REPO}")
+
+    def _open_error_log(self):
+        """The log of unexpected errors (to send with a support request), if any have been recorded."""
+        path = errorlog.log_path()
+        if os.path.isfile(path) and os.path.getsize(path):
+            _open_path(path)
+        else:
+            messagebox.showinfo(APP_TITLE, "No errors have been recorded.\n\nIf one happens, its details are "
+                                           f"saved to:\n{path}", parent=self)
 
     def _licences(self):
         """The open-source software the app is built with, and its licences (shipped with the app)."""

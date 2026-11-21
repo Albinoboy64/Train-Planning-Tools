@@ -329,6 +329,11 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.19.1** - error log in the Help menu, pinned build
+* **Help > Open error log** (new): opens the log of unexpected errors to send with a support request, or says that none have been recorded.
+* **Pinned build**: every package used to build and test the exe now has an exact version (`packaging/build-requirements.txt`, the set 3.19.0 was built with), as does Python itself (3.12.10), so building the same version again gives the same app. `requirements.txt` still lists the minimum versions for running from source.
+* Fixed an intermittent build failure in the display-scaling test, and a font set-up fault that only affected a second app window opened in the same process (seen in tests, not in normal use).
+
 **3.19.0** - pre-release audit: steadier, quicker, safer and portable
 * **Portable**: settings, recent files, rule sets, fleet data and the error log now live in a **TrainPlanningTools-data** folder beside the exe, so copying the exe and that folder takes everything with it. Nothing is written to the registry. If the exe's folder cannot be written to, `%LOCALAPPDATA%\TrainPlanningTools` is used as before. The first time the folder is made, the settings already saved in `%LOCALAPPDATA%` are copied into it (the originals are left alone).
 * **Files open in Excel, read-only folders and full disks** now get a plain message on every tab, including the Station Working Book and *Put day variants in order*, which showed a raw error before. Unexpected errors are all recorded the same way, in `error.log` in the settings folder.
@@ -549,7 +554,7 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 * Tidier code: one output layer writes Excel, PDF and Word for every Stats Pack output; unused code removed; new tests for the unit reports and documents.
 
 **2.1.5**
-* **Options menu**: *Theme* (Follow Windows / Light / Dark), *Check for updates...*, *Check for updates when the app starts*, *GitHub access token...*, *Edit fleet data...* and *Open settings folder*. A *Help* menu links to this guide and shows the version.
+* **Options menu**: *Theme* (Follow Windows / Light / Dark), *Check for updates...*, *Check for updates when the app starts*, *GitHub access token...*, *Edit fleet data...* and *Open settings folder*. A *Help* menu links to this guide, opens the error log and shows the version.
 * **Update directly from GitHub**: *Options > Check for updates* shows what's new, downloads the new exe, checks it against GitHub's SHA-256 checksum, then closes, swaps the file and reopens on the new version - no browser and no admin rights. If the exe's folder can't be written to, the new version is saved to *Downloads* instead. When the app starts it quietly looks for a newer release and shows *Update available* at the top right.
 * **Faster on multi-core PCs**: workbooks are compressed on all CPU cores but one (so the PC stays responsive), CWN outputs are compressed once instead of twice, and comparing two stats pack files reads both at the same time on two cores. A full-week stats pack is written about 25% faster and a full-week pack comparison about 25% faster on a 4-core PC; faster PCs gain more.
 * **Excel-safe output**: every output was checked against the rules Excel applies when opening a file (cell and row order, text over 32,767 characters, overlapping merges, sheet names, numbers, column widths, shared strings). The writer now also guards against over-long text and impossible numbers.

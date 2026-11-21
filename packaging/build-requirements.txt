@@ -1,0 +1,38 @@
+# Exact versions the Windows release is built and tested with (from the 3.19.0 build), so every build
+# of the same commit uses the same packages. requirements.txt keeps the minimum versions for running
+# from source. To update: change a version here, push, and check the build passes before releasing.
+
+# the app
+openpyxl==3.1.5
+et-xmlfile==2.0.0
+xlrd==2.0.2
+pyxlsb==1.0.10
+tkinterdnd2==0.7.0
+reportlab==5.1.0
+charset-normalizer==3.5.2
+pillow==13.0.0
+pypdf==7.1.1
+pypdfium2==5.15.2
+
+# tests and checks
+pytest==9.2.0
+iniconfig==2.3.1
+pluggy==1.7.0
+pygments==2.21.0
+colorama==0.4.6
+packaging==26.3
+ruff==0.17.6
+mypy==2.4.1
+mypy_extensions==1.2.0
+typing_extensions==4.16.0
+pathspec==1.1.1
+librt==0.17.0
+ast-serialize==0.13.1
+
+# the exe builder (PyInstaller is compiled from source, see the workflow)
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.10
+altgraph==0.17.5
+pefile==2024.8.26
+pywin32-ctypes==0.2.3
+setuptools==84.2.1

@@ -431,17 +431,23 @@ def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch)
         try:
             app.update()
             base_dpi = app.dpi
+            # the window-move watcher asks the display for its scaling: it must see the faked display too, or
+            # on a slow machine it fires mid-test and (correctly) switches back to the real display's scaling
+            shown = {"dpi": base_dpi}
+            monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
             line = font.nametofont("TkDefaultFont", app).metrics("linespace")
             wrap = int(str(app.dnd_hint.cget("wraplength")))
             col = int(app.outer.columnconfigure(0)["minsize"])
             app.geometry("1200x800")
             app.update()
+            shown["dpi"] = base_dpi * 2
             app.dpi_changed(base_dpi * 2)
             app.update()
             assert font.nametofont("TkDefaultFont", app).metrics("linespace") >= line * 1.7
             assert int(str(app.dnd_hint.cget("wraplength"))) == wrap * 2
             assert int(app.outer.columnconfigure(0)["minsize"]) == col * 2
             assert app.winfo_width() >= 2000 or app.winfo_width() >= app.winfo_screenwidth() - 50
+            shown["dpi"] = base_dpi
             app.dpi_changed(base_dpi)
             app.update()
             assert font.nametofont("TkDefaultFont", app).metrics("linespace") == line
@@ -506,3 +512,28 @@ def test_error_messages(monkeypatch, tmp_path):
         msg = errorlog.describe(exc)
     assert msg.startswith("Unexpected error") and errorlog.log_path() in msg
     assert "KeyError" in open(errorlog.log_path(), encoding="utf-8").read()
+
+
+def test_help_menu_opens_the_error_log(monkeypatch):
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    from rstools import errorlog
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return                                          # no display
+        shown, opened = [], []
+        monkeypatch.setattr(g.messagebox, "showinfo", lambda *a, **k: shown.append(a[1]))
+        monkeypatch.setattr(g, "_open_path", lambda path: opened.append(path))
+        try:
+            app._open_error_log()
+            assert "No errors have been recorded" in shown[0] and not opened
+            errorlog.write("Traceback: test")
+            app._open_error_log()
+            assert opened == [errorlog.log_path()]
+        finally:
+            app._on_close()

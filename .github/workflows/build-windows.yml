@@ -27,19 +27,19 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12.10"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest pillow ruff==0.17.6 mypy==2.4.1
-
-      - name: Install PyInstaller with a freshly compiled bootloader
-        # A bootloader built from source is not shared with other PyInstaller apps,
-        # which greatly reduces false antivirus / Defender warnings.
+      - name: Install the pinned build packages
+        # Exact versions from packaging/build-requirements.txt (nothing unpinned: --no-deps, then pip check).
+        # PyInstaller is compiled from source with its own bootloader: one not shared with other PyInstaller
+        # apps, which greatly reduces false antivirus / Defender warnings.
         env:
           PYINSTALLER_COMPILE_BOOTLOADER: "1"
-        run: pip install --no-binary pyinstaller pyinstaller
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true     # stop at the first command that fails
+          python -m pip install pip==26.3
+          pip install --no-deps --no-binary pyinstaller -r packaging/build-requirements.txt
+          pip check
 
       - name: Lint
         run: ruff check .

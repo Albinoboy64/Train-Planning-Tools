@@ -45,6 +45,7 @@ PALETTES = {
 _UI_FAMILIES = ("Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", "Noto Sans", "DejaVu Sans")
 _MONO_FAMILIES = ("Cascadia Mono", "Consolas", "Menlo", "Noto Sans Mono", "DejaVu Sans Mono")
 FONT = "TkDefaultFont"          # family name, set by setup_fonts()
+MONO = ""                       # fixed-width family, set by setup_fonts()
 
 
 def _first_family(root, wanted) -> str:
@@ -58,14 +59,14 @@ def setup_fonts(root: tk.Tk, size: str = "normal"):
     app's named fonts (AppBold, AppHead, AppTitle, AppRun, AppLink, AppSmall). Named fonts update
     every widget that uses them, so this can be called again to change the size."""
     from tkinter import font
-    global FONT
+    global FONT, MONO
     scale = TEXT_SIZES.get(size, TEXT_SIZES["normal"])[1]
     pt = lambda n: max(7, round(n * scale))
     if FONT == "TkDefaultFont":
         FONT = _first_family(root, _UI_FAMILIES) or font.nametofont("TkDefaultFont", root).actual("family")
-        setattr(root, "_mono_family", _first_family(root, _MONO_FAMILIES)
-                or font.nametofont("TkFixedFont", root).actual("family"))
-    mono = getattr(root, "_mono_family")
+    if not MONO:
+        MONO = _first_family(root, _MONO_FAMILIES) or font.nametofont("TkFixedFont", root).actual("family")
+    mono = MONO
     for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkCaptionFont",
                  "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont"):
         try:
