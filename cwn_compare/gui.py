@@ -783,8 +783,7 @@ class App(tk.Tk):
                         variable=self.variant_order, value="day").grid(row=1, column=0, sticky="w", padx=(12, 0))
         ttk.Radiobutton(orf, text="By departure time - earliest first, then by day",
                         variable=self.variant_order, value="time").grid(row=2, column=0, sticky="w", padx=(12, 0))
-        ttk.Label(orf, text="Only the variants of the same train change places, within the rows they already "
-                            "use. Nothing is changed or removed, and the original file is not touched.",
+        ttk.Label(orf, text="Only each train's own variants move; nothing else in the CWN changes.",
                   style="Small.TLabel", wraplength=440, justify="left").grid(row=3, column=0, sticky="w",
                                                                               pady=(4, 0))
         self.order_frame.grid_remove()
@@ -837,16 +836,12 @@ class App(tk.Tk):
                     v.set(False)
                 vs[what] = v
             self.cat_vars[key] = vs
-        ttk.Label(cf, text="Hover over a heading or change type for details.", style="Small.TLabel").grid(
-            row=len(CATEGORIES) + 1, column=0, columnspan=4, sticky="w", pady=(8, 0))
         self.loose_var = tk.BooleanVar(value=True)
         loose = ttk.Checkbutton(cf, text="Ignore differences only in spacing or punctuation",
                                 variable=self.loose_var)
         loose.grid(row=len(CATEGORIES) + 2, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        Tooltip(loose, "Destinations, routing and notes that differ only in spaces or punctuation "
-                        "(e.g. '(via  Redhill.)' and '(via Redhill)') are not reported. Capital letters "
-                        "are always ignored; times, platforms, headcodes and units are always compared "
-                        "exactly.")
+        Tooltip(loose, "Destinations, routing and notes that differ only in spaces or punctuation (e.g. "
+                        "'(via  Redhill.)' and '(via Redhill)') are not reported.")
         bf = ttk.Frame(cf)
         bf.grid(row=len(CATEGORIES) + 3, column=0, columnspan=4, sticky="w", pady=(6, 0))
         ttk.Button(bf, text="Reset to defaults", command=self._reset_cats).grid(row=0, column=0)
@@ -1114,14 +1109,11 @@ class App(tk.Tk):
         (self.open_rep.grid_remove if single else self.open_rep.grid)()
         self.run_frame.configure(text="3. Run" if single else "4. Run")
         self.out_frame.configure(text="2. Stations and output" if station else "2. Output")
-        self.intro.configure(text="Day variants in order: saves a tidier copy of one multi-day CWN, with each "
-                                  "train's day variants listed in order. Nothing in the CWN is changed or removed."
-                             if reorder else
-                             "Station Working Book: makes a book in the TRACS-RS layout from an Attune XML - every "
-                             "train leaving the station, with its inward working, stock, platform and calling points."
-                             if station else
-                             "CWN comparison: compares trains (not Excel rows) between an original and an updated "
-                             "CWN, and produces a highlighted CWN plus a change report.")
+        self.intro.configure(text="Saves a copy of a multi-day CWN with each train's day variants in order. The CWN "
+                                  "itself is not changed." if reorder else
+                             "Makes a TRACS-RS style station working book from an Attune XML." if station else
+                             "Compares an original and an updated CWN, and produces a highlighted CWN and a change "
+                             "report.")
         if station:
             self._read_book_xml()
         self._show_dnd_hint()
@@ -1143,8 +1135,8 @@ class App(tk.Tk):
         if not getattr(self, "_dnd_on", False):
             return
         self.dnd_hint.configure(text="Tip: drag and drop two CWNs (or two folders of CWNs) onto this box.")
-        self.util_hint.configure(text="Tip: drag and drop a CWN (to put its variants in order) or an Attune XML "
-                                      "(for a station working book) onto this box.")
+        self.util_hint.configure(text="Tip: drag and drop a CWN (day variants in order) or an Attune XML (station "
+                                      "working book) onto this box.")
 
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""
@@ -1556,7 +1548,7 @@ class App(tk.Tk):
             return
         from .days import label
         note = f"The CWNs cover {label(days)}"
-        note += (" (judged from the DAYS codes - the CWNs do not say)." if assumed else ".")
+        note += (" (from the day codes)." if assumed else ".")
         note += " Untick days to check and output only the trains running on the ticked days."
         if unread:
             note += f" Not read: {', '.join(unread)}."

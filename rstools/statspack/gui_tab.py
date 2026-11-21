@@ -42,9 +42,8 @@ FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):"
          "packs": [("pack_a", "Original stats pack:"), ("pack_b", "Updated stats pack:")],
          "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT VL29 print(s):")],
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
-NOTE = ("• Use the TRENT VehicleLayout29 unit diagram print, saved as Word (.docx). Several VL29 prints can go in "
-        "one box - e.g. the LTP print with a week's STP print.\n• The Attune XML must be exported from the same "
-        "plan as the TRENT print. Unit reports can be made from the TRENT print alone.")
+NOTE = ("Several VL29 prints can go in one box, e.g. the LTP print and a week's STP print. The XML must be from the "
+        "same plan as the TRENT print; unit reports can be made from the TRENT print alone.")
 OPTIONAL = {("units", "xml_a")}         # boxes that may be left blank
 OP_LABEL = {op: f"{op} ({', '.join(deps)})" for op, deps in OPERATOR_DEPOTS.items()}
 OP_LABEL[OTHER] = "Other depots"
@@ -105,9 +104,8 @@ class StatsPackTab(ttk.Frame):
         self.columnconfigure(1, weight=1, minsize=470)
         self.rowconfigure(2, weight=1)
         ttk.Label(self, text="Stats Pack", style="Head.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        theme.tip(ttk.Label(self, text="Builds the rolling stock stats pack (mileage, formations, diagram and "
-                                       "wheel-turning time, stops, calling patterns), unit reports and capacity "
-                                       "reports from an Attune XML and the TRENT diagram print.",
+        theme.tip(ttk.Label(self, text="Stats packs, unit reports and capacity reports from an Attune XML and the "
+                                       "TRENT VL29 print.",
                             style="Small.TLabel", wraplength=1000, justify="left")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
         left, right = ttk.Frame(self), ttk.Frame(self)
         left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
@@ -353,17 +351,17 @@ class StatsPackTab(ttk.Frame):
         for r, kind in enumerate(("Service group", "Corridor")):
             ttk.Radiobutton(sf, text=labels[kind], variable=self.seat_kind, value=kind,
                             command=self._seat_kind_changed).grid(row=2 * r, column=0, sticky="w")
-            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=46)     # pick or type
+            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=36)     # pick or type
             box.grid(row=2 * r, column=1, sticky="ew", padx=(4, 0), pady=1)
             pick = (lambda _v=None, k=kind: (self.seat_kind.set(k), self._seat_kind_changed()))
             box.bind("<<ComboboxSelected>>", lambda _e, f=pick: f())
             box.bind("<Key>", lambda e, f=pick: f() if e.char and e.char.isprintable() else None, add="+")
             Suggest(box, lambda b=box: b.cget("values"), pick)
             self.seat_boxes[kind] = box
-        self.seat_group_note = ttk.Label(sf, text="", style="Small.TLabel")
+        self.seat_group_note = ttk.Label(sf, text="", style="Small.TLabel", wraplength=400, justify="left")
         self.seat_group_note.grid(row=1, column=1, sticky="w", padx=(4, 0))
         self.corridor_dir = tk.StringVar(value="both")
-        self.corridor_dir_box = ttk.Combobox(sf, state="readonly", width=46)
+        self.corridor_dir_box = ttk.Combobox(sf, state="readonly", width=36)
         self.corridor_dir_box.grid(row=3, column=1, sticky="ew", padx=(4, 0), pady=1)
         self.corridor_dir_box.bind("<<ComboboxSelected>>", lambda _e: (self.seat_kind.set("Corridor"),
                                                                        self._seat_kind_changed()))
@@ -377,7 +375,7 @@ class StatsPackTab(ttk.Frame):
         self.journey_from, self.journey_to = tk.StringVar(), tk.StringVar()
         self.journey_boxes = []
         for c, var in ((0, self.journey_from), (2, self.journey_to)):
-            box = ttk.Combobox(jf, textvariable=var, width=20)
+            box = ttk.Combobox(jf, textvariable=var, width=16)
             box.grid(row=0, column=c, sticky="ew")
             box.bind("<<ComboboxSelected>>", lambda _e: (self.seat_kind.set(JOURNEY), self._seat_kind_changed()))
             journey = (lambda _v=None: (self.seat_kind.set(JOURNEY), self._seat_kind_changed()))
@@ -417,7 +415,7 @@ class StatsPackTab(ttk.Frame):
         self.seat_dir_box.set(DIRECTIONS["arriving"])
         self.seat_dir_box.grid(row=0, column=0, sticky="w")
         self.seat_station = tk.StringVar(value="London Victoria")
-        self.seat_station_box = ttk.Combobox(af, textvariable=self.seat_station, width=30)
+        self.seat_station_box = ttk.Combobox(af, textvariable=self.seat_station, width=22)
         self.seat_station_box.grid(row=0, column=1, sticky="ew", padx=(4, 0))
         Suggest(self.seat_station_box, self._station_names)
         self.seat_at_note = ttk.Label(sf, text="(departing the first station)", style="Small.TLabel")
@@ -456,8 +454,8 @@ class StatsPackTab(ttk.Frame):
             self.seat_group["Service group"].set(match)
         elif heads and not cur:
             self.seat_group["Service group"].set(heads[0])
-        self.seat_group_note.configure(text="Built-in list of GTR groups: choose the Attune XML to list this "
-                                            "timetable's own, or type any group (e.g. 1F).")
+        self.seat_group_note.configure(text="Built-in GTR groups. Choose the Attune XML for this timetable's own "
+                                            "list, or type any group.")
         (self.seat_group_note.grid if built_in else self.seat_group_note.grid_remove)()
         stations = self._stations or sorted({shown(s) for g in self._groups for s in g.route}, key=str.casefold)
         for box in (self.seat_station_box, *self.journey_boxes):

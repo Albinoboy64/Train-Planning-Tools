@@ -179,8 +179,8 @@ class LiveTab(ttk.Frame):
         self.listv.bind("<<TreeviewSelect>>", lambda _e: self._show_selected())
         nav = ttk.Frame(left)
         nav.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        ttk.Button(nav, text="< Previous difference", command=lambda: self.step(-1)).grid(row=0, column=0)
-        ttk.Button(nav, text="Next difference >", command=lambda: self.step(1)).grid(row=0, column=1, padx=4)
+        ttk.Button(nav, text="< Previous", command=lambda: self.step(-1)).grid(row=0, column=0)
+        ttk.Button(nav, text="Next >", command=lambda: self.step(1)).grid(row=0, column=1, padx=4)
         self.export_btn = ttk.Button(nav, text="Export...", command=self.export, state="disabled")
         self.export_btn.grid(row=0, column=2, padx=(4, 0))
         self.count_lbl = ttk.Label(nav, text="", style="Small.TLabel")
@@ -207,9 +207,9 @@ class LiveTab(ttk.Frame):
         self.notes = tk.Text(right, height=6, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
                              borderwidth=1, highlightthickness=1)
         self.notes.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        self.legend = ttk.Label(right, text="Yellow: changed   Green: added / only in the updated file   Red: removed "
-                                            "/ missing   Orange: issue   Grey: not compared   -   Click a row to highlight it "
-                                            "and see its full values below", style="Small.TLabel")
+        self.legend = ttk.Label(right, text="Yellow: changed   Green: added   Red: removed / missing   Orange: issue   "
+                                            "Grey: not compared\nClick a row to highlight it "
+                                            "and see its full values above.", style="Small.TLabel")
         self.legend.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
         for widget in (self.listv, self.detail):
             widget.bind("<F3>", lambda _e: self.step(1) or "break")

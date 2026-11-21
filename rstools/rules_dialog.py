@@ -33,9 +33,8 @@ class RulesDialog(tk.Toplevel):
         self.rowconfigure(2, weight=1)
         pad = dict(padx=12, pady=(10, 0))
         intro = ttk.Label(self, wraplength=760, justify="left", text=(
-            "The Network Rail rules the app uses. Section 4 rule sets are read from Network Rail's Engineering Access "
-            "Statement Section 4 PDFs once, and only what the Section 4 check needs is kept (in the settings folder, "
-            "not in the app). The rule set in use is the one the check uses when no PDFs are chosen."))
+            "The Network Rail rules the app uses. Add the Section 4 PDFs once as a rule set; the Section 4 check uses "
+            "the rule set in use whenever no PDFs are chosen."))
         intro.grid(row=0, column=0, sticky="w", **pad)
         bf = ttk.LabelFrame(self, text="Built into the app", padding=8)
         bf.grid(row=1, column=0, sticky="ew", **pad)

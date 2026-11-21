@@ -310,7 +310,7 @@ The **Live View** tab shows any comparison in the app inside the window: CWNs, s
 
 1. Choose what to compare and the files (or drag them onto the tab), then press **Compare** (F5).
 2. Every train (or stats row) is listed on the left. *Show* filters it (differences only, all, changed, issues, added, removed / missing, unchanged, or updated by the last refresh) and *Find* searches it.
-3. Click a train to see it side by side with its match on the right, with differences coloured (yellow changed, green added, red removed / missing, orange issue, grey not compared) and described underneath. **Next / Previous difference** (F3 / Shift+F3) step through the differences.
+3. Click a train to see it side by side with its match on the right, with differences coloured (yellow changed, green added, red removed / missing, orange issue, grey not compared) and described underneath. **Next >** / **< Previous** (F3 / Shift+F3) step through the trains with differences.
    * **Click a row** on the right to highlight it right across, original and updated side by side, with its full values (including any too long for the column) shown in the box underneath.
    * Train prints: the train's details (days run, IDs, dates, class, power type...) sit under a **▼ Train details** heading at the top. Click it (or press Enter on it) to fold them away or show them again; the app remembers your choice. Folded, the heading still turns yellow and says how many details differ.
 4. With **Refresh when a file is saved** ticked, the files are watched. Save either one (e.g. after correcting a time in Excel) and the comparison re-runs, usually within a second or two. Only the saved file is read again. The selected train stays selected, and trains changed by the save are marked `*` in bold, with *Show: Updated by the last refresh* listing just those.
@@ -328,6 +328,10 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.17.1** - clearer wording
+* **Shorter, plainer text throughout**: tab descriptions, notes, tips and hover help no longer explain things planners already know or how the app works inside (e.g. *trains, not Excel rows*, how trains are matched, *hold Ctrl in the file window*, *using several CPU cores*, what a CET or an ACWN is). Each tab's description is now one line, e.g. *Compares an original and an updated CWN, and produces a highlighted CWN and a change report.*
+* **Layout fixes**: the capacity report's group, corridor and station boxes and the note under *Service group* now fit their section; the Live View colour key and its *< Previous* / *Next >* / *Export...* buttons are no longer cut off on smaller windows.
 
 **3.17.0** - rule sets and the new-timetable reminder
 * **Platform length check removed** from the Station Working Book: Attune already checks platform lengths, and selective door opening is used throughout the network. Its built-in platform table and code are gone; unit lengths stay in the fleet table.

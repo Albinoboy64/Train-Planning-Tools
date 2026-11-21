@@ -219,7 +219,7 @@ def read_plan(path: str) -> Plan:
     except OSError as exc:
         raise StationBookError(f"The XML could not be opened: {exc}")
     if not meta:
-        raise StationBookError("This is not an Attune diagram XML (no <diagramExchange> element found).")
+        raise StationBookError("This is not an Attune diagram XML.")
     if not trains:
         raise StationBookError("The XML contains no trains.")
     return Plan(path, meta.get("startdate", ""), locations, dict(trains), diagrams, meta.get("enddate", ""))

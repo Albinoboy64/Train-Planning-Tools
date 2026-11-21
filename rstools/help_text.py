@@ -17,8 +17,8 @@ TIPS = {
     # ---------------------------------------------------------------- shared
     "Browse...": "Choose the file (or folder) in a file window. You can also drag files onto the tab.",
     "Open folder": "Open the folder the output was saved in.",
-    "Add...": "Add train prints to this box (hold Ctrl or Shift to pick several). Prints already in the box are "
-              "kept, so prints from different folders can be compared together. You can also drop prints on the box.",
+    "Add...": "Add files to this box. Files already in it are kept, so files from different folders can be used "
+              "together.",
     "Clear": "Empty this box.",
     "Ignore trains in the source that are not in the files compared with it": "Leave out trains (or rows) found "
         "only in the first file - the original or the reference - e.g. when a print covers only part of a "
@@ -42,28 +42,21 @@ TIPS = {
                                                     "app. The earlier highlights are kept and the new round is "
                                                     "shown in another colour.",
     "Compare two folders of CWNs (batch)": "Compare every CWN in one folder with its partner in another folder "
-                                           "(paired by file name), using several CPU cores at once.",
-    "Put each train's day variants in order (one CWN)": "Make a tidier copy of one multi-day CWN in which "
-                                                         "each train's day variants (MO, TWThO, FO...) are listed "
-                                                         "in a fixed order. Nothing is changed or removed.",
-    "CWN:": "The multi-day CWN (Excel) to tidy. It is not changed - a copy is saved.",
-    "1. CWN comparison": "Compare CWNs: choose one of the three comparisons, then its files below. Dropping CWNs "
-                         "or folders on this box puts them here.",
-    "Utilities": "Tools that take one input: on Stock Tools, a CWN to put in order or an Attune XML for a station "
-                 "working book; on Timing Tools, the Section 4 check. Dropping files on this box puts them here.",
-    "Section 4 check: trains in Network Rail's standard possession times": "Check the timetable (Attune XML) "
-        "against Network Rail's Engineering Access Statement Section 4: every train running over a section inside "
-        "one of its standard possession windows, by period and night. Choose the route PDFs that cover the "
-        "timetable.",
-    "Section 4 PDF(s):": "Network Rail's Engineering Access Statement Section 4 (Standard Possession Opportunities) "
-                         "PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Add... adds to those "
-                         "already chosen.",
-    "1. Timetable comparison": "Compare timetables, train prints and train lists: choose the comparison, then its "
-                               "two files below.",
-    "Station Working Book (TRACS-RS layout, from an Attune XML)": "Make a Station Working Book like the TRACS-RS "
-        "ones: every train leaving the station, with the train(s) it is formed from, its stock, platform and "
-        "calling points, one sheet each for SX, SO and Su. Needs an Attune XML with every day's unit diagrams.",
-    "Station:": "The station, as named in the XML. Type to narrow the list.",
+                                           "(paired by file name).",
+    "Put each train's day variants in order (one CWN)": "Save a copy of a multi-day CWN with each train's day "
+                                                         "variants in order.",
+    "CWN:": "The multi-day CWN. It is not changed - a copy is saved.",
+    "1. CWN comparison": "Choose the comparison, then its files. CWNs or folders dropped on this box go here.",
+    "Utilities": "Tools that take their own files. Files dropped on this box go here.",
+    "Section 4 check: trains in Network Rail's standard possession times": "Check the Attune XML against the "
+        "Engineering Access Statement Section 4: every train running through a section during one of its "
+        "possessions.",
+    "Section 4 PDF(s):": "The Section 4 PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Leave "
+                         "blank to use the rule set in use (Options > Rules and reference data).",
+    "1. Timetable comparison": "Choose the comparison, then its two files.",
+    "Station Working Book (TRACS-RS layout, from an Attune XML)": "One sheet each for SX, SO and Su. Needs an "
+        "Attune XML with every day's unit diagrams.",
+    "Station:": "The station, as named in the XML. Type to see matching stations.",
     "Platforms (optional):": "Only trains leaving from these platforms, e.g. 10-15 for London Bridge low level, "
                              "or 1, 2, 4A. Leave blank for every platform.",
     "Operator:": "For the page header and file name, e.g. GTR(TLGN). The part in brackets also goes in the sheet "
@@ -93,11 +86,10 @@ TIPS = {
     "Swap original / updated": "Swap the two files over.",
     "Output type:": "Full CWN: the whole updated CWN with changes highlighted. ACWN: only the amended trains.",
     "Full CWN with changes highlighted": "The whole updated CWN, with every amended cell coloured.",
-    "ACWN (amended trains only)": "An Amended CWN: only the trains that changed, on only the tabs that changed.",
+    "ACWN (amended trains only)": "Only the trains that changed, on only the tabs that changed.",
     "Highlight colour:": "Colour used to mark the changes found in this run.",
     "Colour for new amendments:": "Colour for this round's changes - choose one not used by earlier rounds.",
-    "Highlight tabs that contain changes": "Colour the sheet tabs (at the bottom in Excel) of locations with "
-                                           "changes.",
+    "Highlight tabs that contain changes": "Colour the sheet tab of each location with changes.",
     "Create change report as": "Also write a change report listing every change by type, location and train.",
     "Days to check:": "Untick days to check and output only the trains running on the ticked days. Days the "
                       "chosen CWNs do not cover are greyed out.",
@@ -117,11 +109,8 @@ TIPS = {
                          "every 48 hours; units that are not are listed first. Always covers the ticked days "
                          "together, even when 'Each ticked day on its own' is chosen.",
     "Unit reports: washes and CETs, depot returns / swaps, captive units, fuel": "Reports that follow each unit "
-                                                                            "through the week: washes and CETs "
-                                                                            "(Controlled Emission Toilet "
-                                                                            "servicing), depot returns and swaps, "
-                                                                            "and units captive to one diagram.",
-    "Several stations:": "Make a book for each of several stations in one run (shared over the CPU cores). Pick a "
+                                                                            "through the week.",
+    "Several stations:": "Make a book for each of several stations in one run. Pick a "
                          "station (and platforms) and press Add to list, or type them separated by ';' with "
                          "platforms in brackets, e.g. London Kings Cross; London Bridge [10-15]; Cambridge.",
     "Add to list": "Add the chosen station (and platforms) to the list of stations to make books for.",
@@ -132,10 +121,8 @@ TIPS = {
     "Updated Attune XML:": "The Attune diagram export (.xml) of the updated plan.",
     "Attune XML (optional):": "The Attune diagram export (.xml) of the plan. Unit reports can be made from the "
                               "TRENT print alone: the XML adds next-day workings for SNGX diagrams.",
-    "TRENT VL29 print(s):": "The TRENT VehicleLayout29 unit diagram print saved as Word (.docx), from the same plan "
-                            "as the XML (TIPLOCs, LTP / STP, miles). Several VL29 prints can go in this box - e.g. "
-                            "the LTP print with a week's STP print: Browse lets you pick several, or drop them all "
-                            "on the box. Other TRENT layouts (VehicleLayout23, 11, 05) are not used.",
+    "TRENT VL29 print(s):": "The TRENT VehicleLayout29 print (saved as Word), from the same plan as the XML. "
+                            "Several prints can go in this box, e.g. the LTP print and a week's STP print.",
     "Original TRENT VL29 print(s):": "The TRENT VehicleLayout29 print(s) (.docx) of the original plan.",
     "Updated TRENT VL29 print(s):": "The TRENT VehicleLayout29 print(s) (.docx) of the updated plan.",
     "Original stats pack:": "The earlier stats pack workbook (.xlsx).",
@@ -152,13 +139,12 @@ TIPS = {
         "the week, optionally only trains at a station between two times. From the fleet data.",
     "Seating capacity": "Show First Class, Standard Class and total seats.",
     "Standing room": "Show standing capacity. With both ticked, total capacity (seats + standing) is shown too.",
-    "Service group:": "Count the trains of one headcode group, e.g. 1F, 1W or 2F (the first two characters of "
-                      "the headcode). The list comes from the Attune XML, with each group's main routes.",
+    "Service group:": "Count the trains of one headcode group: pick from the list or type one, e.g. 1F or 9T.",
     "Corridor:": "Count every passenger train running along this route. Choose one direction (in the box "
                  "underneath) or both. Corridors are an editable list (Edit corridors).",
     "Station to station:": "Count the trains that stop at the first station and later at the second. Seats are "
                            "the smallest formation between them; a time window is the departure from the first "
-                           "station. Type in a box to narrow the list of stations.",
+                           "station. Type in a box to see matching stations.",
     "Whole week (each day, week total and daily average)": "One row per ticked day, then the week total and the "
                                                             "average per day.",
     "Only trains between": "Count only trains arriving at / departing from the chosen station between these "
@@ -203,12 +189,11 @@ TIPS = {
     "Two Attune train list exports (Excel)": "Compare two Attune train list exports column by column.",
     "GTR timetable:": "The GTR timetable check workbook (sheets such as 'OT SNGX TT Checks K - OUT SX').",
     "Network Rail timetable:": "The Network Rail timetable workbook - the reference.",
-    "Train print(s) - reference:": "One or more Attune 'Single Train Report' prints (PDF or Word). Hold Ctrl in "
-                                   "the file window to choose several.",
+    "Train print(s) - reference:": "One or more Attune Single Train Report prints (PDF or Word).",
     "Attune train list - reference:": "The Attune train list export (Excel or CSV).",
     "Timetable to check:": "The timetable workbook to check (GTR or Network Rail layout).",
-    "Original train print(s):": "The earlier train prints (PDF or Word). Several files can be chosen.",
-    "Updated train print(s):": "The newer train prints (PDF or Word). Several files can be chosen.",
+    "Original train print(s):": "The earlier train prints (PDF or Word).",
+    "Updated train print(s):": "The newer train prints (PDF or Word).",
     "Original Attune train list:": "The earlier Attune train list export.",
     "Updated Attune train list:": "The newer Attune train list export.",
     "Swap files": "Swap the two files over.",
@@ -224,8 +209,8 @@ TIPS = {
     "Show:": "Which trains to list.",
     "Find:": "Show only trains whose section, headcode or status contains this text.",
     "Days:": "Untick days to show only the trains running on the ticked days.",
-    "< Previous difference": "Go to the previous train with differences (Shift+F3).",
-    "Next difference >": "Go to the next train with differences (F3).",
+    "< Previous": "Go to the previous train with differences (Shift+F3).",
+    "Next >": "Go to the next train with differences (F3).",
     "Export...": "Save the trains listed (with the current filter and search) and their differences to "
                  "Excel, PDF or Word.",
     # ---------------------------------------------------------------- more Stats Pack

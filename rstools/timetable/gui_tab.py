@@ -41,28 +41,22 @@ EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL),
         "lists": (_LI, _LI)}                       # accepted file types for the first and second box
 MULTI = {"print_tt": (True, False), "prints": (True, True)}     # boxes that take several files
 NOTES = {
-    "timetables": ("Network Rail is the reference. GTR (SN / TL / GX) trains are matched one-to-one using times, "
-                   "headcode, calling pattern and days, then every NR time at a GTR location is checked. The "
-                   "output uses the approved 'Consolidated TT Comparison' template, named after the NR timetable."),
-    "print_tt": ("The Attune 'Single Train Report' print is the reference: every train's public times are checked "
-                 "against the timetable (GTR or Network Rail layout) by the same rules, into the same template. "
-                 "Passing points, working-only stops and empty stock are not compared. Several print files can "
-                 "be chosen (hold Ctrl in the file window)."),
-    "list_tt": ("The Attune train list is the reference. A list only holds each train's origin departure and "
-                "destination arrival, so only those times are checked (use train prints to check every stop). "
-                "Empty-stock and non-passenger trains are left out. Same template as timetable against timetable."),
-    "prints": ("Each train's journey is compared location by location (times, platform, line, activities) and its "
-               "heading details. Several files can be chosen for each side (hold Ctrl in the file window)."),
-    "lists": ("The heading row is found automatically. Trains are paired by UID and days (or headcode, days and "
-              "departure time) and every column in both lists is compared."),
+    "timetables": ("Network Rail is the reference: every NR time at a GTR location is checked. Saved in the "
+                   "Consolidated TT Comparison template, named after the NR timetable."),
+    "print_tt": ("The Single Train Report prints are the reference: each train's public times are checked against "
+                 "the timetable (GTR or Network Rail layout), in the same template. Passes, working-only stops and "
+                 "empty stock are not compared."),
+    "list_tt": ("The train list is the reference. A list only has each train's origin and destination times, so "
+                "only those are checked (use train prints to check every stop). Empty stock is left out."),
+    "prints": ("Each train is compared location by location (times, platform, line, activities), with its "
+               "heading details."),
+    "lists": ("Trains are paired by UID and days (or headcode, days and departure time), and every column is "
+              "compared."),
 }
 SEP = " ; "
 S4 = "section4"                 # Utilities: the Section 4 possession check
-S4_NOTE = ("Checks the timetable against Network Rail's Engineering Access Statement Section 4 (Standard Possession "
-           "Opportunities): every train that runs over a section (calls at or passes both its ends) inside one of "
-           "its possession windows, on a day and in a period the possession applies to. Choose the route PDFs that "
-           "cover the timetable (e.g. Kent & Sussex, East Coast, East Midlands); several can be chosen. The XML has "
-           "no running lines, so where only some lines are blocked the report says to check the line used.")
+S4_NOTE = ("Lists every train that runs through a section during one of its Section 4 possessions. The XML has no "
+           "running lines, so where only some lines are blocked the report says to check the line used.")
 
 
 def is_section4(path: str) -> bool:
@@ -130,9 +124,10 @@ class TimetableTab(ttk.Frame):
         self.rowconfigure(2, weight=1)
         ttk.Label(self, text="Timing Tools", style="Head.TLabel").grid(row=0, column=0, columnspan=2,
                                                                               sticky="w")
-        theme.tip(ttk.Label(self, text="Checks a timetable against the Network Rail timetable, Attune train prints "
-                                       "or an Attune train list, and compares two sets of train prints or two Attune "
-                                       "train lists. Utilities: the Section 4 possession check.", style="Small.TLabel", wraplength=1000, justify="left")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        theme.tip(ttk.Label(self, text="Checks a timetable against the Network Rail timetable, Attune train prints or "
+                                       "a train list, compares train prints or train lists, and checks the timetable "
+                                       "against Section 4 possessions.", style="Small.TLabel", wraplength=1000,
+                            justify="left")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
         left, right = ttk.Frame(self), ttk.Frame(self)
         left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         right.grid(row=2, column=1, sticky="nsew")
@@ -270,8 +265,8 @@ class TimetableTab(ttk.Frame):
     def enable_drag_and_drop(self, dnd_files: str):
         self._dnd = dnd_files
         self._add_drop_target(self)
-        self.dnd_hint.configure(text="Tip: drag and drop the files onto this box (or anywhere on this tab) - the "
-                                     "comparison type and boxes are chosen from the files.")
+        self.dnd_hint.configure(text="Tip: drag and drop the files onto this box or anywhere on the tab - the "
+                                     "comparison and boxes are picked from the files.")
         self.s4_hint.configure(text="Tip: drag and drop the Attune XML and the Section 4 PDF(s) onto this box.")
 
     def _add_drop_target(self, widget, util=False):
