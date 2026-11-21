@@ -36,6 +36,9 @@ class Options:
     mode: str = "compare"            # compare | cumulative | batch | reorder | station | berth_make / round / compare
     variant_order: str = "day"       # reorder mode: day (MO first ... FO, SO, Su) | time (departure time first)
     merge_variants: bool = False     # reorder mode: merge a train's variants that differ only in their days
+    merge_diagrams: bool = False     # ... also when only their diagram numbers differ (each shown with its days)
+    merge_berths: bool = False       # ... also when they berth for the same next working (day codes combined)
+    merge_berth_diagrams: bool = False   # ... also when that next working's diagram number differs
     book_station: str = ""           # station working book: station, platforms, title parts, day sheets
     book_platforms: str = ""
     book_list: str = ""              # several stations: 'London Kings Cross; London Bridge [10-15]; Cambridge'

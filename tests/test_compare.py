@@ -723,3 +723,90 @@ def test_highlighted_only_output():
         tuple(r[:2]) for r in rep["Summary"].iter_rows(values_only=True)]
     nc = [r[:2] for r in rep["New and Cancelled Trains"].iter_rows(min_row=2, values_only=True)]
     assert ("Cancelled", "2C08BT") in nc
+
+
+def _berths(variants):
+    """Berth entries for 1T66HS like a terminus tab: (days, first unit's berth line, second unit's berth line)."""
+    out = []
+    for days, nw1, nw2 in variants:
+        out += [["", days, "", "1", nw1, "(379/0", "", "", "319)", "21.48", "Kings Cross", "", "23.38", "1T66HS",
+                 "S"],
+                [None, None, None, None, nw2, "(379/0", "", "", "318)", "", "", "", "", "", "S"],
+                N("DETACH REQUIRED")]
+    return out
+
+
+def _merged(rules, variants, extra=()):
+    from cwn_compare.reorder import reorder_cwn
+    d = tempfile.mkdtemp()
+    rows = [list(r) for r in BTN_ORIG]
+    src = os.path.join(d, "b.xlsx")
+    make(src, rows[:2] + _berths(variants) + list(extra) + rows[2:], VIC_ORIG)
+    res = reorder_cwn(src, d, merge=True, rules=rules)
+    if not res["path"]:
+        return res, None
+    return res, openpyxl.load_workbook(res["path"], rich_text=True)["BTN"]
+
+
+def _text(v):
+    from openpyxl.cell.rich_text import CellRichText
+    if isinstance(v, CellRichText):
+        return [(str(b.text), b.font.sz < 10) if hasattr(b, "font") else (str(b), False) for b in v]
+    return v
+
+
+def test_merge_berths_for_the_same_next_working():
+    """Variants that berth for the same next working each day merge, the berth lines' day codes combined; a
+    berth for another working stays separate; without the option nothing merges."""
+    from cwn_compare.reorder import MergeRules
+    week = [("MO", "Berth HE317 05.17TO", "Berth HE316 04.49TO"),
+            ("TO", "Berth HE317 05.17WO", "Berth HE316 04.49WO"),
+            ("WO", "Berth HE317 05.17ThO", "Berth HE316 04.49ThO"),
+            ("ThO", "Berth HE317 05.17FO", "Berth HE316 04.49FO"),
+            ("FO", "Berth HE317 04.49SO (2)", "Berth HE316 04.49SO (1)")]
+    res, _ws = _merged(MergeRules(), week)
+    assert res["merged"] == 0
+    res, ws = _merged(MergeRules(berths=True), week)
+    assert res["merged"] == 3
+    got = [(r[1], r[4]) for r in ws.iter_rows(min_row=3, values_only=True) if r[13] == "1T66HS"]
+    assert got == [("FX", "Berth HE317 05.17TWThFO"), ("FO", "Berth HE317 04.49SO (2)")]
+    assert ws["E6"].value == "Berth HE316 04.49TWThFO" and ws["E7"].value == "DETACH REQUIRED"
+
+
+def test_merge_berths_with_a_different_next_day_diagram():
+    """Berthing for the same next working on a different diagram: merged only with that option, both diagram
+    numbers shown with their (next-day) days in small type."""
+    from cwn_compare.reorder import MergeRules
+    week = [("MO", "Berth HE317 05.17TO", "Berth HE316 04.49TO"),
+            ("TO", "Berth HE318 05.17WO", "Berth HE316 04.49WO"),
+            ("WO", "Berth HE317 05.17ThO", "Berth HE316 04.49ThO"),
+            ("ThO", "Berth HE317 05.17FO", "Berth HE316 04.49FO")]
+    res, ws = _merged(MergeRules(berths=True), week)
+    got = [(r[1], r[4]) for r in ws.iter_rows(min_row=3, values_only=True) if r[13] == "1T66HS"]
+    assert got == [("TFX", "Berth HE317 05.17TThFO"), ("TO", "Berth HE318 05.17WO")]
+    res, ws = _merged(MergeRules(berths=True, berth_diagrams=True), week)
+    assert res["merged"] == 3
+    rows = [r for r in ws.iter_rows(min_row=3) if r[13].value == "1T66HS"]
+    assert len(rows) == 1 and rows[0][1].value == "FX"                         # MTWThO in a weekday CWN
+    assert _text(rows[0][4].value) == [("Berth ", False), ("HE317", False), ("TThFO", True), (" / HE318", False),
+                                       ("WO", True), (" 05.17TWThFO", False)]
+
+
+def test_merge_when_only_diagram_numbers_differ():
+    """Variants differing only in their diagram numbers merge with that option: the DIAG cell shows each with
+    its days in small type, brackets kept."""
+    from cwn_compare.reorder import MergeRules
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days, diag):
+        r = list(rows[2]); r[1], r[8] = days, diag; return r
+    extra = [v("MO", "311"), v("TWThO", "319"), v("FO", "312")]
+    res, _ws = _merged(MergeRules(berths=True), [], extra)
+    assert res["path"] == "" or res["merged"] == 0
+    res, ws = _merged(MergeRules(diagrams=True), [], extra)
+    assert res["merged"] == 2
+    got = [r for r in ws.iter_rows(min_row=3) if r[0].value == "2C02BT"]
+    assert len(got) == 2                                                     # the original 2C02BT and the merged one
+    merged = next(r for r in got if r[1].value is None and isinstance(_text(r[8].value), list))
+    assert _text(merged[8].value) == [("311", False), ("MO", True), (" / 319", False), ("TWThO", True),
+                                      (" / 312", False), ("FO", True)]

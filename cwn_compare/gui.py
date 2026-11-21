@@ -987,16 +987,38 @@ class App(tk.Tk):
         merge_cb = ttk.Checkbutton(orf, text="Merge variants that are the same apart from their days",
                                    variable=self.merge_var)
         merge_cb.grid(row=3, column=0, sticky="w", pady=(4, 0))
-        Tooltip(merge_cb, "On each tab, two or more variants of a train with the same times, units, workings "
-                          "and notes become one, with the days of both (e.g. MO and FO become MFO; variants "
-                          "covering every day of the CWN become one with no days code). The rows of the "
-                          "variants merged away are removed.")
+        Tooltip(merge_cb, "Tab by tab: two or more variants of a train with the same times, units, workings "
+                          "and notes on that tab become one, with the days of both (e.g. MO and FO become MFO; "
+                          "variants covering every day of the CWN become one with no days code). A train that "
+                          "differs only where it berths still merges on the tabs where it is the same. The rows "
+                          "of the variants merged away are removed.")
+        self.merge_diag_var = tk.BooleanVar(value=False)
+        self.merge_berth_var = tk.BooleanVar(value=False)
+        self.merge_bdiag_var = tk.BooleanVar(value=False)
+        self.merge_subs = []
+        for r, (var, text, tip) in enumerate((
+                (self.merge_diag_var, "Also when only the diagram numbers differ",
+                 "The DIAG cell shows each diagram number with its days in small type, e.g. 549 WSX / 549A WO."),
+                (self.merge_berth_var, "Also when they berth for the same next working",
+                 "Variants that berth for the same train next day (e.g. 'Berth HE317 05.17TO' on MO, '...05.17WO' "
+                 "on TO) merge, and the berth line's day code covers them all ('Berth HE317 05.17TWThFO'). A berth "
+                 "for a different next working (another time or train) is kept separate."),
+                (self.merge_bdiag_var, "... also when that next working's diagram number differs",
+                 "Berthing for the same next working but on a different diagram (HE317 one day, HE318 another): "
+                 "both diagram numbers are shown in the berth line, each with its days in small type.")), start=4):
+            cb = ttk.Checkbutton(orf, text=text, variable=var)
+            cb.grid(row=r, column=0, sticky="w", padx=(24 if r < 6 else 44, 0))
+            Tooltip(cb, tip)
+            self.merge_subs.append(cb)
         ttk.Label(orf, text="Only each train's own variants move (or merge); nothing else in the CWN changes.",
-                  style="Small.TLabel", wraplength=440, justify="left").grid(row=4, column=0, sticky="w",
+                  style="Small.TLabel", wraplength=440, justify="left").grid(row=7, column=0, sticky="w",
                                                                               pady=(4, 0))
         self.order_frame.grid_remove()
         self.variant_order.trace_add("write", lambda *_a: self._update_name_hint())
         self.merge_var.trace_add("write", lambda *_a: self._update_name_hint())
+        for var in (self.merge_var, self.merge_berth_var):
+            var.trace_add("write", lambda *_a: self._merge_options())
+        self._merge_options()
         self._build_station_book(of)
         self._compare_only = [type_lbl, tf, self.colour_lbl, self.colour, tabs_cb, rep, links_cb, dayf,
                               self.day_note]
@@ -1253,6 +1275,9 @@ class App(tk.Tk):
             v.set(dt in (o.book_days or []))
         self.variant_order.set(o.variant_order if o.variant_order in ("day", "time") else "day")
         self.merge_var.set(bool(o.merge_variants))
+        self.merge_diag_var.set(bool(o.merge_diagrams))
+        self.merge_berth_var.set(bool(o.merge_berths))
+        self.merge_bdiag_var.set(bool(o.merge_berth_diagrams))
         self.out_type.set(o.output_type if o.output_type in ("full", "highlight", "acwn") else "full")
         self.colour.set(o.colour)
         self.tabs_var.set(o.highlight_tabs)
@@ -1272,6 +1297,9 @@ class App(tk.Tk):
         o.mode = self.mode.get()
         o.variant_order = self.variant_order.get()
         o.merge_variants = bool(self.merge_var.get())
+        o.merge_diagrams = bool(self.merge_diag_var.get())
+        o.merge_berths = bool(self.merge_berth_var.get())
+        o.merge_berth_diagrams = bool(self.merge_bdiag_var.get())
         o.berth_files = {m: self._berth_paths(m) for m in BERTH_MODES}
         o.berth_issue = self.berth_issue.get().strip()
         util = o.mode in ("reorder", "station")
@@ -1441,6 +1469,13 @@ class App(tk.Tk):
         for k, vs in self.cat_vars.items():
             for w, v in vs.items():
                 v.set(d[k][w])
+
+    def _merge_options(self):
+        """The 'also when ...' merge options apply only when merging (the last only when merging berths)."""
+        on = bool(self.merge_var.get())
+        for i, cb in enumerate(self.merge_subs):
+            ok = on and (i < 2 or bool(self.merge_berth_var.get()))
+            cb.state(["!disabled"] if ok else ["disabled"])
 
     def _out_type_changed(self):
         """'Highlighted only' shows no previous values or notes, so that column does not apply."""
@@ -1764,10 +1799,12 @@ class App(tk.Tk):
         self.prog.start(15)
 
         def work():
-            from .reorder import ReorderError, reorder_cwn
+            from .reorder import MergeRules, ReorderError, reorder_cwn
             try:
                 res = reorder_cwn(o.original, o.output_dir, o.output_name, o.variant_order == "time",
-                                  log=lambda m: self.q.put(("log", m)), merge=o.merge_variants)
+                                  log=lambda m: self.q.put(("log", m)), merge=o.merge_variants,
+                                  rules=MergeRules(o.merge_diagrams, o.merge_berths,
+                                                   o.merge_berths and o.merge_berth_diagrams))
                 self.q.put(("reorder_done", res))
             except (ReorderError, LoadError) as exc:
                 self.q.put(("error", str(exc)))

@@ -8,7 +8,7 @@ Command-line use:
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
                                        [--sheets SX,SO,Su]
-    TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge] [--name NAME] [--out DIR]  (day variants in order)
+    TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge ...] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
     TrainPlanningTools.exe berthing --compare OLD_CHART.xlsx NEW_CHART.xlsx [--colour Orange]
@@ -167,11 +167,19 @@ def reorder_cli(argv):
     ap.add_argument("--by-time", action="store_true", help="order by departure time first, then by day")
     ap.add_argument("--merge", action="store_true",
                     help="merge a train's variants that are the same apart from their days (e.g. MO + FO = MFO)")
+    ap.add_argument("--merge-diagrams", action="store_true",
+                    help="with --merge: also when only the diagram numbers differ (each shown with its days)")
+    ap.add_argument("--merge-berths", action="store_true",
+                    help="with --merge: also when they berth for the same next working (berth day codes combined)")
+    ap.add_argument("--merge-berth-diagrams", action="store_true",
+                    help="with --merge-berths: also when that next working's diagram number differs")
     ap.add_argument("--name", default="", help="output name")
     ap.add_argument("--out", default="", help="output folder (default: folder of the CWN)")
     a = ap.parse_args(argv)
     try:
-        res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print, merge=a.merge)
+        from cwn_compare.reorder import MergeRules
+        res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print, merge=a.merge,
+                          rules=MergeRules(a.merge_diagrams, a.merge_berths, a.merge_berths and a.merge_berth_diagrams))
     except ReorderError as exc:
         print("ERROR: " + str(exc))
         sys.exit(1)

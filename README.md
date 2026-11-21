@@ -109,7 +109,10 @@ Under *2. Output*, **Days to check** lists Mon-Sun. Once both CWNs are chosen, t
 A multi-day CWN often lists the day variants of the same train (for example 1A23 MO, 1A23 TWThO and 1A23 FO) in no particular order. Choose **Put each train's day variants in order (one CWN)** under *Utilities*, choose the CWN (or drop it on Utilities) and press **Put variants in order**. A copy is saved, e.g. `Proof 2 (variants in day order).xlsx`; the CWN itself is not touched.
 * **By first day run** (default): the first day each variant runs decides its place, whatever the departure times: an MO or MWO variant first, then TO, then WO, ThFO, FO, then SO and Su. Variants are put in order even when they run hours apart or either side of midnight.
 * **By departure time**: the earliest-departing variant first (an FO train at 05.30 before an MO train at 06.10), then day order for variants at the same time.
-* **Merge variants that are the same apart from their days** (optional): on each tab, two or more variants of a train with the same times, platforms, units, workings and notes become one, with the days of both in its DAYS cell (MO and FO become *MFO*; MTWThO and FO in a weekday CWN become one with no days code, like any every-day train). The rows of the variants merged away are removed, the rows below move up, and links to them lead to the merged variant. The copy is named e.g. `Proof 2 (variants in day order, merged).xlsx`.
+* **Merge variants that are the same apart from their days** (optional), tab by tab: on each tab, two or more variants of a train with the same times, platforms, units, workings and notes on that tab become one, with the days of both in its DAYS cell (MO and FO become *MFO*; MTWThO and FO in a weekday CWN become one with no days code, like any every-day train). A train whose variants differ only at the end of the day still merges on every tab where they are the same. The rows of the variants merged away are removed, the rows below move up, and links to them lead to the merged variant. The copy is named e.g. `Proof 2 (variants in day order, merged).xlsx`. Three further options widen what may differ:
+  * **Also when only the diagram numbers differ**: the DIAG cell shows each diagram number followed by its days in small type, e.g. *549* <sub>WSX</sub> / *549A* <sub>WO</sub>. A diagram used by one variant keeps that variant's own code.
+  * **Also when they berth for the same next working**: variants whose berth lines lead to the same train next day (e.g. *Berth HE317 05.17TO* on MO, *...05.17WO* on TO, *...05.17ThO* on WO, *...05.17FO* on ThO) become one, and the berth line's day code covers them all: *Berth HE317 05.17TWThFO*. A variant berthing for a different next working (another time or train, e.g. *Berth HE317 04.49SO* on FO) stays separate.
+  * **... also when that next working's diagram number differs**: berthing for the same next working on a different diagram (HE317 one day, HE318 another) still merges, and the berth line shows both diagram numbers, each with its (next-day) days in small type.
 * Only the variants of the same train swap places, within the rows they already used, so every other train stays exactly where it was. Rows move whole: values, formatting, row heights, notes and coupled-unit rows. Links from other tabs are re-pointed to the rows' new positions. Nothing else is changed or removed.
 * A tab with merged cells or formulas among its trains is left as it was (moving rows could break them), and the log says so.
 * Put the variants in order before comparing if you want the comparison CWN to follow the same order.
@@ -342,6 +345,13 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.25.0** - merging variants: diagrams and berths
+* **Merging works tab by tab**, as before: a train whose variants differ only where they berth at the end of the day still merges on every tab where its variants are the same.
+* **Also when only the diagram numbers differ** (new option): the merged DIAG cell shows each diagram number with its days in small type (e.g. *959* <sub>MO</sub> / *959B* <sub>MSX</sub>).
+* **Also when they berth for the same next working** (new option): variants that berth for the same train next day merge, and the berth line's day code is changed to cover them all (MO to ThO berthing for *HE317 05.17* become one *FSX* variant berthing *HE317 05.17TWThFO*). A berth for a different next working is kept separate.
+* **... also when that next working's diagram number differs** (new option): both diagram numbers are shown in the berth line, each with its days in small type.
+* Tested on the Dec 26 D12 SX CWN: 24 variants merged with all options on; every tab keeps the same trains, the same days each train runs and the same other cells. Also `--merge-diagrams`, `--merge-berths` and `--merge-berth-diagrams` on the command line.
 
 **3.24.0** - highlighted-only CWNs, variants in day order, merging variants
 * **New output type: Full CWN with new or changed items highlighted only.** The updated CWN as it is, with anything new or changed highlighted and none of the original versions: no previous values struck through, no change notes and no cancelled trains put back (they are still listed in the change report). The *Show previous value / note* column is greyed out while it is chosen. Also `--highlight-only` on the command line.
@@ -766,7 +776,7 @@ TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx [--acwn] [--name N
                [--exact-text] [--report-format xlsx|pdf|docx]
 TrainPlanningTools.exe --previous EARLIER_COMPARISON.xlsx --updated NEWEST.xlsx --colour 92D050
 TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days MO,FO        (Monday and Friday trains only)
-TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge] [--name NAME] [--out FOLDER]    (day variants in order)
+TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge [--merge-diagrams] [--merge-berths [--merge-berth-diagrams]]] [--name NAME] [--out FOLDER]    (day variants in order)
 
 TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO,WO] [--operators SNGX,TLGN]
                [--fleets 377/4,387/3] [--output totals_days|totals|days] [--name NAME] [--out FOLDER]

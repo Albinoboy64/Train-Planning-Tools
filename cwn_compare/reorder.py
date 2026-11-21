@@ -20,6 +20,7 @@ import os
 import re
 from collections import defaultdict
 from copy import copy
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .days import coverage, code_days
@@ -103,52 +104,153 @@ def days_code(days: Set[int], base: Set[int], sx_style: bool = False) -> str:
     return "".join(_DAY_TOKENS[d] for d in sorted(rest | ({5} if sat else set()))) + "X"
 
 
-def _signature(b: Block, days_col: int) -> tuple:
-    """A block's contents apart from its DAYS cell: the same for variants that differ only in their days."""
-    return tuple(tuple(cell_text(v) for c, v in enumerate(spec["v"], start=1) if c != days_col)
-                 for spec in b.rows)
+@dataclass(frozen=True)
+class MergeRules:
+    """What may still differ between a train's variants for them to merge (their days always may)."""
+    diagrams: bool = False          # the DIAG cells: the merged cell shows each diagram with its days
+    berths: bool = False            # the day codes of a berth / next-day working line for the same next working
+    berth_diagrams: bool = False    # ... and that next working's diagram number
 
 
-def _merge(blocks: List[Block], sm: SheetModel, base) -> Tuple[List[Block], Dict[str, Set[int]],
-                                                                Dict[str, List[Block]]]:
-    """Merge a train's variants that are the same apart from their days: (the variants left, in sheet order;
-    the days of each merged one; the variants merged into each). Only variants with a DAYS code merge."""
-    col = sm.cols.get("days")
-    if not col:
+Part = Tuple[str, bool]             # (text, shown small): a cell written as rich text
+_NW_PARTS = re.compile(r"^(?P<pre>berth\s+)?(?P<diag>[a-z]{1,4}\d{1,4}[a-z]?)\s+(?P<time>\d{1,2}[.+:]\d{2})"
+                       r"(?:\s?(?P<days>[a-z]{1,8}))?(?P<rest>\b.*)?$", re.I)
+
+
+def _nw(text: str) -> Optional[dict]:
+    """A berth / next-day working line split up: 'Berth HE317 05.17TO (2)' -> pre 'Berth ', diag 'HE317',
+    time '05.17', days 'TO', rest ' (2)'. None if it is not one (or its day code is not a day code)."""
+    from .model import _day_tokens
+    m = _NW_PARTS.match(text or "")
+    if not m:
+        return None
+    d = {k: v or "" for k, v in m.groupdict().items()}
+    if d["days"] and _day_tokens(d["days"]) is None:
+        return None
+    return d
+
+
+def _norm(text: str, col: int, cols: Dict[str, int], rules: MergeRules):
+    """A cell as compared for merging: what may differ is replaced by a placeholder."""
+    if rules.diagrams and col == cols.get("diag") and text:
+        return ("diag", text.startswith("("), text.endswith(")"))
+    if rules.berths and col == cols.get("dest"):
+        d = _nw(text)
+        if d is not None:
+            return ("nw", d["pre"].casefold(), "" if rules.berth_diagrams else d["diag"].casefold(), d["time"],
+                    d["rest"].strip().casefold())
+    return text
+
+
+def _signature(b: Block, cols: Dict[str, int], rules: MergeRules) -> tuple:
+    """A block's contents apart from its DAYS cell (and what `rules` let differ): the same for variants that
+    can merge."""
+    days_col = cols.get("days")
+    return tuple(tuple(_norm(cell_text(v), c, cols, rules) for c, v in enumerate(spec["v"], start=1)
+                       if c != days_col) for spec in b.rows)
+
+
+def _only_code(days: Set[int]) -> str:
+    return "".join(_DAY_TOKENS[d] for d in sorted(days)) + "O" if days else ""
+
+
+def _with_days(values: List[Tuple[str, Set[int], str]], code) -> List[Part]:
+    """Different values side by side, each followed by its days in small type: '549' WSX ' / 549A' WO. A value
+    from one variant keeps that variant's own day code (TWThO); one from several gets their days combined."""
+    by_value: Dict[str, List[Tuple[Set[int], str]]] = {}
+    for v, days, own in values:
+        by_value.setdefault(v, []).append((days, own))
+    parts: List[Part] = []
+    def first_day(src) -> int:
+        days = set().union(*(d for d, _o in src))
+        return min(days) if days else 99
+    ordered = sorted(by_value.items(), key=lambda x: first_day(x[1]))
+    for n, (v, src) in enumerate(ordered):
+        days = set().union(*(d for d, _o in src))
+        parts += [((" / " if n else "") + v, False), (src[0][1] if len(src) == 1 and src[0][1] else code(days), True)]
+    return [(t, small) for t, small in parts if t]
+
+
+def _merged_cells(group: List[Block], cols: Dict[str, int], base, sx_style: bool) -> Dict[Tuple[int, int], list]:
+    """The cells of the merged variant that differ between the variants merged: (row offset, column) -> parts."""
+    days = [_days_of(b, base) for b in group]
+    texts = [[[cell_text(v) for v in spec["v"]] for spec in b.rows] for b in group]
+    out: Dict[Tuple[int, int], list] = {}
+    for i in range(len(texts[0])):
+        for c in range(1, max(len(t[i]) for t in texts) + 1):
+            if c == cols.get("days"):
+                continue
+            vals = [t[i][c - 1] if c - 1 < len(t[i]) else "" for t in texts]
+            if len(set(vals)) == 1:
+                continue
+            if c == cols.get("diag"):
+                lead = "(" if vals[0].startswith("(") else ""
+                trail = ")" if vals[0].endswith(")") else ""
+                inner = [(v.strip("()"), d, b.raw.get("days", "")) for v, d, b in zip(vals, days, group)]
+                parts = _with_days(inner, lambda d: days_code(d, base, sx_style))
+                out[(i, c)] = ([(lead, False)] if lead else []) + parts + ([(trail, False)] if trail else [])
+            elif c == cols.get("dest"):
+                nws = [_nw(v) for v in vals]
+                if any(d is None for d in nws):
+                    continue
+                first = nws[0]
+                assert first is not None
+                nd = [code_days(d["days"], range(7)) or set() if d else set() for d in nws]
+                diag_parts = _with_days([(d["diag"], x, d["days"]) for d, x in zip(nws, nd) if d], _only_code)
+                if len({d["diag"] for d in nws if d}) == 1:
+                    diag_parts = [(first["diag"], False)]
+                union = set().union(*nd)
+                out[(i, c)] = ([(first["pre"], False)] if first["pre"] else []) + diag_parts + [
+                    (" " + first["time"] + _only_code(union) + first["rest"], False)]
+    return out
+
+
+def _merge(blocks: List[Block], sm: SheetModel, base, rules: MergeRules, sx_style: bool
+           ) -> Tuple[List[Block], Dict[str, Set[int]], Dict[str, Tuple[List[Block], dict]]]:
+    """Merge a train's variants that are the same apart from their days (and what `rules` let differ): (the
+    variants left, in sheet order; the days of each merged one; the variants merged into each and the cells of
+    the merged one that change). Only variants with a DAYS code merge."""
+    if not sm.cols.get("days"):
         return blocks, {}, {}
     groups: Dict[tuple, List[Block]] = defaultdict(list)
     for b in blocks:
         if b.days and _days_of(b, base):
-            groups[("same", _signature(b, col))].append(b)
+            groups[("same", _signature(b, sm.cols, rules))].append(b)
         else:
             groups[("own", b.key)].append(b)
     left, days, merged = [], {}, {}
     for g in groups.values():
-        keep = min(g, key=lambda b: b.start_row)
+        g.sort(key=lambda b: b.start_row)
+        keep = g[0]
         left.append(keep)
         if len(g) > 1:
             days[keep.key] = set().union(*(_days_of(b, base) for b in g))
-            merged[keep.key] = [b for b in g if b is not keep]
+            merged[keep.key] = (g[1:], _merged_cells(g, sm.cols, base, sx_style))
     return sorted(left, key=lambda b: b.start_row), days, merged
 
 
-def plan_sheet(sm: SheetModel, base, by_time: bool, merge: bool = False, sx_style: bool = False
-               ) -> Tuple[List[Optional[Block]], int, Dict[str, Tuple[str, List[Block]]]]:
+Merges = Dict[str, Tuple[str, List[Block], dict]]
+
+
+def plan_sheet(sm: SheetModel, base, by_time: bool, merge: bool = False, sx_style: bool = False,
+               rules: Optional[MergeRules] = None) -> Tuple[List[Optional[Block]], int, Merges]:
     """The sheet's blocks in their new order (None where a variant was merged away), how many trains were
-    changed, and the merges: kept block key -> (its new DAYS code, the blocks merged into it)."""
+    changed, and the merges: kept block key -> (its new DAYS code, the blocks merged into it, its cells that
+    change: (row offset, column) -> text parts)."""
+    rules = rules or MergeRules()
     groups: Dict[tuple, List[Block]] = defaultdict(list)
     for b in sm.blocks:
         if b.base_id:
             groups[(b.base_id, b.is_berth)].append(b)
     replacement: Dict[str, Optional[Block]] = {}
-    merges: Dict[str, Tuple[str, List[Block]]] = {}
+    merges: Merges = {}
     moved = 0
     for blocks in (t for g in groups.values() for t in _trains(g, base)):
         if len(blocks) < 2:
             continue
-        left, days, merged = _merge(blocks, sm, base) if merge else (blocks, {}, {})
-        for k, gone in merged.items():
-            merges[k] = (days_code(days[k], base, sx_style), gone)
+        left, days, merged = _merge(blocks, sm, base, rules, sx_style) if merge else (blocks, {}, {})
+        for k, (gone, cells) in merged.items():
+            merges[k] = (days_code(days[k], base, sx_style), gone, cells)
         ordered = _order(left, base, by_time, days)
         if merged or [b.key for b in ordered] != [b.key for b in blocks]:
             moved += 1
@@ -157,8 +259,24 @@ def plan_sheet(sm: SheetModel, base, by_time: bool, merge: bool = False, sx_styl
     return [replacement.get(b.key, b) for b in sm.blocks], moved, merges
 
 
+def _write_parts(cell, parts: List[Part]):
+    """Write text parts into a cell in its own font, the small parts (day codes) in a smaller size."""
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+    from openpyxl.cell.text import InlineFont
+    if not any(small for _t, small in parts):
+        cell.value = "".join(t for t, _s in parts)
+        return
+    f = cell.font
+    size = float(f.sz or 11)
+
+    def font(small: bool) -> InlineFont:
+        return InlineFont(rFont=f.name, sz=max(6.0, round(size * 0.7, 1)) if small else size, b=f.b, i=f.i,
+                          color=copy(f.color) if f.color is not None else None, strike=f.strike)
+    cell.value = CellRichText([TextBlock(font(small), t) for t, small in parts if t])
+
+
 def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
-             merges: Optional[Dict[str, Tuple[str, List[Block]]]] = None) -> Dict[int, int]:
+             merges: Optional[Merges] = None) -> Dict[int, int]:
     """Rewrite the data rows so the blocks follow `new_order` (None: a variant merged away, its rows
     removed and the rows below moved up); rows outside blocks stay put. A merged variant gets its new DAYS
     code. Returns {old row: new row} for every row that moved (rows removed point to the variant they were
@@ -238,7 +356,7 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
             if rng.min_row > last:
                 rng.shift(0, -removed)
     blocks = sm.block_by_key()
-    for key, (code, gone) in merges.items():
+    for key, (code, gone, changed) in merges.items():
         kept = blocks[key]
         at = row_map.get(kept.start_row, kept.start_row)
         if days_col:
@@ -246,6 +364,8 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
             cell.value = code or None
             if cell.data_type == "f":
                 cell.data_type = "s"
+        for (offset, col), parts in changed.items():
+            _write_parts(ws.cell(row=at + offset, column=col), parts)
         for b in gone:                            # links to a variant merged away now lead to the merged one
             for row in range(b.start_row, b.end_row + 1):
                 row_map[row] = at
@@ -253,7 +373,8 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
 
 
 def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = False,
-                log: Callable[[str], None] = lambda m: None, merge: bool = False) -> dict:
+                log: Callable[[str], None] = lambda m: None, merge: bool = False,
+                rules: Optional[MergeRules] = None) -> dict:
     """Write a copy of the CWN at `path` with every train's day variants in order (and, if `merge`, variants
     that are the same apart from their days merged into one). Returns {'path', 'trains', 'merged', 'tabs',
     'warnings'}."""
@@ -284,7 +405,7 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
         merged = [m for m in ws.merged_cells.ranges
                   if m.max_row >= min(b.start_row for b in sm.blocks)
                   and m.min_row <= max(b.end_row for b in sm.blocks)]
-        new_order, moved, merges = plan_sheet(sm, base, by_time, merge, sx_style)
+        new_order, moved, merges = plan_sheet(sm, base, by_time, merge, sx_style, rules)
         if not moved:
             continue
         if merged:
@@ -301,7 +422,7 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
         row_maps[sm.title] = _rewrite(ws, sm, new_order, merges)
         trains += moved
         tabs += 1
-        gone = sum(len(g) for _c, g in merges.values())
+        gone = sum(len(g) for _c, g, _cells in merges.values())
         merged_n += gone
         log(f"{sm.title}: {moved} train(s) with variants put in order"
             + (f", {gone} variant(s) merged into another the same apart from its days" if gone else ""))
