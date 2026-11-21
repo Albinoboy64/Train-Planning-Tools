@@ -437,6 +437,15 @@ def _road(key: str) -> str:
     return words[0] if words else ""
 
 
+_UNIT_POSITION = re.compile(r"\((\d+)\)\s*$")
+
+
+def _position(text: str) -> str:
+    """The unit position at the end of a next-working line, e.g. '2' from 'Berth BI150 06+10MO (2)'."""
+    m = _UNIT_POSITION.search(text)
+    return m.group(1) if m else ""
+
+
 def _compare_next_workings(ctx: _Ctx, o: Block, n: Block, lbl: str):
     """Berth / next-day working lines compared as a set on berth road + next time: a different
     order, a unit swap between lines or a different day-of-week code are not changes - only a
@@ -452,10 +461,22 @@ def _compare_next_workings(ctx: _Ctx, o: Block, n: Block, lbl: str):
             new_only.append(item)
     old_only = [item for items in pool.values() for item in items]
     old_only.sort(key=lambda it: it[0])
-    for _r, key, disp in new_only:
-        match = next((it for it in old_only if _road(it[1]) == _road(key)), old_only[0] if old_only else None)
+    # pair a new line with a removed one only when they are the same working: the same berth road (a new
+    # time) first, then the same unit position '(n)', then any other line - but never two lines for
+    # different unit positions, which are unrelated workings (one removed, one added)
+    paired: Dict[int, tuple] = {}
+    for same in (lambda a, b: _road(a[1]) == _road(b[1]),
+                 lambda a, b: _position(a[2]) != "" and _position(a[2]) == _position(b[2]),
+                 lambda a, b: not (_position(a[2]) and _position(b[2]))):
+        for i, item in enumerate(new_only):
+            if i not in paired:
+                match = next((it for it in old_only if same(it, item)), None)
+                if match is not None:
+                    old_only.remove(match)
+                    paired[i] = match
+    for i, (_r, key, disp) in enumerate(new_only):
+        match = paired.get(i)
         if match is not None:
-            old_only.remove(match)
             ctx.add("BERTHING", n, "dest", "nw", match[2], disp,
                     f"{lbl}: next-day working changed from {match[2]} to {disp}", target_key=key)
         else:

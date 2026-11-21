@@ -564,3 +564,21 @@ def test_single_day_cwn_against_day_coded_cwn():
     u[0][3] = "9"
     _res, changes = _run_pair(o, u, "single")
     assert {c["category"] for c in changes} == {"PLATFORM"}, changes
+
+
+def test_next_day_workings_paired_by_unit_position():
+    """Changed next-day workings pair with the same unit position, and lines for different positions are an
+    addition and a removal - never one unrelated 'changed from' pair."""
+    old = [list(r) for r in BTN_ORIG] + _berth_rows([("Berth BI150 06+10MO (2)", "146"),
+                                                     ("Berth BI149 06+10MO (1)", "147")])
+    both = [list(r) for r in BTN_ORIG] + _berth_rows([("Berth SU305 05+32MO (1)", "147"),
+                                                      ("Berth LB12 07+00MO (2)", "146")])
+    _res, changes = _run_pair(old, both, "nw-both")
+    assert sorted((c["old"], c["new"]) for c in changes) == [
+        ("Berth BI149 06+10MO (1)", "Berth SU305 05+32MO (1)"),
+        ("Berth BI150 06+10MO (2)", "Berth LB12 07+00MO (2)")], changes
+    other = [list(r) for r in BTN_ORIG] + _berth_rows([("Berth BI149 06+10MO (1)", "147"),
+                                                       ("Berth XX9 09+00MO (3)", "149")])
+    _res, changes = _run_pair(old, other, "nw-other")
+    descs = sorted(c["description"] for c in changes if c["category"] == "BERTHING")
+    assert len(descs) == 2 and "added - Berth XX9" in descs[0] and "removed - Berth BI150" in descs[1], descs

@@ -726,3 +726,58 @@ def test_stp_inferred_week_names_and_new_locations():
     assert timetable(data) == "DEC26"
     data.diagrams = [stp]
     assert timetable(data) == "STP wc 12 Dec 2026"
+
+
+def test_stp_stabled_replaces_the_ltp_next_day_working():
+    """An STP diagram ending 'Stabld' must not keep the superseded LTP version's link to another diagram."""
+    from rstools.statspack.attune import AttuneData, UnitDiagram
+    from rstools.statspack.units import xml_links
+    x = AttuneData(path="x", plan="", start="", end="", locations={}, trains={}, diagram_days=set(), warnings=[],
+                   unit_diagrams=[UnitDiagram("BI", "16", {0}, ["BI8 05+03TO (R)"], plan="L"),
+                                  UnitDiagram("BI", "16", {0}, ["Stabld"], plan="S"),
+                                  UnitDiagram("BI", "2", {0}, ["BI4 04+40TO"], plan="L"),
+                                  UnitDiagram("BI", "2", {0}, ["BI8 04+35TO (F)"], plan="S")])
+    links, stabled, _covered = xml_links(x)
+    assert (0, "BI16") not in links and (0, "BI16") in stabled
+    assert links[(0, "BI2")] == (1, "BI8")
+
+
+def test_two_units_never_follow_into_one_diagram(monkeypatch):
+    """Two next-day workings to the same diagram (a clash in the plan): one unit is followed, the clash reported."""
+    from rstools.statspack import units as U
+    lines = (diagram("BI", 1, "MO", "377/4", [move("LOVRSWS", "", "1", "", "05+00", "5A01BI", "1(1)", 10.0, 10.0)],
+                     10.0, 0.0)
+             + diagram("BI", 3, "MO", "377/4", [move("LOVRSWS", "", "1", "", "06+00", "5A05BI", "3(1)", 10.0, 10.0)],
+                       10.0, 0.0)
+             + diagram("BI", 2, "TO", "377/4", [move("HOVEY36", "", "1", "", "05+00", "5A03BI", "2(1)", 10.0, 10.0)],
+                       10.0, 0.0))
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "u.docx")
+        write_docx(p, lines)
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        monkeypatch.setattr(U, "xml_links", lambda attune: ({(0, "BI1"): (1, "BI2"), (0, "BI3"): (1, "BI2")},
+                                                            set(), {0, 1}))
+        units, _per_day, warnings = U.follow_units(plan.trent, plan.attune, [0, 1])
+        holders = [u.diagrams[0].key for u in units if "BI2" in [x.key for x in u.diagrams]]
+        assert holders == ["BI1"], holders
+        assert any("BI3 -> " in w and "another unit already forms" in w for w in warnings), warnings
+
+
+def test_unit_followed_through_its_stabling_diagram(monkeypatch):
+    """MO BI1's note skips to WO BI2, while TO BI3 (standing where BI1 stabled) also forms WO BI2: the same unit,
+    so it is followed MO BI1 > TO BI3 > WO BI2 - one unit, nothing counted twice, no clash reported."""
+    from rstools.statspack import units as U
+    lines = (diagram("BI", 1, "MO", "377/4", [move("LOVRSWS", "", "1", "", "05+00", "5A01BI", "1(1)", 10.0, 10.0),
+                                              act("HOVEY36", "1", "06+00", "STABLD")], 10.0, 0.0)
+             + diagram("BI", 3, "TO", "377/4", [act("HOVEY36", "1", "00+00", "STABLD")], 0.0, 0.0)
+             + diagram("BI", 2, "WO", "377/4", [move("HOVEY36", "", "1", "", "05+00", "5A03BI", "2(1)", 10.0, 10.0)],
+                       10.0, 0.0))
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "u.docx")
+        write_docx(p, lines)
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        monkeypatch.setattr(U, "xml_links", lambda attune: ({(0, "BI1"): (2, "BI2"), (1, "BI3"): (2, "BI2")},
+                                                            set(), {0, 1, 2}))
+        units, _per_day, warnings = U.follow_units(plan.trent, plan.attune, [0, 1, 2])
+        assert [[x.key for x in u.diagrams] for u in units] == [["BI1", "BI3", "BI2"]], units
+        assert not any("another unit already forms" in w for w in warnings), warnings

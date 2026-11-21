@@ -329,6 +329,11 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.19.2** - next-day workings never paired with an unrelated one
+* **Stock Tools**: when several next-day working lines change, each is now paired with the same berth road, then the same unit position *(n)*. Lines for different unit positions are reported as one removed and one added, never as an unrelated *changed from ... to ...* (before, the first left-over line was used, which could cross units (1) and (2)).
+* **Unit reports**: where an XML has both LTP and STP versions of a diagram, an STP *Stabld* now also replaces the LTP plan's next-day working (before, the superseded LTP link was kept and the unit was followed into an unrelated diagram - 34 links in the week 37 XML).
+* **Unit reports**: a unit is never followed into a diagram another unit already works. When a unit's note skips a stabled day and that day's stabling diagram (same fleet, same place) forms the same diagram, the unit is followed through it, e.g. *MO SU852 >? TO SU860 > WO SU861*. Any other clash in the plan is listed in the notes. In week 37, 76 diagram-days had been counted in two units at once; now none are, so wash, CET, fuel and unit totals for the affected units are lower and correct (e.g. 171/8 units 19 to 16, washes 65 to 58).
+
 **3.19.1** - error log in the Help menu, pinned build
 * **Help > Open error log** (new): opens the log of unexpected errors to send with a support request, or says that none have been recorded.
 * **Pinned build**: every package used to build and test the exe now has an exact version (`packaging/build-requirements.txt`, the set 3.19.0 was built with), as does Python itself (3.12.10), so building the same version again gives the same app. `requirements.txt` still lists the minimum versions for running from source.

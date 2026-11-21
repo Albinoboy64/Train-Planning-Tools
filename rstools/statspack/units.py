@@ -173,6 +173,10 @@ def xml_links(attune: Optional[AttuneData]) -> Tuple[Dict[Tuple[int, str], Tuple
     for ud in sorted(attune.unit_diagrams, key=lambda u: PLAN_PRIORITY.get(u.plan.upper(), 0)):
         covered |= ud.days
         for day in ud.days:
+            # this version replaces any earlier one of the diagram that day - including its next-day working,
+            # so an STP 'Stabld' never keeps the superseded LTP plan's link to an unrelated diagram
+            links.pop((day, ud.key), None)
+            stabled.discard((day, ud.key))
             for note in ud.notes:
                 m = _NEXT.match(note)
                 if m:
@@ -210,13 +214,39 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
     pred = set()
     warnings: List[str] = []
     missing = []
-    for (d, key), target in links.items():
+    clashes = []
+    # one unit per diagram: where the XML has two units forming the same diagram (a clash in the plan), the
+    # unit from the nearest earlier day keeps the link and the other is reported, never both followed
+    gap = lambda item: (order.get(item[1][0], 99) - order.get(item[0][0], 0), item[0])
+    for (d, key), target in sorted(links.items(), key=gap):
         if (d, key) in node and d in order:
             if target in node and order.get(target[0], -1) > order[d]:
+                if target in pred:
+                    clashes.append(((d, key), target))
+                    continue
                 succ[(d, key)] = (target, "XML")
                 pred.add(target)
             elif target[0] in order and target not in node:
                 missing.append(f"{DAYS[d]} {key} -> {DAYS[target[0]]} {target[1]}")
+    # A unit that stables for a day can be named twice: its own note skips to the diagram it works next,
+    # while the day in between has a stabling diagram that forms the same diagram (e.g. MO SU852 -> WO SU861,
+    # with TO SU860 standing at the same depot all day -> WO SU861). That stabling diagram is the same unit's
+    # day, so the chain runs through it. Anything else is a clash in the plan and is reported.
+    holder_of = {target: src for src, (target, _how) in succ.items()}
+    unresolved = []
+    for src, target in clashes:
+        holder = holder_of.get(target)
+        if (holder is not None and src not in succ and holder not in pred
+                and order[src[0]] < order[holder[0]] and node[src].fleet == node[holder].fleet
+                and _closeness(node[src].end_loc, node[holder].start_loc, depots) in (0, 1)):
+            succ[src] = (holder, "inferred")
+            pred.add(holder)
+        else:
+            unresolved.append(f"{DAYS[src[0]]} {src[1]} -> {DAYS[target[0]]} {target[1]}")
+    if unresolved:
+        warnings.append(f"{len(unresolved)} next-day working(s) in the XML form a diagram another unit already "
+                        f"forms (e.g. {', '.join(unresolved[:6])}) - the unit from the nearer day was followed; "
+                        "check the plan.")
     # the TLGN print names the diagram the units form the next day ('Forms (Next Day) 316')
     trent_links = 0
     for d in days:
