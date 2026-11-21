@@ -1,6 +1,8 @@
 """Network Rail rules the app uses, the rule sets the user has added, and the new-timetable reminder.
 
-* Built in: the headcode (service group) descriptions from the Timetable Planning Rules 2027 (v4).
+* Built in: the headcode (service group) descriptions from the Timetable Planning Rules 2027 (v4), and a Section 4
+  rule set read from the 2027 EAS v4 Section 4 PDFs (Kent & Sussex, Anglia, East Coast, East Midlands, Wessex),
+  in use until the user adds or chooses another.
 * Added by the user: Section 4 (Engineering Access Statement, Standard Possession Opportunities) rule sets. The
   PDFs are read once and only what the Section 4 check needs is kept, compressed, in the settings folder
   (rules/<name>.json.gz) - the PDFs themselves are not copied, so the app does not grow. One set is 'in use'.
@@ -25,6 +27,9 @@ BUILT_IN = [
      "covers": "Sussex, Kent, Wessex, Anglia, East Midlands and LNE routes", "from": "2026-12-13",
      "to": "2027-12-11"},
 ]
+BUILT_IN_S4 = "2027 EAS v4 (built in)"     # the Section 4 rule set shipped with the app
+BUILT_IN_S4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "timetable", "section4_builtin.json.gz")
+_builtin_cache: dict = {}
 
 
 def _dir() -> str:
@@ -123,15 +128,40 @@ def _safe(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9 ._()-]+", "-", name).strip(" .")[:80] or "Section 4"
 
 
+def _builtin_data() -> Optional[dict]:
+    """The built-in Section 4 rule set as stored (read once), or None if it is missing or damaged."""
+    if "data" not in _builtin_cache:
+        try:
+            with gzip.open(BUILT_IN_S4_FILE, "rt", encoding="utf-8") as fh:
+                data = json.load(fh)
+            _builtin_cache["data"] = data if isinstance(data, dict) and data.get("possessions") else None
+        except (OSError, ValueError, EOFError):
+            _builtin_cache["data"] = None
+    return _builtin_cache["data"]
+
+
+def _builtin_info() -> Optional[dict]:
+    data = _builtin_data()
+    if data is None:
+        return None
+    return dict(data.get("info", {}), name=BUILT_IN_S4, files=list(data.get("files", [])), added="",
+                built_in=True)
+
+
 def list_sets() -> List[dict]:
-    """The Section 4 rule sets added, newest first: name, files, possessions, periods, added, active."""
+    """The Section 4 rule sets, those added newest first, then the built-in one: name, files, possessions,
+    periods, added, active, built_in. The built-in set is in use unless an added set has been chosen."""
     idx = _load_index()
     active = idx.get("active_section4", "")
     out = []
     for s in idx.get("section4", []):
         if isinstance(s, dict) and os.path.isfile(os.path.join(_dir(), s.get("file", ""))):
-            out.append(dict(s, active=s.get("name") == active))
-    return sorted(out, key=lambda s: s.get("added", ""), reverse=True)
+            out.append(dict(s, active=s.get("name") == active, built_in=False))
+    out.sort(key=lambda s: s.get("added", ""), reverse=True)
+    builtin = _builtin_info()
+    if builtin is not None:
+        out.append(dict(builtin, active=not any(s["active"] for s in out)))
+    return out
 
 
 def active_set_info() -> Optional[dict]:
@@ -157,25 +187,46 @@ def in_use(today: Optional[date] = None) -> Tuple[str, bool]:
     return f"Rules: {tpr_name} \u00b7 {s4}" + (" (check)" if stale else ""), stale
 
 
-def add_section4_set(name: str, pdfs: Sequence[str], log=lambda m: None) -> dict:
-    """Read the Section 4 PDFs and keep what the check needs as a named rule set (made the one in use)."""
+def _read_set(name: str, pdfs: Sequence[str], log) -> Tuple[dict, dict]:
+    """Read Section 4 PDFs: (the data to store, a summary - possessions, sections, from, to)."""
     from rstools.timetable.section4 import Section4Error, read_statement
-    name = _safe(name)
     st = read_statement(pdfs, log)
     if not st.possessions:
         raise Section4Error("No Section 4 possessions were found in the PDF(s). Use Network Rail's Engineering "
                             "Access Statement Section 4 (Standard Possession Opportunities) PDFs.")
-    data = {"name": name, "files": [os.path.basename(p) for p in pdfs], "warnings": st.warnings,
-            "possessions": [_dump(p) for p in st.possessions]}
-    fname = _safe(name) + ".json.gz"
-    with gzip.open(os.path.join(_dir(), fname), "wt", encoding="utf-8") as fh:
-        json.dump(data, fh, separators=(",", ":"))
     periods = sorted({(per.name, per.start.isoformat(), per.end.isoformat()) for p in st.possessions
                       for per in p.periods}, key=lambda x: x[1])
-    info = {"name": name, "file": fname, "files": data["files"], "possessions": len(st.possessions),
-            "sections": len({(p.route, p.number) for p in st.possessions}),
-            "from": periods[0][1] if periods else "", "to": periods[-1][2] if periods else "",
-            "added": datetime.now().isoformat(timespec="seconds")}
+    summary = {"possessions": len(st.possessions), "sections": len({(p.route, p.number) for p in st.possessions}),
+               "from": periods[0][1] if periods else "", "to": periods[-1][2] if periods else ""}
+    data = {"name": name, "files": [os.path.basename(p) for p in pdfs], "warnings": st.warnings,
+            "possessions": [_dump(p) for p in st.possessions]}
+    return data, summary
+
+
+def _write_gz(path: str, data: dict):
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        json.dump(data, fh, separators=(",", ":"))
+
+
+def build_builtin_set(pdfs: Sequence[str], out: str = BUILT_IN_S4_FILE, log=print) -> dict:
+    """Make the built-in Section 4 rule set shipped with the app from Network Rail's Section 4 PDFs (run when
+    building a release with new rules: python -m rstools.rules PDF...)."""
+    data, summary = _read_set(BUILT_IN_S4, pdfs, log)
+    data["info"] = summary
+    _write_gz(out, data)
+    _builtin_cache.clear()
+    return summary
+
+
+def add_section4_set(name: str, pdfs: Sequence[str], log=lambda m: None) -> dict:
+    """Read the Section 4 PDFs and keep what the check needs as a named rule set (made the one in use)."""
+    name = _safe(name)
+    if name == BUILT_IN_S4:
+        name = name.replace("(built in)", "(added)")
+    data, summary = _read_set(name, pdfs, log)
+    fname = _safe(name) + ".json.gz"
+    _write_gz(os.path.join(_dir(), fname), data)
+    info = dict(summary, name=name, file=fname, files=data["files"], added=datetime.now().isoformat(timespec="seconds"))
     idx = _load_index()
     idx["section4"] = [s for s in idx.get("section4", []) if s.get("name") != name] + [info]
     idx["active_section4"] = name
@@ -184,6 +235,9 @@ def add_section4_set(name: str, pdfs: Sequence[str], log=lambda m: None) -> dict
 
 
 def remove_set(name: str):
+    """Remove an added rule set (the built-in one cannot be removed)."""
+    if name == BUILT_IN_S4:
+        return
     idx = _load_index()
     for s in idx.get("section4", []):
         if s.get("name") == name:
@@ -199,7 +253,7 @@ def remove_set(name: str):
 
 def use_set(name: str):
     idx = _load_index()
-    if any(s.get("name") == name for s in idx.get("section4", [])):
+    if name == BUILT_IN_S4 or any(s.get("name") == name for s in idx.get("section4", [])):
         idx["active_section4"] = name
         _save_index(idx)
 
@@ -210,11 +264,16 @@ def load_set(name: str = ""):
     info = next((s for s in list_sets() if (s["name"] == name if name else s["active"])), None)
     if info is None:
         return None
-    try:
-        with gzip.open(os.path.join(_dir(), info["file"]), "rt", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError, EOFError):
-        return None
+    if info.get("built_in"):
+        data = _builtin_data()
+        if data is None:
+            return None
+    else:
+        try:
+            with gzip.open(os.path.join(_dir(), info["file"]), "rt", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError, EOFError):
+            return None
     st = Statement([_load(p) for p in data.get("possessions", [])],
                    [f"{info['name']}: {f}" for f in data.get("files", [])], list(data.get("warnings", [])))
     return st
@@ -253,3 +312,10 @@ def coverage_warning(statement, start: str, end: str) -> Optional[str]:
                 f"they may be out of date. Download the latest from {RULES_URL} and add them in Options > Rules "
                 "and reference data.")
     return None
+
+
+if __name__ == "__main__":                       # rebuild the built-in Section 4 rule set from new PDFs
+    import sys
+    if len(sys.argv) < 2:
+        sys.exit("usage: python -m rstools.rules SECTION4.pdf [SECTION4.pdf ...]")
+    print(build_builtin_set(sys.argv[1:]))

@@ -406,8 +406,9 @@ def berthing_cli(argv):
 
 
 def selftest_cli(argv):
-    """Checks the packaged exe (used by the build): its fast PDF reader reads an Attune print, and a window
-    opens with drag and drop (the tkdnd files bundled must match the exe's Tcl/Tk)."""
+    """Checks the packaged exe (used by the build): its fast PDF reader reads an Attune print, the built-in
+    Section 4 rule set is inside it, and a window opens with drag and drop (the tkdnd files bundled must match the
+    exe's Tcl/Tk)."""
     from rstools.timetable.prints import _pdfium_lines
     path = argv[0] if argv else ""
     pages = _pdfium_lines(path) if path else None
@@ -415,6 +416,11 @@ def selftest_cli(argv):
         print("ERROR: the fast PDF reader (PDFium) could not read", path or "(no file given)")
         sys.exit(1)
     print(f"PDFium OK: {len(pages)} page(s)")
+    from rstools import rules
+    if rules._builtin_data() is None:
+        print("ERROR: the built-in Section 4 rule set is missing from the exe")
+        sys.exit(1)
+    print(f"Rules OK: {rules.BUILT_IN_S4}, {len(rules._builtin_data()['possessions'])} possession rows")
     import tkinter as tk
     try:
         root = tk.Tk()

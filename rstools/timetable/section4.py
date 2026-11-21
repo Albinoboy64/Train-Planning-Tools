@@ -29,7 +29,7 @@ _WINDOW = re.compile(r"(\d{2})[.:]?(\d{2})\s*([A-Za-z]{1,5}(?:\s*[-/]\s*[A-Za-z]
 _SECTION_NO = re.compile(r"\b(\d{2,4}\.\d{1,3}[a-z]?)\b")
 _LINE_WORDS = re.compile(r"\b(fast|slow|main|relief|local|suburban|electric|loop|platforms?|reversible|goods|chatham|"
                          r"thameslink|quarry|hendon|bay|siding|no\.?\s*\d|[a-f]\s*&\s*[a-f]|[a-f] lines?)\b", re.I)
-_ROUTE = re.compile(r"^\s*([A-Z]{2}\d{3,4}[A-Z]?)\s+(.+?)(?:\s+continued.*)?\s*$")
+_ROUTE = re.compile(r"^\s*([A-Z]{2}\d{3,4}[A-Z]?(?:\s*/\s*[A-Z]{2}\d{3,4}[A-Z]?)*)\s+(.+?)\s*$")
 _DATES = re.compile(r"(\d{1,2})[./](\d{1,2})[./](\d{4})\s*to\s*(\d{1,2})[./](\d{1,2})[./](\d{4})")
 
 
@@ -190,6 +190,7 @@ def _read_pdf(path: str, st: Statement):
         raise Section4Error(f"'{os.path.basename(path)}' could not be opened as a PDF ({exc}).")
     route, section, number = "", "", ""
     ends: Tuple[str, ...] = ()
+    known: Dict[str, str] = {}             # route number ('1110') -> its title, for tables that start mid-page
     try:
         for pno in range(len(pdf)):
             page = pdf[pno]
@@ -240,11 +241,11 @@ def _read_pdf(path: str, st: Statement):
                     sec_hi, day_lo, day_hi = inner[0], inner[0], p_lo
             rem_lo, rem_hi = cells[last]
             # the route title above the table
-            top = _text_in(tp, 0, 0, hx0 - 1, 2000)
-            for line in re.split(r"(?<=\S)\s{0,1}(?=[A-Z]{2}\d{3})", top):
-                m = _ROUTE.match(line)
-                if m:
-                    route = f"{m.group(1)} {re.sub(r'continued.*', '', m.group(2), flags=re.I).strip(' .…')}"
+            route = _route_title(tp, hx0) or route         # a table without its own title continues the last
+            try:
+                _by_number(_titles(tp.get_text_range()), known)     # titles further down the page too
+            except Exception:
+                pass
             # body rows: bands between row edges that cross the period columns
             body = sorted({round(x, 1) for x, b, t in rows if b <= (p_lo + p_hi) / 2 <= t and x > hx1 - 1})
             body = _cluster(body)
@@ -274,10 +275,57 @@ def _read_pdf(path: str, st: Statement):
                     if not covered:
                         continue
                     for windows, blocked in _segments_of(text):
-                        st.possessions.append(Possession(route, section, number, ends, night, covered, windows,
+                        line_of_route = known.get(number.split(".")[0].lstrip("0"), route)
+                        st.possessions.append(Possession(line_of_route, section, number, ends, night, covered, windows,
                                                          blocked, remarks, f"{os.path.basename(path)} p{pno + 1}"))
     finally:
         pdf.close()
+
+
+def _titles(raw: str) -> List[Tuple[str, str]]:
+    """The line of route titles in some PDF text, in order: (codes, title), e.g. ('SO110', 'SO110 VICTORIA
+    EASTERN TO RAMSGATE'). A title starts with the route code and goes on in capitals; notes after it on the same
+    line ('Published on behalf of ...', '(see also SW183)') are left off, and signal numbers and 'see LN3222 in
+    ...' notes are not titles."""
+    raw = raw.replace("\ufffe", "").replace("\x02", "-")
+    # lines the PDF runs together with no break: 'RETFORDNOTES: ...', '... documentLN235 ...', 'STRATFORDIncludes'
+    raw = re.sub(r"(?<=[A-Z]{2})(?=NOTES:)|(?<=[a-z.])(?=[A-Z]{2}\d{3})|(?<=[A-Z]{2})(?=[A-Z][a-z])", "\n", raw)
+    lines = [" ".join(x.split()) for x in raw.splitlines()]
+    out = []
+    for k, line in enumerate(lines):
+        nxt = lines[k + 1] if k + 1 < len(lines) else ""
+        if re.fullmatch(r"[A-Z]{1,2}", nxt):                   # a title wrapped by one letter or two ('EAST J' 'N')
+            line += nxt
+        for piece in re.split(r"(?<=\s)(?=[A-Z]{2}\d{3,4}[A-Z]?\s)", line):      # two titles on one line
+            m = _ROUTE.match(piece)
+            if not m:
+                continue
+            name = re.sub(r"\s*\((?:see|refer)\b[^)]*\)?", "", m.group(2), flags=re.I)      # '(see also SW183)'
+            words = []
+            for w in name.split():
+                if any(c.islower() for c in w):               # a note starts: 'Published ...', 'cont', 'in ...'
+                    break
+                words.append(w)
+            name = re.sub(r"\s+SECTION$", "", " ".join(words)).strip(" .…-–")
+            if sum(c.isalpha() for c in name) >= 3:
+                out.append((m.group(1), f"{m.group(1)} {name}"))
+    return out
+
+
+def _route_title(tp, hx0: float) -> str:
+    """The line of route title above a page's (first) table, or '' when there is none."""
+    try:
+        found = _titles(tp.get_text_bounded(left=0, bottom=0, right=hx0 - 1, top=2000))
+    except Exception:
+        return ""
+    return found[-1][1] if found else ""
+
+
+def _by_number(titles: Sequence[Tuple[str, str]], known: Dict[str, str]):
+    """Remember each title under its route number ('SO511/EA1325' -> '511' and '1325')."""
+    for codes, title in titles:
+        for code in re.findall(r"[A-Z]{2}(\d{3,4})", codes):
+            known[code.lstrip("0")] = title
 
 
 def _segments_of(text: str) -> List[Tuple[List[Window], str]]:

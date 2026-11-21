@@ -106,7 +106,7 @@ jobs:
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--base-prints','smoke\attune.pdf','--check','smoke\tt_check.xlsx','--out','smoke','--name','print_tt' -Wait -PassThru
           if (!(Test-Path smoke\print_tt.xlsx)) { throw "exe did not produce a print-against-timetable comparison" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'selftest','smoke\attune.pdf' -Wait -PassThru -NoNewWindow
-          if ($p.ExitCode -ne 0) { throw "the exe could not read an Attune print with PDFium, or open a window with drag and drop" }
+          if ($p.ExitCode -ne 0) { throw "the exe could not read an Attune print with PDFium, find its built-in Section 4 rules, or open a window with drag and drop" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_compare as t; [os.makedirs(f'smoke/{d}', exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make(f'smoke/bo/{n} Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make(f'smoke/bu/{n} Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original-folder','smoke\bo','--updated','smoke\bu','--out','smoke\bout' -Wait -PassThru
           if ((Get-ChildItem smoke\bout -Filter *Proof*.xlsx | Where-Object { $_.Name -notlike '*Change Report*' }).Count -ne 2) { throw "exe batch comparison did not produce two CWNs" }

@@ -645,3 +645,63 @@ def test_rules_sets_reminder_and_timetables(monkeypatch):
         rules.remove_set("EAS 2027 v4")
         assert rules.active_set_info()["name"] == "EAS 2028 v1"
         assert len(os.listdir(os.path.join(d, "rules"))) == 2                # rules.json + the one set left
+
+
+def test_section4_built_in_rule_set(monkeypatch, tmp_path):
+    """The 2027 EAS v4 Section 4 rule set ships with the app: in use until another is added or chosen, cannot be
+    removed, and every possession has a clean line of route title."""
+    import re
+    from datetime import date
+    from rstools import rules
+    from rstools.timetable import section4 as S4
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    sets = rules.list_sets()
+    assert [(s["name"], s["active"], s["built_in"]) for s in sets] == [(rules.BUILT_IN_S4, True, True)]
+    b = sets[0]
+    assert (b["possessions"], b["sections"], b["from"], b["to"]) == (5848, 702, "2026-12-13", "2027-12-11")
+    assert len(b["files"]) == 5 and all(f.startswith("2027 EAS V4 S4") for f in b["files"])
+    st = rules.load_set()
+    assert len(st.possessions) == 5848
+    routes = {p.route for p in st.possessions}
+    assert "SO110 VICTORIA EASTERN TO RAMSGATE" in routes and "EA1110 THORPE-LE-SOKEN TO WALTON-ON-NAZE" in routes
+    assert not [r for r in routes if re.search("[a-z]", r)]          # no notes or remarks caught in a title
+    assert rules.coverage_warning(st, "2026-12-13", "2027-05-15") is None
+    # an added set takes over; the built-in one can be chosen again but not removed
+    per = S4.Period("Periods A and B", date(2026, 12, 13), date(2027, 2, 14))
+    pos = S4.Possession("XX1 TEST", "A and B", "1.1", ("A", "B"), "WEEK END", [per],
+                        S4.parse_windows("0100 Sun to 0600 Sun"), "BLOCKED", "", "t")
+    monkeypatch.setattr(S4, "read_statement", lambda pdfs, log=None: S4.Statement([pos], list(pdfs)))
+    rules.add_section4_set("EAS 2028 v1", ["/x/KS.pdf"])
+    assert rules.active_set_info()["name"] == "EAS 2028 v1" and len(rules.load_set().possessions) == 1
+    rules.use_set(rules.BUILT_IN_S4)
+    assert rules.active_set_info()["built_in"] and len(rules.load_set().possessions) == 5848
+    rules.remove_set(rules.BUILT_IN_S4)
+    assert rules.BUILT_IN_S4 in [s["name"] for s in rules.list_sets()]
+    rules.use_set("EAS 2028 v1")
+    rules.remove_set("EAS 2028 v1")                                  # the set in use removed: back to built in
+    assert rules.active_set_info()["name"] == rules.BUILT_IN_S4
+    assert rules.add_section4_set(rules.BUILT_IN_S4, ["/x/a.pdf"])["name"] == "2027 EAS v4 (added)"
+
+
+def test_section4_route_titles():
+    """Line of route titles above a Section 4 table: notes left off, run-together lines split, signal numbers and
+    'see ... in' notes not taken for titles."""
+    from rstools.timetable.section4 import _titles
+    t = lambda raw: [x[1] for x in _titles(raw)]
+    assert t("OFFICIAL\r\nSO685 LEATHERHEAD TO HORSHAM (see also SW183) \r\nSECTION Periods") == [
+        "SO685 LEATHERHEAD TO HORSHAM"]
+    assert t("SO511/EA1325 HIGHBURY & ISLINGTON AND NEW CROSS GATE / NEW CROSS Published on behalf of TfL") == [
+        "SO511/EA1325 HIGHBURY & ISLINGTON AND NEW CROSS GATE / NEW CROSS"]
+    assert t("LN225 CLEETHORPES TO RETFORDNOTES: Please refer to the North and East Section 4 documentLN235 "
+             "ROSSINGTON COLLIERY BRANCH ") == ["LN225 CLEETHORPES TO RETFORD", "LN235 ROSSINGTON COLLIERY BRANCH"]
+    assert t("EA1320 CAMDEN ROAD WEST JN TO STRATFORDIncludes short sections (see SO400 and contact HS1)") == [
+        "EA1320 CAMDEN ROAD WEST JN TO STRATFORD"]
+    assert t("EA1290 TOTTENHAM SOUTH JN TO SOUTH TOTTENHAM EAST J\r\nN") == [
+        "EA1290 TOTTENHAM SOUTH JN TO SOUTH TOTTENHAM EAST JN"]
+    assert t("LN150 FLYOVER EAST JN TO DECOY NORTH JN LN722 FLYOVER EAST JN TO DECOY NORTH JN")[-1] == (
+        "LN722 FLYOVER EAST JN TO DECOY NORTH JN")
+    assert t("Dudding Hill Jn towards Brent Curve Jn (see LN3222 in Midlands & Continental section)") == []
+    assert t("(2520pts to BE536sigs,\r\n2521pts to BE547 and Up Branch Siding)") == []
+    assert t("SW230 BARNES TO FELTHAM JN / WHITTON JN (VIA HOUNSLOW) SECTION Barnes to Chiswick") == [
+        "SW230 BARNES TO FELTHAM JN / WHITTON JN (VIA HOUNSLOW)"]

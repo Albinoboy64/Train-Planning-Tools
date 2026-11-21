@@ -721,7 +721,10 @@ def test_rules_in_use_line(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setattr(sys, "frozen", False, raising=False)
     text, stale = rules.in_use(datetime.date(2027, 1, 10))
-    assert text.startswith("Rules: TPR 2027 (v4)") and "Section 4: none added" in text and stale
+    assert text == "Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4 (built in)" and not stale     # built-in set
+    monkeypatch.setattr(rules, "active_set_info", lambda: None)
+    text, stale = rules.in_use(datetime.date(2027, 1, 10))
+    assert "Section 4: none added" in text and stale
     monkeypatch.setattr(rules, "active_set_info", lambda: {"name": "2027 EAS v4", "to": "2027-12-11"})
     assert rules.in_use(datetime.date(2027, 1, 10)) == ("Rules: TPR 2027 (v4) · Section 4: 2027 EAS v4", False)
     assert rules.in_use(datetime.date(2028, 1, 10))[1]                       # both past their last date

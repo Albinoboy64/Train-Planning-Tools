@@ -34,8 +34,8 @@ class RulesDialog(tk.Toplevel):
         self.rowconfigure(2, weight=1)
         pad = dict(padx=12, pady=(10, 0))
         intro = ttk.Label(self, wraplength=px(self, 760), justify="left", text=(
-            "The Network Rail rules the app uses. Add the Section 4 PDFs once as a rule set; the Section 4 check uses "
-            "the rule set in use whenever no PDFs are chosen."))
+            "The Network Rail rules the app uses. The Section 4 check uses the rule set in use whenever no PDFs are "
+            "chosen: the built-in one, unless you add newer Section 4 PDFs as a rule set (or choose another)."))
         intro.grid(row=0, column=0, sticky="w", **pad)
         bf = ttk.LabelFrame(self, text="Built into the app", padding=8)
         bf.grid(row=1, column=0, sticky="ew", **pad)
@@ -47,6 +47,16 @@ class RulesDialog(tk.Toplevel):
             ttk.Label(bf, text=f"{b['name']} - {b['use']}. {b['covers']}; {_d(b['from'])} to {_d(b['to'])}."
                                + (" Out of date: a newer app version will carry the new rules." if stale else ""),
                       wraplength=px(self, 740), justify="left").grid(row=i, column=0, sticky="w")
+        s4 = next((s for s in rules.list_sets() if s.get("built_in")), None)
+        if s4 is not None:
+            until = rules.parse_date(s4.get("to", ""))
+            stale = until is not None and today > until
+            ttk.Label(bf, text=f"{rules.BUILT_IN_S4.replace(' (built in)', '')} Section 4 (Standard Possession "
+                               f"Opportunities) - the Section 4 check. {s4.get('possessions', 0):,} possession rows "
+                               f"from {len(s4.get('files', []))} route PDFs; {_d(s4.get('from', ''))} to "
+                               f"{_d(s4.get('to', ''))}." + (" Out of date: add the new Section 4 PDFs below." if stale
+                                                              else ""),
+                      wraplength=px(self, 740), justify="left").grid(row=len(rules.BUILT_IN), column=0, sticky="w")
         sf = ttk.LabelFrame(self, text="Section 4 rule sets", padding=8)
         sf.grid(row=2, column=0, sticky="nsew", **pad)
         sf.columnconfigure(0, weight=1)
@@ -88,7 +98,8 @@ class RulesDialog(tk.Toplevel):
         for s in rules.list_sets():
             self.tree.insert("", "end", iid=s["name"], values=(
                 "Yes" if s["active"] else "", s["name"], f"{_d(s.get('from', ''))} to {_d(s.get('to', ''))}",
-                s.get("possessions", ""), ", ".join(s.get("files", [])), (s.get("added", "") or "").replace("T", " ")))
+                s.get("possessions", ""), ", ".join(s.get("files", [])),
+                "Built in" if s.get("built_in") else (s.get("added", "") or "").replace("T", " ")))
         if select and self.tree.exists(select):
             self.tree.selection_set(select)
         if not self.tree.get_children():
@@ -97,9 +108,10 @@ class RulesDialog(tk.Toplevel):
         self._buttons()
 
     def _buttons(self):
-        sel = bool(self.tree.selection())
-        for b in (self.use_btn, self.del_btn):
-            b.state(["!disabled"] if sel else ["disabled"])
+        sel = self.tree.selection()
+        builtin = bool(sel) and sel[0] == rules.BUILT_IN_S4
+        self.use_btn.state(["!disabled"] if sel else ["disabled"])
+        self.del_btn.state(["!disabled"] if sel and not builtin else ["disabled"])     # built in: cannot be removed
 
     def _add(self):
         pdfs = filedialog.askopenfilenames(parent=self, title="Section 4 PDF(s) - one per route",
@@ -147,8 +159,10 @@ class RulesDialog(tk.Toplevel):
 
     def _remove(self):
         sel = self.tree.selection()
-        if sel and messagebox.askyesno(TITLE, f"Remove the rule set '{sel[0]}'? The PDFs it was read from are not "
-                                              "touched.", parent=self):
+        if not sel or sel[0] == rules.BUILT_IN_S4:          # the built-in set cannot be removed
+            return
+        if messagebox.askyesno(TITLE, f"Remove the rule set '{sel[0]}'? The PDFs it was read from are not "
+                                      "touched.", parent=self):
             rules.remove_set(sel[0])
             self._fill()
             self._refresh_tabs()

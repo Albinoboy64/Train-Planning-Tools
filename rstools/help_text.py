@@ -36,7 +36,8 @@ TIPS = {
         "Engineering Access Statement Section 4: every train running through a section during one of its "
         "possessions.",
     "Section 4 PDF(s):": "The Section 4 PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Leave "
-                         "blank to use the rule set in use (Options > Rules and reference data).",
+                         "blank to use the rule set in use: the built-in 2027 EAS v4 rules, or a newer set added "
+                         "in Options > Rules and reference data.",
     "Station Working Book (TRACS-RS layout, from an Attune XML)": "One sheet each for SX, SO and Su. Needs an "
         "Attune XML with every day's unit diagrams.",
     "Station:": "The station, as named in the XML. Type to see matching stations.",
