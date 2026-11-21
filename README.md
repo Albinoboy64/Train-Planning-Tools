@@ -47,7 +47,7 @@ Your option choices, theme, recent files, rule sets, fleet data and the error lo
 | Step | What to do |
 |---|---|
 | 1. CWN comparison | **Compare two CWNs**, **Add a new round to an earlier comparison CWN** or **Compare two folders of CWNs (batch)**, then the **Original CWN** and the **Updated CWN** (in the same section), either with *Browse* or by **dragging and dropping** the files onto this section. If you drop both files at once, the older file becomes the original. Use *Swap* if they end up the wrong way round. In "add a new round" mode, the first file is a comparison CWN that this app made earlier. The **Utilities** section underneath has the one-file tools: **Put each train's day variants in order (one CWN)** ([see below](#putting-day-variants-in-order)) and the **Station Working Book** ([see below](#station-working-book-tracs-rs-layout)), with their own box and drop area. |
-| 2. Output | **Full CWN with changes highlighted**, or **ACWN** (amended trains only, with unchanged trains and unchanged tabs removed). Pick the highlight colour, the output folder and the output name. If you leave the name blank, today's date and the two CWN names are used, e.g. `19-11-2026 Proof 1 vs Proof 2`. *Keep links between tabs* keeps the clickable headcode links; it's off by default because they make the file much slower to open in Excel. |
+| 2. Output | **Full CWN with changes highlighted and noted** (previous values struck through, change notes and cancelled trains put back, as set under *3. Changes to include*), **Full CWN with new or changed items highlighted only** (the updated CWN as it is, with anything new or changed highlighted and no original versions: no previous values, notes or cancelled trains, which are still in the change report), or **ACWN** (amended trains only, with unchanged trains and unchanged tabs removed). Pick the highlight colour, the output folder and the output name. If you leave the name blank, today's date and the two CWN names are used, e.g. `19-11-2026 Proof 1 vs Proof 2`. *Keep links between tabs* keeps the clickable headcode links; it's off by default because they make the file much slower to open in Excel. |
 | 3. Changes to include | For each change type, choose whether it is **shown in the CWN**, whether the **previous value / note** is shown, and whether it is **included in the report** |
 | 4. Run | Press **Run comparison**, then use *Open output CWN*, *Open report* or *Open folder* |
 
@@ -107,9 +107,10 @@ Under *2. Output*, **Days to check** lists Mon-Sun. Once both CWNs are chosen, t
 ### Putting day variants in order
 
 A multi-day CWN often lists the day variants of the same train (for example 1A23 MO, 1A23 TWThO and 1A23 FO) in no particular order. Choose **Put each train's day variants in order (one CWN)** under *Utilities*, choose the CWN (or drop it on Utilities) and press **Put variants in order**. A copy is saved, e.g. `Proof 2 (variants in day order).xlsx`; the CWN itself is not touched.
-* **By day** (default): the MO variant first, then the variants in day order through to FO, then SO and Su. A variant that runs on fewer days comes first when two start on the same day (MO before MTWThO).
+* **By first day run** (default): the first day each variant runs decides its place, whatever the departure times: an MO or MWO variant first, then TO, then WO, ThFO, FO, then SO and Su. Variants are put in order even when they run hours apart or either side of midnight.
 * **By departure time**: the earliest-departing variant first (an FO train at 05.30 before an MO train at 06.10), then day order for variants at the same time.
-* Only the variants of the same train swap places, within the rows they already used, so every other train stays exactly where it was. Rows move whole: values, formatting, row heights, notes and coupled-unit rows. Links from other tabs are re-pointed to the rows' new positions. Nothing is changed or removed.
+* **Merge variants that are the same apart from their days** (optional): on each tab, two or more variants of a train with the same times, platforms, units, workings and notes become one, with the days of both in its DAYS cell (MO and FO become *MFO*; MTWThO and FO in a weekday CWN become one with no days code, like any every-day train). The rows of the variants merged away are removed, the rows below move up, and links to them lead to the merged variant. The copy is named e.g. `Proof 2 (variants in day order, merged).xlsx`.
+* Only the variants of the same train swap places, within the rows they already used, so every other train stays exactly where it was. Rows move whole: values, formatting, row heights, notes and coupled-unit rows. Links from other tabs are re-pointed to the rows' new positions. Nothing else is changed or removed.
 * A tab with merged cells or formulas among its trains is left as it was (moving rows could break them), and the log says so.
 * Put the variants in order before comparing if you want the comparison CWN to follow the same order.
 
@@ -341,6 +342,12 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.24.0** - highlighted-only CWNs, variants in day order, merging variants
+* **New output type: Full CWN with new or changed items highlighted only.** The updated CWN as it is, with anything new or changed highlighted and none of the original versions: no previous values struck through, no change notes and no cancelled trains put back (they are still listed in the change report). The *Show previous value / note* column is greyed out while it is chosen. Also `--highlight-only` on the command line.
+* The existing type is now called **Full CWN with changes highlighted and noted**, to say what it adds.
+* **Day variants in order, first day first**: the first day a variant runs now always decides its place. Variants of a train that depart more than four hours apart, or either side of midnight (e.g. a ThFO at 23.50 and an MWO at 00.10), were treated as separate trains and left where they were, so a ThFO variant could stay above an MWO one. They are now put in order like any others; a headcode used for two different trains on the same day is still kept apart.
+* **Merge variants that are the same apart from their days** (new option under *Put each train's day variants in order*): variants of a train that are identical on a tab apart from their days become one, e.g. MO and FO become *MFO*, and variants covering every day of the CWN become one with no days code. Rows below move up and links follow. Also `--merge` on the command line.
 
 **3.23.0** - Section 4 rules built in
 * **2027 EAS v4 Section 4 built in**: the Section 4 check now has Network Rail's Engineering Access Statement 2027 Version 4 Section 4 (Standard Possession Opportunities) for **Kent & Sussex, Anglia, East Coast, East Midlands and Wessex** built in, like the Timetable Planning Rules: 5,848 possession rows in 702 sections, 13/12/2026 to 11/12/2027. Leave the PDF box blank and they are used, with nothing to add first. It is also quicker, as the PDFs do not have to be read each time (about 4 s instead of 6 s for a week).
@@ -759,7 +766,7 @@ TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx [--acwn] [--name N
                [--exact-text] [--report-format xlsx|pdf|docx]
 TrainPlanningTools.exe --previous EARLIER_COMPARISON.xlsx --updated NEWEST.xlsx --colour 92D050
 TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days MO,FO        (Monday and Friday trains only)
-TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--name NAME] [--out FOLDER]    (day variants in order)
+TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge] [--name NAME] [--out FOLDER]    (day variants in order)
 
 TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO,WO] [--operators SNGX,TLGN]
                [--fleets 377/4,387/3] [--output totals_days|totals|days] [--name NAME] [--out FOLDER]

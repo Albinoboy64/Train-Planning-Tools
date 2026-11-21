@@ -35,6 +35,7 @@ def default_categories() -> Dict[str, Dict[str, bool]]:
 class Options:
     mode: str = "compare"            # compare | cumulative | batch | reorder | station | berth_make / round / compare
     variant_order: str = "day"       # reorder mode: day (MO first ... FO, SO, Su) | time (departure time first)
+    merge_variants: bool = False     # reorder mode: merge a train's variants that differ only in their days
     book_station: str = ""           # station working book: station, platforms, title parts, day sheets
     book_platforms: str = ""
     book_list: str = ""              # several stations: 'London Kings Cross; London Bridge [10-15]; Cambridge'
@@ -47,7 +48,7 @@ class Options:
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
     original: str = ""               # original CWN, or previous comparison CWN (cumulative)
     updated: str = ""
-    output_type: str = "full"        # full | acwn
+    output_type: str = "full"        # full (highlighted and noted) | highlight (highlighted only) | acwn
     colour: str = "FFFF00"           # highlight colour for this round
     highlight_tabs: bool = True
     keep_links: bool = False         # headcode hyperlinks between tabs (slow to open in Excel)

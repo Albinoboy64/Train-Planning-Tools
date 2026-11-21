@@ -51,8 +51,9 @@ TIPS = {
                    "'London Kings Cross (TLGN)'.",
     "SX": "A sheet for Monday to Friday. Trains that differ by day get a row for each version, marked e.g. "
           "'Runs Monday and Friday only'.",
-    "By day - MO first, then TO, WO, ThO, FO (then SO, SuO)": "Monday's variant first, then the rest in day order "
-                                                              "to Friday, then Saturday and Sunday.",
+    "By first day run - MO first, then TO, WO, ThO, FO (then SO, SuO)":
+        "The first day each variant runs decides its place, whatever the times: MO or MWO first, then TO, then WO, "
+        "ThFO, FO, then Saturday and Sunday.",
     "By departure time - earliest first, then by day": "The variant that departs earliest comes first (e.g. an "
                                                        "FO train at 05.30 before an MO train at 06.10); "
                                                        "variants at the same time go in day order.",
@@ -61,7 +62,9 @@ TIPS = {
     "Updated CWN folder:": "Each CWN here is paired with the original of the same name once proof, draft and "
                            "version numbers and dates are ignored (e.g. BTN_CWN_v1.2 with BTN_CWN_v2.0), "
                            "otherwise with the clearly most similar name.",
-    "Output type:": "Full CWN: the whole updated CWN with changes highlighted. ACWN: only the amended trains.",
+    "Output type:": "Full CWN highlighted and noted: the whole updated CWN with changes highlighted, previous "
+                    "values struck through and notes added. Highlighted only: the updated CWN with anything new or "
+                    "changed highlighted, without the original versions. ACWN: only the amended trains.",
     "Colour for new amendments:": "Colour for this round's changes - choose one not used by earlier rounds.",
     "Create change report as": "Also write a change report listing every change by type, location and train.",
     "Days to check:": "Untick days to check and output only the trains running on the ticked days. Days the "

@@ -629,3 +629,97 @@ def test_damaged_tab_is_left_out_of_both_sides():
     res = run(Options(original=bad, updated=good, output_dir=d, output_name="x"), log=logs.append)
     assert read_meta_file(res["cwn"])["changes"] == []
     assert any("left out of the comparison" in m for m in logs)
+
+
+def test_reorder_first_day_decides():
+    """The first day a variant runs decides its place (MWO before ThFO, whatever their times); variants are
+    still put in order when they run hours apart or either side of midnight."""
+    from cwn_compare.reorder import reorder_cwn
+    d = tempfile.mkdtemp()
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days, time, unit):
+        r = list(rows[2]); r[1], r[2], r[3] = days, time, unit; return r
+    cases = {
+        "far": ([v("ThFO", "05.42", "1"), v("TO", "05.40", "2"), v("MWO", "10.30", "3")], ["MWO", "TO", "ThFO"]),
+        "midnight": ([v("ThFO", "23.50", "1"), v("MWO", "00.10", "2")], ["MWO", "ThFO"]),
+    }
+    for name, (variants, want) in cases.items():
+        src = os.path.join(d, name + ".xlsx")
+        make(src, [rows[0], rows[1]] + variants + rows[3:], VIC_ORIG)
+        out = openpyxl.load_workbook(reorder_cwn(src, d)["path"])
+        got = [r[1] for r in out["BTN"].iter_rows(min_row=3, values_only=True) if r[0] == "2C02BT"]
+        assert got == want, (name, got)
+
+
+def test_reorder_merges_variants_the_same_apart_from_days():
+    """With merging on, variants of a train that are the same on a tab apart from their days become one with
+    both days; its rows replace theirs, the rows below move up and links follow."""
+    from openpyxl.worksheet.hyperlink import Hyperlink
+    from cwn_compare.reorder import reorder_cwn
+    d = tempfile.mkdtemp()
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days, pl):
+        r = list(rows[2]); r[1], r[3] = days, pl; return r
+    unit = U("377/3", "BTN", "312")
+    btn = [rows[0], rows[1], v("FO", "7"), unit, v("TWThO", "8"), v("MO", "7"), unit] + rows[3:]
+    src = os.path.join(d, "merge.xlsx")
+    make(src, btn, VIC_ORIG)
+    wb = openpyxl.load_workbook(src)
+    wb["VIC"]["A3"].hyperlink = Hyperlink(ref="A3", location="'BTN'!A8")        # the MO variant (merged away)
+    wb["VIC"]["A4"].hyperlink = Hyperlink(ref="A4", location="'BTN'!A14")       # 2C08BT, below it
+    wb.save(src)
+    assert openpyxl.load_workbook(src)["BTN"]["A14"].value == "2C08BT"
+    plain = reorder_cwn(src, d)
+    assert plain["merged"] == 0 and "merged" not in os.path.basename(plain["path"])
+    res = reorder_cwn(src, d, merge=True)
+    assert res["merged"] == 1 and res["path"].endswith("(variants in day order, merged).xlsx")
+    out = openpyxl.load_workbook(res["path"])["BTN"]
+    got = [(r[1], r[3]) for r in out.iter_rows(min_row=3, values_only=True) if r[0] == "2C02BT"]
+    assert got == [("MFO", "7"), ("TWThO", "8")]
+    data = [r for r in out.iter_rows(min_row=3, values_only=True) if any(x not in (None, "") for x in r)]
+    assert len(data) == len(btn) - 2                                         # the MO variant's two rows gone
+    assert [r[0] for r in data][-1] == "2C08BT" and out["A12"].value == "2C08BT"
+    assert all(out.cell(row=r, column=1).value is None for r in (13, 14))   # freed rows at the bottom cleared
+    vic = openpyxl.load_workbook(res["path"])["VIC"]
+    assert vic["A3"].hyperlink.location == "'BTN'!A5"                        # now the merged MFO row
+    assert vic["A4"].hyperlink.location == "'BTN'!A12"                       # moved up two rows
+
+
+def test_merged_days_code():
+    from cwn_compare.reorder import days_code
+    wk = set(range(5))
+    assert days_code({0, 4}, wk) == "MFO"
+    assert days_code({3, 4}, wk) == "ThFO"
+    assert days_code(set(range(5)), wk) == ""                                 # every day the CWN covers
+    assert days_code({0, 1, 2, 3}, wk) == "FX"
+    assert days_code({0, 1, 2, 3}, wk, sx_style=True) == "FSX"                # as the CWN writes it
+    assert days_code({0, 1, 2, 3, 4}, set(range(7))) == "SSuX"
+    assert days_code({5}, set(range(7))) == "SO"
+
+
+def test_highlighted_only_output():
+    """'Full CWN with new or changed items highlighted only': the updated CWN with what is new or changed
+    highlighted - no previous values, change notes or cancelled trains - whatever the per-type settings; the
+    change report still lists everything."""
+    btn, vic = _upd_rows()
+    res, changes = _run_pair(BTN_ORIG, btn, "hl", vic_u=vic, output_type="highlight")
+    wb = openpyxl.load_workbook(res["cwn"], rich_text=True)
+    ws = wb["BTN"]
+    vals = [[c.value for c in r] for r in ws.iter_rows(min_row=1)]
+    flat = [str(v) for row in vals for v in row if v is not None]
+    assert ws.cell(row=3, column=3).value == "05.25"                       # new time only, not '05.23'
+    assert not any(r[0].font.strike for r in ws.iter_rows(min_row=3))
+    assert "2C08BT" not in flat                                             # cancelled train not put back
+    assert not any("previously" in v or v == "Change notes" for v in flat)
+    fill = ws.cell(row=3, column=3).fill
+    assert fill.fill_type == "solid" and fill.fgColor.rgb.endswith("FFFF00")      # the change is highlighted
+    new = next(r for r in ws.iter_rows(min_row=3) if r[0].value == "2C99BT")
+    assert new[0].fill.fill_type == "solid"
+    assert {c["category"] for c in changes} >= {"TIME", "CANCELLED", "NEW", "FORMATION"}
+    rep = openpyxl.load_workbook(res["report"])
+    assert ("Output format", "Full CWN (new and changed items highlighted only)") in [
+        tuple(r[:2]) for r in rep["Summary"].iter_rows(values_only=True)]
+    nc = [r[:2] for r in rep["New and Cancelled Trains"].iter_rows(min_row=2, values_only=True)]
+    assert ("Cancelled", "2C08BT") in nc

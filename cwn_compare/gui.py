@@ -913,10 +913,20 @@ class App(tk.Tk):
         type_lbl.grid(row=0, column=0, sticky="nw")
         tf = ttk.Frame(of)
         tf.grid(row=0, column=1, columnspan=2, sticky="w")
-        ttk.Radiobutton(tf, text="Full CWN with changes highlighted",
-                        variable=self.out_type, value="full").grid(row=0, column=0, sticky="w")
+        full_rb = ttk.Radiobutton(tf, text="Full CWN with changes highlighted and noted",
+                                  variable=self.out_type, value="full")
+        full_rb.grid(row=0, column=0, sticky="w")
+        Tooltip(full_rb, "Changes are highlighted, with the previous values struck through and change notes "
+                         "beside them (as set under '3. Changes to include'); cancelled trains are put back, "
+                         "struck through.")
+        hl_rb = ttk.Radiobutton(tf, text="Full CWN with new or changed items highlighted only",
+                                variable=self.out_type, value="highlight")
+        hl_rb.grid(row=1, column=0, sticky="w")
+        Tooltip(hl_rb, "The updated CWN as it is, with anything new or changed highlighted. The original "
+                       "versions are not shown: no previous values, no change notes and no cancelled trains "
+                       "(they are still listed in the change report).")
         ttk.Radiobutton(tf, text="ACWN (amended trains only)",
-                        variable=self.out_type, value="acwn").grid(row=1, column=0, sticky="w")
+                        variable=self.out_type, value="acwn").grid(row=2, column=0, sticky="w")
 
         self.colour_lbl = ttk.Label(of, text="Highlight colour:")
         self.colour_lbl.grid(row=1, column=0, sticky="w", pady=(6, 0), padx=(0, 6))
@@ -969,15 +979,24 @@ class App(tk.Tk):
         orf.grid(row=0, column=0, rowspan=5, columnspan=3, sticky="nw")
         ttk.Label(orf, text="Order of each train's day variants:").grid(row=0, column=0, sticky="w")
         self.variant_order = tk.StringVar(value="day")
-        ttk.Radiobutton(orf, text="By day - MO first, then TO, WO, ThO, FO (then SO, SuO)",
+        ttk.Radiobutton(orf, text="By first day run - MO first, then TO, WO, ThO, FO (then SO, SuO)",
                         variable=self.variant_order, value="day").grid(row=1, column=0, sticky="w", padx=(12, 0))
         ttk.Radiobutton(orf, text="By departure time - earliest first, then by day",
                         variable=self.variant_order, value="time").grid(row=2, column=0, sticky="w", padx=(12, 0))
-        ttk.Label(orf, text="Only each train's own variants move; nothing else in the CWN changes.",
-                  style="Small.TLabel", wraplength=440, justify="left").grid(row=3, column=0, sticky="w",
+        self.merge_var = tk.BooleanVar(value=False)
+        merge_cb = ttk.Checkbutton(orf, text="Merge variants that are the same apart from their days",
+                                   variable=self.merge_var)
+        merge_cb.grid(row=3, column=0, sticky="w", pady=(4, 0))
+        Tooltip(merge_cb, "On each tab, two or more variants of a train with the same times, units, workings "
+                          "and notes become one, with the days of both (e.g. MO and FO become MFO; variants "
+                          "covering every day of the CWN become one with no days code). The rows of the "
+                          "variants merged away are removed.")
+        ttk.Label(orf, text="Only each train's own variants move (or merge); nothing else in the CWN changes.",
+                  style="Small.TLabel", wraplength=440, justify="left").grid(row=4, column=0, sticky="w",
                                                                               pady=(4, 0))
         self.order_frame.grid_remove()
         self.variant_order.trace_add("write", lambda *_a: self._update_name_hint())
+        self.merge_var.trace_add("write", lambda *_a: self._update_name_hint())
         self._build_station_book(of)
         self._compare_only = [type_lbl, tf, self.colour_lbl, self.colour, tabs_cb, rep, links_cb, dayf,
                               self.day_note]
@@ -1013,6 +1032,7 @@ class App(tk.Tk):
             if help_text:
                 Tooltip(lab, help_text)
         self.cat_vars = {}
+        self.show_old_cbs = []                          # greyed out when the output is 'highlighted only'
         for r, (key, label, has_old, desc) in enumerate(CATEGORIES, start=1):
             lab = ttk.Label(cf, text=label)
             lab.grid(row=r, column=0, sticky="w", padx=4, pady=1)
@@ -1025,8 +1045,11 @@ class App(tk.Tk):
                 if what == "show_old" and not has_old:
                     cb.state(["disabled"])
                     v.set(False)
+                elif what == "show_old":
+                    self.show_old_cbs.append(cb)
                 vs[what] = v
             self.cat_vars[key] = vs
+        self.out_type.trace_add("write", lambda *_a: self._out_type_changed())
         self.loose_var = tk.BooleanVar(value=True)
         loose = ttk.Checkbutton(cf, text="Ignore differences only in spacing or punctuation",
                                 variable=self.loose_var)
@@ -1229,7 +1252,8 @@ class App(tk.Tk):
         for dt, v in self.book_day_vars.items():
             v.set(dt in (o.book_days or []))
         self.variant_order.set(o.variant_order if o.variant_order in ("day", "time") else "day")
-        self.out_type.set(o.output_type)
+        self.merge_var.set(bool(o.merge_variants))
+        self.out_type.set(o.output_type if o.output_type in ("full", "highlight", "acwn") else "full")
         self.colour.set(o.colour)
         self.tabs_var.set(o.highlight_tabs)
         self.report_var.set(o.make_report)
@@ -1247,6 +1271,7 @@ class App(tk.Tk):
         o = Options()
         o.mode = self.mode.get()
         o.variant_order = self.variant_order.get()
+        o.merge_variants = bool(self.merge_var.get())
         o.berth_files = {m: self._berth_paths(m) for m in BERTH_MODES}
         o.berth_issue = self.berth_issue.get().strip()
         util = o.mode in ("reorder", "station")
@@ -1398,8 +1423,9 @@ class App(tk.Tk):
         if self.mode.get() == "reorder":
             p = self.util.get().strip().strip('"')
             stem = os.path.splitext(os.path.basename(p))[0] if p else "CWN name"
-            what = "variants by time" if self.variant_order.get() == "time" else "variants in day order"
-            self.name_hint.configure(text=f"Leave the name blank for '{stem} ({what})'. Leave the folder blank "
+            from .reorder import variants_suffix
+            what = variants_suffix(self.variant_order.get() == "time", bool(self.merge_var.get()))
+            self.name_hint.configure(text=f"Leave the name blank for '{stem}{what}'. Leave the folder blank "
                                           "to save next to the CWN.")
             return
         if self.mode.get() == "batch":
@@ -1415,6 +1441,12 @@ class App(tk.Tk):
         for k, vs in self.cat_vars.items():
             for w, v in vs.items():
                 v.set(d[k][w])
+
+    def _out_type_changed(self):
+        """'Highlighted only' shows no previous values or notes, so that column does not apply."""
+        off = self.out_type.get() == "highlight"
+        for cb in self.show_old_cbs:
+            cb.state(["disabled"] if off else ["!disabled"])
 
     def _highlight_only(self):
         for vs in self.cat_vars.values():
@@ -1735,7 +1767,7 @@ class App(tk.Tk):
             from .reorder import ReorderError, reorder_cwn
             try:
                 res = reorder_cwn(o.original, o.output_dir, o.output_name, o.variant_order == "time",
-                                  log=lambda m: self.q.put(("log", m)))
+                                  log=lambda m: self.q.put(("log", m)), merge=o.merge_variants)
                 self.q.put(("reorder_done", res))
             except (ReorderError, LoadError) as exc:
                 self.q.put(("error", str(exc)))
@@ -2165,7 +2197,10 @@ class App(tk.Tk):
                     n, tabs, path = item[1]["trains"], item[1]["tabs"], item[1]["path"]
                     self.prog["value"] = 1
                     self.status.configure(text="Finished")
-                    text = (f"{n} train(s) on {tabs} tab(s) had their day variants put in order." if n else
+                    merged = item[1].get("merged", 0)
+                    text = (f"{n} train(s) on {tabs} tab(s) had their day variants put in order"
+                            + (f"; {merged} variant(s) were merged into another the same apart from its days."
+                               if merged else ".") if n else
                             "Every train's day variants are already in order, so no copy was saved.")
                     self.notify_done("Day variants put in order", text)
                     notes = list(item[1]["warnings"])

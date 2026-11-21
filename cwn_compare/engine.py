@@ -1,6 +1,7 @@
 """Orchestrates a comparison run (used by the GUI and the command line)."""
 from __future__ import annotations
 
+import dataclasses
 import datetime as _dt
 import os
 import re
@@ -35,6 +36,22 @@ def _safe(name: str) -> str:
     if name.lower().endswith(".xlsx"):
         name = name[:-5]
     return clip(name) or default_name()
+
+
+OUTPUT_LABELS = {"full": "Full CWN (changes highlighted and noted)",
+                 "highlight": "Full CWN (new and changed items highlighted only)",
+                 "acwn": "ACWN (changes only)"}
+
+
+def writing_options(opts: Options) -> Options:
+    """The options the output CWN is written with. 'Highlighted only' shows the updated CWN as it is, with
+    anything new or changed highlighted: no previous values struck through, no change notes and no
+    cancelled trains put back (they are still listed in the change report)."""
+    if opts.output_type != "highlight":
+        return opts
+    cats = {k: dict(v, show_old=False) for k, v in opts.categories.items()}
+    cats["CANCELLED"] = dict(cats.get("CANCELLED", {}), cwn=False, show_old=False)
+    return dataclasses.replace(opts, categories=cats)
 
 
 def output_paths(opts: Options):
@@ -203,7 +220,8 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
     # ---- output CWN
     p(0.7, "Writing output CWN...")
     acwn = opts.output_type == "acwn"
-    summary = apply_changes(wb_new, m_new, all_changes, opts, acwn=acwn, only_blocks=bool(opts.days))
+    summary = apply_changes(wb_new, m_new, all_changes, writing_options(opts), acwn=acwn,
+                            only_blocks=bool(opts.days))
     rounds = rounds + [{
         "round": this_round, "colour": opts.colour, "created": _dt.datetime.now().strftime("%d/%m/%Y %H:%M"),
         "original": os.path.basename(opts.original), "updated": os.path.basename(opts.updated),
@@ -234,7 +252,7 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
             "mode_label": ("Add a new round to an earlier comparison CWN"
                            if cumulative else "Compare two CWNs"),
             "original": opts.original, "updated": opts.updated, "output": cwn_path,
-            "output_type_label": "ACWN (changes only)" if acwn else "Full CWN",
+            "output_type_label": OUTPUT_LABELS.get(opts.output_type, "Full CWN"),
             "days_label": day_label(opts.days) if opts.days else "All days in the CWNs",
         }
         _save(lambda: write_report(rep_path, rep_changes, rounds, info), rep_path)

@@ -8,7 +8,7 @@ Command-line use:
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
                                        [--sheets SX,SO,Su]
-    TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--name NAME] [--out DIR]  (day variants in order)
+    TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
     TrainPlanningTools.exe berthing --compare OLD_CHART.xlsx NEW_CHART.xlsx [--colour Orange]
@@ -55,7 +55,8 @@ def cli(argv):
     ap.add_argument("--no-report", action="store_true")
     ap.add_argument("--keep-links", action="store_true",
                     help="keep the headcode hyperlinks between tabs (output opens more slowly)")
-    ap.add_argument("--highlight-only", action="store_true", help="do not show previous values")
+    ap.add_argument("--highlight-only", action="store_true",
+                    help="highlight new and changed items only: no previous values, notes or cancelled trains")
     ap.add_argument("--report-format", choices=["xlsx", "pdf", "docx"], default="xlsx",
                     help="change report as Excel (default), PDF or Word")
     ap.add_argument("--exact-text", action="store_true",
@@ -67,7 +68,7 @@ def cli(argv):
     o.mode = "cumulative" if a.previous else "batch" if a.original_folder else "compare"
     o.original = a.previous or a.original or a.original_folder
     o.updated = a.updated
-    o.output_type = "acwn" if a.acwn else "full"
+    o.output_type = "acwn" if a.acwn else "highlight" if a.highlight_only else "full"
     if a.colour:
         o.colour = a.colour.lstrip("#")
     elif a.previous:
@@ -161,14 +162,16 @@ def reorder_cli(argv):
     from cwn_compare.reorder import ReorderError, reorder_cwn
     ap = argparse.ArgumentParser(prog="TrainPlanningTools reorder",
                                  description="Save a copy of a multi-day CWN with each train's day variants in "
-                                             "order (MO first ... FO, then SO, Su). Nothing is changed or removed.")
+                                             "order (MO first ... FO, then SO, Su). Nothing else is changed.")
     ap.add_argument("cwn", help="the multi-day CWN")
     ap.add_argument("--by-time", action="store_true", help="order by departure time first, then by day")
+    ap.add_argument("--merge", action="store_true",
+                    help="merge a train's variants that are the same apart from their days (e.g. MO + FO = MFO)")
     ap.add_argument("--name", default="", help="output name")
     ap.add_argument("--out", default="", help="output folder (default: folder of the CWN)")
     a = ap.parse_args(argv)
     try:
-        res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print)
+        res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print, merge=a.merge)
     except ReorderError as exc:
         print("ERROR: " + str(exc))
         sys.exit(1)
