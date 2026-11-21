@@ -269,6 +269,27 @@ ATTUNE = [
 ]
 
 
+def test_attune_print_continuation_pages_and_unreadable_lines():
+    """A train's heading repeated at the top of the next page continues the train; the same heading twice on
+    one page is two trains; a line with a time printed on to the station name is reported, not dropped silently."""
+    from rstools.timetable.attune_print import parse_attune, skipped_note
+    first, second = _attune_lines(ATTUNE[:1])[0], _attune_lines(ATTUNE[:1])[0]
+    head, rows = second[:9], second[9:]
+    # one train over two pages: the second page repeats the heading, then the rest of the rows
+    split = [first[:9] + first[9:11], head + rows[2:]]
+    trains = parse_attune(split)
+    assert len(trains) == 1 and len(trains[0].rows) == 5
+    # two identical headings on one page: two trains
+    trains = parse_attune([first + second])
+    assert len(trains) == 2 and [len(t.rows) for t in trains] == [5, 5]
+    assert skipped_note(trains) == ""
+    bad = first[:9] + [first[9], "BRGHTN       Littlehampton 05.08", *first[10:]]
+    trains = parse_attune([bad])
+    assert trains[0].skipped and "Littlehampton 05.08" in trains[0].skipped[0]
+    note = skipped_note(trains)
+    assert note.startswith("1 location line(s)") and "1H05BS" in note
+
+
 def write_attune_pdf(path, trains=ATTUNE):
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas

@@ -71,6 +71,7 @@ class AttuneTrain:
     rows: List[Row] = field(default_factory=list)
     page: int = 0
     source: str = ""
+    skipped: List[str] = field(default_factory=list)     # location lines that could not be read
 
     @property
     def uid(self) -> str:
@@ -110,10 +111,12 @@ class PlacedLine(str):
     one space apart and table cells two, so the text reads normally; positions come from `spans`
     [(first char, end char, left x, right x)], which is what places a value under its heading."""
     spans: list
+    ends: list                                  # each word's end character (looked up for every value)
 
     def __new__(cls, text: str, spans: list):
         obj = super().__new__(cls, text)
         obj.spans = spans
+        obj.ends = [sp[1] for sp in spans]
         return obj
 
     def __reduce__(self):                       # sent between helper processes
@@ -125,8 +128,9 @@ def centre(line: str, a: int, b: int) -> float:
     spans = getattr(line, "spans", None)
     if not spans:
         return (a + b) / 2
-    i = bisect_left([s[1] for s in spans], b)   # the word holding the last character
-    j = bisect_left([s[1] for s in spans], a + 1)
+    ends = getattr(line, "ends", None) or [s[1] for s in spans]
+    i = bisect_left(ends, b)                    # the word holding the last character
+    j = bisect_left(ends, a + 1)
     i, j = min(i, len(spans) - 1), min(j, len(spans) - 1)
     return (_x_at(spans[j], a) + _x_at(spans[i], b)) / 2
 
@@ -192,7 +196,10 @@ def _index(cols: Dict[str, float]):
     return hit[1:]
 
 
-def _row(line: str, cols: Dict[str, float]) -> Optional[Row]:
+_RUN_ON = object()          # _row: a location line with a time run on to its name (cannot be placed)
+
+
+def _row(line: str, cols: Dict[str, float]):
     m = (_ROW_PLACED if isinstance(line, PlacedLine) else _ROW).match(line)
     if not m:
         return None
@@ -203,7 +210,7 @@ def _row(line: str, cols: Dict[str, float]) -> Optional[Row]:
         return None
     name = toks[0][2]
     if _TIME.match(name.rsplit(" ", 1)[-1]):       # a time run on to the name ('Littlehampton 05.08')
-        return None
+        return _RUN_ON
     values: Dict[str, str] = {}
     time_cols, other_cols, has_dwell = _index(cols)
     match_time, match_dwell = _TIME.match, _DWELL.match
@@ -272,6 +279,7 @@ def parse_attune(pages: Sequence[Sequence[str]], source: str = "") -> List[Attun
     cur: Optional[AttuneTrain] = None
     cols: Dict[str, float] = {}
     head1 = ""
+    heading_page = 0                                    # page of the current train's latest heading
     for page_no, lines in enumerate(pages, start=1):
         for raw in lines:
             line = raw if isinstance(raw, PlacedLine) else raw.replace("\t", "    ").rstrip()
@@ -280,8 +288,10 @@ def parse_attune(pages: Sequence[Sequence[str]], source: str = "") -> List[Attun
             m = _TRAIN.match(line)
             if m:
                 heading = " ".join(line.split())
-                if cur is not None and cur.heading == heading:
+                if cur is not None and cur.heading == heading and page_no > heading_page:
+                    heading_page = page_no
                     continue                            # the same train continued on the next page
+                heading_page = page_no
                 toc = m.group("toc").strip()
                 inner = re.search(r"\(([^)]*)\)\s*$", toc)
                 op = TOC_CODES.get((inner.group(1) if inner else toc).strip().lower(), "")
@@ -305,7 +315,9 @@ def parse_attune(pages: Sequence[Sequence[str]], source: str = "") -> List[Attun
                     cur.fields.setdefault(k, v)
                 continue
             row = _row(line, cols)
-            if row is not None:
+            if row is _RUN_ON:
+                cur.skipped.append(" ".join(line.split())[:60])
+            elif row is not None:
                 cur.rows.append(row)
     for t in trains:
         sig = t.fields.get("SignalID", "")
@@ -314,3 +326,13 @@ def parse_attune(pages: Sequence[Sequence[str]], source: str = "") -> List[Attun
         if t.fields.get("Days Pattern"):
             t.days = t.fields["Days Pattern"].upper()
     return trains
+
+
+def skipped_note(trains: Sequence[AttuneTrain]) -> str:
+    """One line about location lines that could not be read (a time printed on to the station name)."""
+    lost = [(t.train_id, line) for t in trains for line in t.skipped]
+    if not lost:
+        return ""
+    eg = "; ".join(f"{tid}: '{line}'" for tid, line in lost[:3])
+    return (f"{len(lost)} location line(s) in the train print could not be read (a time printed on to the "
+            f"station name), so those calls are not compared - check them by eye (e.g. {eg}).")

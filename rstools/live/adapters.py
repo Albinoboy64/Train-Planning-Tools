@@ -55,8 +55,26 @@ def model_of(path: str):
     from cwn_compare.meta import is_comparison_output, read_meta_file
     from cwn_compare.model import model_from_dict
     if is_comparison_output(path):
-        return model_from_dict((read_meta_file(path) or {})["baseline"])
+        meta = read_meta_file(path) or {}
+        if "baseline" not in meta:
+            raise ValueError(f"'{os.path.basename(path)}' is a comparison CWN without its stored data, so it cannot "
+                             "be compared here. Compare the original CWNs instead.")
+        return model_from_dict(meta["baseline"])
     return load_model(path)
+
+
+def _unmatched(left: List[str], right: List[str]):
+    """Positions on each side whose key has no partner on the other side (each partner used once)."""
+    pool: Dict[str, List[int]] = defaultdict(list)
+    for j, k in enumerate(right):
+        pool[k].append(j)
+    odd_left, used = set(), set()
+    for i, k in enumerate(left):
+        if pool[k]:
+            used.add(pool[k].pop(0))
+        else:
+            odd_left.add(i)
+    return odd_left, {j for j in range(len(right)) if j not in used}
 
 
 def _unit_text(u) -> str:
@@ -110,15 +128,27 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log) -> LiveRes
                     continue
                 state = ADDED if o is None else REMOVED if n is None else (CHANGED if f in fields_changed else SAME)
                 rows.append(LiveRow([FIELD_LABELS.get(f, f), str(a), str(b)], state))
-            for kind, get in (("Unit", lambda x: [_unit_text(u) for u in x.units[1:]]),     # unit 1 = main row
-                              ("Note", lambda x: [t[2] for t in x.notes]),
-                              ("Next-day working", lambda x: [t[2] for t in x.nw])):
+            # extra rows, highlighted as the comparison judged them: notes and next-day workings are compared
+            # as sets (order and day codes are not changes), so a line is marked only when that kind of change
+            # was reported for the train and the line has no match on the other side
+            for kind, get, key, reported in (
+                    ("Unit", lambda x: [(_unit_text(u), _unit_text(u)) for u in x.units[1:]],     # unit 1 = main
+                     lambda t: " ".join(t.split()).casefold(),
+                     lambda c: c.target == "unit" or (c.target == "block_end" and c.field == "unit")),
+                    ("Note", lambda x: [(t[2], t[1]) for t in x.notes], lambda t: t,
+                     lambda c: c.field == "note"),
+                    ("Next-day working", lambda x: [(t[2], t[1]) for t in x.nw], lambda t: t,
+                     lambda c: c.target == "nw" or (c.target == "block_end" and c.field == "dest"))):
                 left, right = (get(o) if o else []), (get(n) if n else [])
+                odd_left: set = set()
+                odd_right: set = set()
+                if o is not None and n is not None and other_changed and any(reported(c) for c in mine):
+                    odd_left, odd_right = _unmatched([key(k) for _t, k in left], [key(k) for _t, k in right])
                 for i in range(max(len(left), len(right))):
-                    a = left[i] if i < len(left) else ""
-                    b = right[i] if i < len(right) else ""
+                    a = left[i][0] if i < len(left) else ""
+                    b = right[i][0] if i < len(right) else ""
                     state = (ADDED if o is None else REMOVED if n is None else
-                             CHANGED if other_changed and not _same(a, b) else SAME)
+                             CHANGED if i in odd_left or i in odd_right else SAME)
                     rows.append(LiveRow([f"{kind} {i + 1}" if max(len(left), len(right)) > 1 else kind, a, b], state))
             if o is None:
                 state, status = ADDED, (mine[0].description if mine else "Added")
@@ -233,10 +263,11 @@ def lists(cmp) -> LiveResult:
     for i, j, h, old, new in cmp.changes:
         changed[(i, j)][h] = (old, new)
     items: List[LiveItem] = []
+    cols = [(h, a.headers.index(h), b.headers.index(h)) for h in cmp.common]
     for i, j in cmp.pairs:
         diff = changed.get((i, j), {})
-        rows = [LiveRow([h, a.rows[i][a.headers.index(h)], b.rows[j][b.headers.index(h)]],
-                        CHANGED if h in diff else SAME) for h in cmp.common]
+        ra, rb = a.rows[i], b.rows[j]
+        rows = [LiveRow([h, ra[ca], rb[cb]], CHANGED if h in diff else SAME) for h, ca, cb in cols]
         label = " ".join(x for x in _ident(a, i)[:3] if x)
         items.append(LiveItem(f"pair|{'|'.join(_ident(a, i))}|{i}", "Paired", label, CHANGED if diff else SAME,
                               ", ".join(diff) + " changed" if diff else "No change", rows,
@@ -322,8 +353,8 @@ def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) ->
         raise ValueError("The two TRENT prints have no diagram days in common.")
     opts = PackOptions(days=days, operators=set(OPERATORS), fleets=None)
     log("Building both plans' stats...")
-    old_pd, _w = build_pack(old, opts, __version__)
-    new_pd, _w = build_pack(new, opts, __version__)
+    old_pd, w_old = build_pack(old, opts, __version__)
+    new_pd, w_new = build_pack(new, opts, __version__)
     old_t = _tables_by_key(old_pd, _info(old, __version__), True)
     new_t = _tables_by_key(new_pd, _info(new, __version__), True)
     items: List[LiveItem] = []
@@ -335,4 +366,5 @@ def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) ->
             if name != "Glossary":
                 _table_items(f"{label} - {name}", old_t.get(key, {}).get(name), new_t.get(key, {}).get(name), items)
     return LiveResult(f"{os.path.basename(trent_a)}  vs  {os.path.basename(trent_b)}",
-                      ["Column", "Original", "Updated"], items, list(old.warnings) + list(new.warnings))
+                      ["Column", "Original", "Updated"], items, list(old.warnings) + list(new.warnings)
+                      + [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])

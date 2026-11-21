@@ -148,15 +148,18 @@ def parse_attune_xml(path: str) -> AttuneData:
                 cur_train = None
                 el.clear()
             elif tag == "location":
-                locations[el.get("tiploc", "")] = el.get("longDesc") or el.get("shortDesc") or el.get("tiploc", "")
+                tiploc = el.get("tiploc", "").strip()
+                if tiploc:                      # a location without a code cannot be looked up
+                    locations[tiploc] = el.get("longDesc") or el.get("shortDesc") or tiploc
                 el.clear()
             elif tag == "coupled":
                 in_coupled -= 1
             elif cur_unit is not None and tag == "depot" and not in_coupled and not cur_unit.depot:
                 cur_unit.depot = el.get("id", "").strip()
-            elif cur_unit is not None and tag == "text" and (el.text or "").strip():
+            elif cur_unit is not None and tag == "text" and not in_coupled and (el.text or "").strip():
                 cur_unit.notes.append(el.text.strip())
-            elif cur_unit is not None and tag == "activity" and el.get("id", "").strip() in ("WASH", "CET", "FUEL"):
+            elif cur_unit is not None and tag == "activity" and not in_coupled \
+                    and el.get("id", "").strip() in ("WASH", "CET", "FUEL"):
                 act = el.get("id").strip()
                 cur_unit.activities[act] = cur_unit.activities.get(act, 0) + 1
             elif tag == "unitDiagram":

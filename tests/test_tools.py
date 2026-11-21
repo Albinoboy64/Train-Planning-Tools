@@ -360,6 +360,43 @@ def test_third_party_notices_ship():
         assert name in text
 
 
+def test_station_suggestions_open_above_a_box_at_the_bottom_of_the_screen():
+    """The list of names opens below the box, or above it when there is no room below (the box near the
+    bottom of the screen); closing the box stops any pending hide check."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from tkinter import ttk
+    from rstools import theme
+    from rstools.autocomplete import Suggest
+    names = [f"Station {i}" for i in range(20)]
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return
+    try:
+        box = ttk.Entry(root)
+        box.pack()
+        s = Suggest(box, lambda: names)
+        bottom = theme.screen_area(box)[3]
+        for y, below in ((0, True), (bottom - 60, False)):
+            root.geometry(f"+0+{y}")
+            root.update()
+            s.show(names)
+            root.update()
+            top = s.popup.winfo_rooty()
+            if below:
+                assert top >= box.winfo_rooty() + box.winfo_height() - 1
+            else:
+                assert top + s.popup.winfo_height() <= box.winfo_rooty() + 1
+            s.hide()
+        s._later_hide()
+        assert s._hide_job is not None
+        box.destroy()
+        assert s._hide_job is None
+    finally:
+        root.destroy()
+
+
 def test_station_suggestions_as_you_type():
     """Typing in a station box lists matching names below it (starts-with first); Down + Enter takes one,
     and anything can still be typed over the box."""

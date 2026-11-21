@@ -28,6 +28,14 @@ if not exist smoke\smoke.xlsx (
     echo The built exe did not produce its smoke-test output.
     goto :failed
 )
+REM smoke test: the built exe makes a berthing chart (proves the berthing package and berth list are bundled)
+python -c "import sys; sys.path.insert(0, 'tests'); import test_berthing as t; tr, dg = t.base_plan(); open('smoke/berth.xml', 'w').write(t.xml(tr, dg)); t.make_chart('smoke/berth_layout.xlsx')" || goto :failed
+if exist smoke\berth.xlsx del smoke\berth.xlsx
+start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\berth.xml --layout smoke\berth_layout.xlsx --out smoke --name berth
+if not exist smoke\berth.xlsx (
+    echo The built exe did not make a berthing chart.
+    goto :failed
+)
 echo.
 echo Built: dist\TrainPlanningTools.exe
 pause

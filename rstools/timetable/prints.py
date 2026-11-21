@@ -71,6 +71,7 @@ class PrintTrain:
     page: int = 0
     ident: str = ""             # full train ID when the print gives one (e.g. 1H05BS)
     info: Dict[str, str] = field(default_factory=dict)      # named heading fields, when the layout is known
+    skipped: List[str] = field(default_factory=list)         # Attune location lines that could not be read
 
     @property
     def first_time(self) -> str:
@@ -358,7 +359,8 @@ def from_attune(t) -> "PrintTrain":
         calls.append(Call(r.name, _loc_key(r.name), times, " ".join(rest.values()), rest))
     info = dict(t.fields)
     info.update({"Train category": t.category, "Operator": t.toc_name})
-    return PrintTrain(t.headcode, t.uid, t.days, [], calls, t.source, t.page, ident=t.train_id, info=info)
+    return PrintTrain(t.headcode, t.uid, t.days, [], calls, t.source, t.page, ident=t.train_id, info=info,
+                      skipped=list(getattr(t, "skipped", [])))
 
 
 def _is_heading(line: str) -> Optional[Tuple[str, str]]:

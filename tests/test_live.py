@@ -27,6 +27,47 @@ def test_live_cwn_matches_report_and_days():
     assert "2C02BT (FO)" not in {i.label for i in mon.items}           # the Friday train is left out
 
 
+def test_live_cwn_highlights_extra_lines_as_the_comparison_judges_them():
+    """Next-day working lines are compared as a set (order and units swapped between lines are not changes):
+    Live View highlights only the line that really differs, never lines that merely moved."""
+    import test_compare as t
+    from rstools.live.adapters import compute
+    d = tempfile.mkdtemp()
+    old = [list(r) for r in t.BTN_ORIG] + t._berth_rows([("Berth BI150 06+10MO (2)", "146"),
+                                                         ("Berth BI149 06+10MO (1)", "147")])
+    moved = [list(r) for r in t.BTN_ORIG] + t._berth_rows([("Berth BI149 06+10MO (1)", "146"),
+                                                           ("Berth BI150 06+10MO (2)", "147"),
+                                                           ("Berth BI151 07+00MO (3)", "148")])
+    t.make(os.path.join(d, "a.xlsx"), old, t.VIC_ORIG)
+    t.make(os.path.join(d, "b.xlsx"), moved, t.VIC_ORIG)
+    res = compute("cwn", {"a": [os.path.join(d, "a.xlsx")], "b": [os.path.join(d, "b.xlsx")]})
+    berth = next(i for i in res.items if i.label.startswith("5H61BT"))
+    nw = [r for r in berth.rows if r.cells[0].startswith("Next-day working")]
+    assert len(nw) == 3
+    assert [r.cells[0] for r in nw if r.state == "changed"] == ["Next-day working 3"], \
+        [(r.cells, r.state) for r in nw]
+    # only re-ordered (units swapped between the lines): nothing highlighted at all
+    same = [list(r) for r in t.BTN_ORIG] + t._berth_rows([("Berth BI149 06+10MO (1)", "146"),
+                                                          ("Berth BI150 06+10MO (2)", "147")])
+    t.make(os.path.join(d, "c.xlsx"), same, t.VIC_ORIG)
+    res = compute("cwn", {"a": [os.path.join(d, "a.xlsx")], "b": [os.path.join(d, "c.xlsx")]})
+    berth = next(i for i in res.items if i.label.startswith("5H61BT"))
+    assert not [r for r in berth.rows if r.cells[0].startswith("Next-day") and r.state == "changed"]
+
+
+def test_live_comparison_cwn_without_stored_data_is_explained(monkeypatch):
+    from cwn_compare import meta
+    from rstools.live import adapters
+    monkeypatch.setattr(meta, "is_comparison_output", lambda path: True)
+    monkeypatch.setattr(meta, "read_meta_file", lambda path: {"changes": []})
+    try:
+        adapters.model_of("x.xlsx")
+    except ValueError as exc:
+        assert "Compare the original CWNs" in str(exc)
+    else:
+        raise AssertionError("expected a plain error")
+
+
 def test_live_timetables_and_lists():
     import openpyxl
     import test_timetable as tt

@@ -159,6 +159,34 @@ def test_fleet_missing_from_the_table_is_reported_once():
         assert not [w for w in plain if "fleet table" in w]
 
 
+def test_xml_reader_edge_cases():
+    """A public time printed before midnight for a working time just after it keeps its own clock time
+    (23:59; public times are only shown, never added up); a location without a code is not stored under
+    ''; washes and notes inside a <coupled> element (another diagram's) are not counted for this diagram."""
+    from rstools.statspack.attune import parse_attune_xml
+    xml = ('<diagramExchange version="1.0" plantype="L" xmlns="http://www.tracsis.com/TTVP_Interface"><trainList>'
+           '<train id="5A01BI" daysRun="NNYNNNNNN" planType="L">'
+           '<leg origin="BRHM" dep="00:00:30" depPub="23:59:00" dest="HYWRDSH" arr="00:30:00" arrPub="00:30:00"/>'
+           '<leg origin="HYWRDSH" dep="00:40:00" dest="BRGHTN" arr="01:00:00"/></train></trainList>'
+           '<locationList><location tiploc="BRHM" longDesc="Barnham"/><location longDesc="No code"/></locationList>'
+           '<unitDiagramList><unitDiagram id="1" type="L" daysrun="NNYNNNNNN"><depot id="BI"/><details>'
+           '<diagMovement legno="1"><journey origin="BRHM" dep="00:00:30" dest="BRGHTN" arr="01:00:00">'
+           '<coupled position="2"><diagram id="9"/><depot id="SU"/><activity id="WASH"/><text>other</text></coupled>'
+           '</journey></diagMovement><diagStatic legno="2"><activity id="WASH"/><text>own note</text></diagStatic>'
+           '</details></unitDiagram></unitDiagramList></diagramExchange>')
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "x.xml")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(xml)
+        data = parse_attune_xml(p)
+    leg = data.trains["5A01BI"][0].legs[0]
+    assert leg.dep == 30 and leg.dep_pub == 23 * 3600 + 59 * 60   # shown as 23:59, never a negative time
+    assert data.trains["5A01BI"][0].legs[1].dep == 40 * 60
+    assert "" not in data.locations and data.locations["BRHM"] == "Barnham"
+    unit = data.unit_diagrams[0]
+    assert unit.depot == "BI" and unit.activities == {"WASH": 1} and unit.notes == ["own note"]
+
+
 def test_merged_and_split_week():
     with tempfile.TemporaryDirectory() as d:
         plan = setup_plan(d)

@@ -110,6 +110,11 @@ jobs:
           python -c "import sys; sys.path.insert(0,'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'reorder','smoke\multi.xlsx','--out','smoke','--name','reordered' -Wait -PassThru
           if (!(Test-Path smoke\reordered.xlsx)) { throw "exe did not put day variants in order" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_berthing as t; tr, dg = t.base_plan(); open('smoke/berth.xml', 'w').write(t.xml(tr, dg)); t.make_chart('smoke/berth_layout.xlsx')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--xml','smoke\berth.xml','--layout','smoke\berth_layout.xlsx','--issue','Smoke','--out','smoke','--name','berth' -Wait -PassThru
+          if (!(Test-Path smoke\berth.xlsx)) { throw "exe did not make a berthing chart" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp' -Wait -PassThru
+          if (!(Test-Path "smoke\berth_cmp - Change Report.xlsx")) { throw "exe did not compare two berthing charts" }
 
       - name: Package
         shell: pwsh

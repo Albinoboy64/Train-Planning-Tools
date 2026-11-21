@@ -256,6 +256,11 @@ def _cmp_prints(first, second, p, lg):
         if not trains:
             warnings.append(f"{os.path.basename(path)}: no trains were recognised (no heading lines with a "
                             "headcode and a UID or the word 'Train'). Check it is a train print.")
+        lost = [(t.ident or t.headcode, line) for t in trains for line in getattr(t, "skipped", [])]
+        if lost:
+            warnings.append(f"{os.path.basename(path)}: {len(lost)} location line(s) could not be read (a time "
+                            "printed on to the station name), so those calls are not compared - check them by eye "
+                            "(e.g. " + "; ".join(f"{tid}: '{line}'" for tid, line in lost[:3]) + ").")
     if not orig or not upd:
         raise TimetableRunError("No trains were recognised on one side of the comparison.\n\n"
                                 + "\n".join(warnings))
@@ -315,6 +320,11 @@ def _cmp_base(mode, base_paths, tt_path, p, lg):
             lg(f"{os.path.basename(path)}: {len(r)} train(s), {sum(t.public for t in r)} with public times")
         learn_tiplocs(atrains)
         trains, notes = trains_from_prints(atrains, working)
+        from .attune_print import skipped_note
+        lost = skipped_note(atrains)
+        if lost:
+            notes.append(lost)
+            lg("WARNING: " + lost)
         base_label, base_name = "Print", "train print(s)"
     else:
         lg(describe(results[0]))

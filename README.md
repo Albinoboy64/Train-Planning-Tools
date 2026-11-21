@@ -342,6 +342,14 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.20.4** - review fixes: Live View highlights, print reader, drop-down, berthing smoke test
+* **Live View, CWNs**: unit, note and next-day working lines are highlighted the way the comparison judges them. Lines that only moved (units listed in another order, next-day workings re-ordered or with only a different day code) are no longer shown as changed; only the line that really differs is.
+* **Live View, two plans**: warnings from building each plan (e.g. a fleet missing from the fleet table) are now shown, as in the stats pack comparison. A comparison CWN without its stored data now gives a plain message instead of an error.
+* **Attune train prints**: a location line with a time printed on to the station name is still left out, but the run now says so (with examples) so those calls can be checked by eye. The same train heading twice on one page now reads as two trains; a heading repeated at the top of the next page is still the same train continuing.
+* **Station drop-down**: opens above the box when there is no room below it on the screen.
+* **Attune XML**: washes, CETs, fuel and notes inside another diagram's coupled entry are never counted for this diagram (none were in the real XML checked), and a location without a code is ignored.
+* **Build**: the release build now also makes and compares a berthing chart with the built exe, proving the berthing tools and berth list are bundled.
+
 **3.20.3** - full check: list pairing, fleet warning, sharper tick boxes
 * **Retimed trains in Attune train lists**: without a UID column, departure time is part of how trains are paired, so a train retimed by a minute used to show as one train removed and one added. It is now paired and its new time reported as a change, but only when it is the only train left on each side with its headcode, days and origin; where two or more are left they are still listed as added and removed, never guessed. An LTP row and its STP twin with the same key now keep to their own stage if the export is re-sorted. *What Was Compared* says how many were paired this way.
 * **Train list report**: the *Changes by Train* sheet no longer has an empty UID column when neither list has UIDs.

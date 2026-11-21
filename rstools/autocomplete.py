@@ -50,7 +50,7 @@ class Suggest:
         entry.bind("<Tab>", self._tab, add="+")
         entry.bind("<Escape>", self._escape, add="+")
         entry.bind("<FocusOut>", lambda _e: self._later_hide(), add="+")
-        entry.bind("<Destroy>", lambda _e: self.hide(), add="+")
+        entry.bind("<Destroy>", lambda _e: self._gone(), add="+")
         entry.bind("<Configure>", lambda _e: self._place() if self.shown else None, add="+")
 
     @property
@@ -96,10 +96,15 @@ class Suggest:
         e = self.entry
         top = e.winfo_toplevel()
         from rstools.theme import screen_area
-        room = min(top.winfo_rootx() + top.winfo_width(), screen_area(e)[2]) - e.winfo_rootx() - 4
+        area = screen_area(e)
+        room = min(top.winfo_rootx() + top.winfo_width(), area[2]) - e.winfo_rootx() - 4
         width = max(min(e.winfo_width(), room), 160)          # within the window, not off its edge
-        self.popup.geometry(f"{width}x{self.box.winfo_reqheight()}+{e.winfo_rootx()}+"
-                            f"{e.winfo_rooty() + e.winfo_height()}")
+        self.box.update_idletasks()                          # the height for the rows just put in
+        height = self.box.winfo_reqheight()
+        y = e.winfo_rooty() + e.winfo_height()
+        if y + height > area[3] and e.winfo_rooty() - height >= area[1]:
+            y = e.winfo_rooty() - height                     # no room below the box: open above it
+        self.popup.geometry(f"{width}x{height}+{e.winfo_rootx()}+{y}")
 
     def hide(self):
         if self.popup is not None:
@@ -107,6 +112,16 @@ class Suggest:
                 self.popup.withdraw()
             except tk.TclError:
                 self.popup = None
+
+    def _gone(self):
+        """The box is being closed: stop a pending hide check, then hide the list."""
+        if self._hide_job is not None:
+            try:
+                self.entry.after_cancel(self._hide_job)
+            except tk.TclError:
+                pass
+            self._hide_job = None
+        self.hide()
 
     def _later_hide(self):
         # a click in the list moves the focus first; give the click time to land, and keep the list open
