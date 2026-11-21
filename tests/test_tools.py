@@ -968,8 +968,10 @@ def test_rescale_waits_for_the_drag_to_end_then_fits_the_window(monkeypatch):
                      f"screen area {area}, needed {need_w}x{need_h}, {app.state()}")
             assert app.winfo_x() >= area[0] and app.winfo_x() + app.winfo_width() <= area[2] + 1, where
             assert app.winfo_y() >= area[1] and app.winfo_y() + app.winfo_height() <= area[3] + 1, where
-            assert app.winfo_width() >= min(need_w, area[2] - area[0]) - 2
-            assert app.winfo_height() >= min(need_h, area[3] - area[1]) - 60
+            side = max(0, app.winfo_rootx() - app.winfo_x())               # window border (Windows: ~8-10 px)
+            fw, fh = 2 * side, max(0, app.winfo_rooty() - app.winfo_y()) + side
+            assert app.winfo_width() >= min(need_w, area[2] - area[0] - fw) - 2, where
+            assert app.winfo_height() >= min(need_h, area[3] - area[1] - fh) - 60, where
         finally:
             app._on_close()
 
