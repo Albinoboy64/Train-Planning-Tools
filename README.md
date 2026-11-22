@@ -358,6 +358,10 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.27.2** - automatic releases, small tidy-ups
+* **Releases are published automatically** when a new version is pushed to `main`; pushes that keep the same version only build.
+* Small internal tidy-ups (an unused parameter removed, a few older code idioms modernised). Nothing changes in how the app works.
+
 **3.27.1** - berthing chart cells
 * **Trains in a berthing chart are left-aligned** in each night's box instead of centred, as on the original charts. A long entry still shrinks to fit rather than spilling over.
 
