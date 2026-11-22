@@ -401,7 +401,7 @@ def _plan_label(plan: LoadedPlan) -> str:
     return os.path.basename(plan.trent.path) + (f" + {os.path.basename(plan.attune.path)}" if plan.attune.path else "")
 
 
-def _save_reports(reports, opts: PackOptions, stem: str, folder_of: LoadedPlan) -> str:
+def _save_reports(reports, opts: PackOptions, stem: str) -> str:
     sink = sink_for(opts.fmt)
     for rep in reports:
         sink.report(rep)
@@ -431,7 +431,7 @@ def unit_reports(plan: LoadedPlan, opts: PackOptions, which: Sequence[str], week
     else:
         default = f"Unit report for {tt or naming.today()}"
     stem = opts.output_name.strip() or naming.clip(default + (f" {DAYS[days[0]]}" if len(days) == 1 else ""))
-    return [_save_reports(reports, opts, stem, plan)], warnings
+    return [_save_reports(reports, opts, stem)], warnings
 
 
 # --------------------------------------------------------------------------- #
@@ -548,4 +548,4 @@ def seats_report(plan: LoadedPlan, opts: PackOptions, kind: str, group_name: str
                    + (f" (average {seats / len(opts.days):,.0f} {what} a day)" if week and len(opts.days) > 1 else "")
                    + ".")
     progress(0.9, "Saving...")
-    return [_save_reports(reports, opts, stem, plan)], warnings, summary
+    return [_save_reports(reports, opts, stem)], warnings, summary

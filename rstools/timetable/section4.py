@@ -444,7 +444,7 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
     used_keys = {(p.name, p.start) for p in used}
     # each train version: the times it reaches each place, by day
     versions = []
-    for _hc, vs in plan.trains.items():
+    for vs in plan.trains.values():
         for t in vs:
             times: Dict[str, List[Tuple[int, int]]] = {}
             for n, c in enumerate(t.calls):

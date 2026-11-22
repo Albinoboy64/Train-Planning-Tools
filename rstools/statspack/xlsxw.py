@@ -10,7 +10,7 @@ import json
 import math
 import os
 import re
-from functools import lru_cache
+from functools import cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from xml.sax.saxutils import escape
 
@@ -51,7 +51,7 @@ HIGHLIGHT = {"changed": "FFFFD966", "added": "FFC6EFCE", "removed": "FFFFC7CE",
              "flagged": "FFFF7C7C"}     # mileage increase over the comparison threshold
 
 
-@lru_cache(maxsize=None)
+@cache
 def col_letter(n: int) -> str:
     s = ""
     while n:

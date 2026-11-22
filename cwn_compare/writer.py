@@ -319,7 +319,7 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
             seq.append(("src", r))
         seq.extend(("ins", x) for x in inserts.get(r, []))
 
-    row_map: Dict[int, Optional[int]] = {r: None for r in snap}
+    row_map: Dict[int, Optional[int]] = dict.fromkeys(snap)
     t = hr + 1
     for kind, item in seq:
         if kind == "src":

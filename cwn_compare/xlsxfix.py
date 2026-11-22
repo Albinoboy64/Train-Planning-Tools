@@ -81,7 +81,7 @@ class _SharedStrings:
         body = "".join(f"<si>{s}</si>" for s in self.items)
         return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
                 f'<sst xmlns="{MAIN_NS}" count="{self.count}" uniqueCount="{len(self.items)}">'
-                f"{body}</sst>").encode("utf-8")
+                f"{body}</sst>").encode()
 
 
 MAX_AUTO_WIDTH = 60
@@ -231,7 +231,7 @@ def save_workbook(wb, path: str, progress=None, trim: str = "visible"):
                 progress(0.8 * done[0] / total)
     buf = io.BytesIO()
     archive = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED, allowZip64=True)
-    wb.properties.modified = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    wb.properties.modified = datetime.datetime.now(tz=datetime.UTC).replace(tzinfo=None)
     Writer(wb, archive).save()
     with zipfile.ZipFile(buf) as zin:
         write_zip(path, _fixed_parts(zin))
