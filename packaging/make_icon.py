@@ -1,8 +1,8 @@
 """Generate the Train Planning Tools logo (run once; the outputs are committed).
 
 A flat, front-on Class 387 cab on a light tile, drawn in the proportions of the real front: arched roof
-with the yellow hood and orange line, offset gangway door, a narrow left and wide right windscreen,
-yellow warning panels with a single lamp (left) and twin lamps (right), blue valance and coupler cover.
+with the yellow hood and orange line, central gangway door, a windscreen either side, yellow warning
+panels with headlight and marker lamps, blue valance and coupler cover.
 No operator logos. Drawn at 1024 px and scaled down, so it stays recognisable
 from 16 px (taskbar) to the large README logo. Writes:
   packaging/TrainPlanningTools.ico     - Windows icon, 16-256 px
@@ -27,10 +27,9 @@ FRAME, FRAME_LIGHT = (84, 82, 80), (128, 126, 122)
 RIM, SILVER, SILVER_DARK = (26, 28, 32), (236, 240, 244), (150, 156, 164)
 WHITE_BOX, BLACK = (226, 228, 230), (14, 16, 20)
 
-# The face is laid out in the pixel coordinates of a front-on photograph of a Class 387 (face about 640 wide
-# and 970 tall, roof at y 55, skirt at y 1030) and mapped onto the tile. Electrostar fronts are not
-# symmetrical: the gangway door sits left of centre, the left windscreen is narrow and the right one wide,
-# the left light cluster is a single lamp and the right one a twin lamp.
+# The face is laid out in the pixel coordinates of a photograph of a Class 387 (face about 640 wide and 970
+# tall, roof at y 55, skirt at y 1030) and mapped onto the tile. It is symmetrical about the centre line
+# (x = 350); the photo is taken at an angle, so its left and right sides look different.
 K, X0, Y0 = 0.78, 262.0, 118.0
 
 
@@ -106,41 +105,49 @@ def draw() -> Image.Image:
     rr((285, 62, 415, 122), 30, TRAY)                                          # roof light
     rr((300, 72, 400, 108), 18, SHINE)
 
-    # windscreens: narrow on the left, wide on the right
-    poly([(46, 222), (170, 222), (170, 548), (38, 540), (36, 470)], TRAY)
-    poly([(52, 228), (170, 228), (170, 500), (48, 486)], GLASS)
-    rr((470, 214, 666, 560), 36, TRAY)
-    rr((480, 222, 656, 512), 28, GLASS)
-    poly([(500, 500), (560, 250), (590, 250), (530, 500)], SHINE)
+    # everything below is mirrored about the centre line (x = 350 in the photo's coordinates)
+    def mirror(points):
+        return [(700 - x, y) for x, y in points]
 
-    # yellow warning panels, each with its light cluster
+    # windscreens either side of the door, each with a dark wiper tray under it
+    for side in (False, True):
+        tray = [(46, 222), (232, 222), (232, 548), (40, 544), (38, 470)]
+        glass = [(58, 232), (230, 232), (230, 508), (56, 504)]
+        shine = [(86, 500), (130, 250), (160, 250), (116, 500)]
+        poly(mirror(tray) if side else tray, TRAY)
+        poly(mirror(glass) if side else glass, GLASS)
+        poly(mirror(shine) if side else shine, SHINE)
+
+    # yellow warning panels, each with a headlight and a marker lamp (the lamp nearest the door is the small one)
     panels = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     pd = ImageDraw.Draw(panels)
-    pd.polygon(_spline(_pts([(10, 566), (170, 566), (170, 734), (110, 744), (50, 716), (10, 660)]), 1), fill=YELLOW)
-    pd.polygon(_spline(_pts([(468, 566), (690, 566), (690, 690), (650, 738), (570, 756), (468, 750)]), 1), fill=YELLOW)
+    left = [(10, 566), (236, 566), (236, 750), (150, 752), (70, 722), (10, 660)]
+    for pts in (left, mirror(left)):
+        pd.polygon(_spline(_pts(pts), 1), fill=YELLOW)
     panels.putalpha(Image.composite(panels.getchannel("A"), Image.new("L", (S, S), 0), mask))   # follow the body edge
     img.alpha_composite(panels)
-    oval(92, 662, 50, RIM)
-    oval(92, 662, 36, SILVER_DARK)
-    oval(92, 662, 30, SILVER)
-    rr((498, 630, 650, 742), 54, RIM)
-    oval(538, 700, 26, SILVER_DARK)
-    oval(538, 700, 21, SILVER)
-    oval(603, 684, 38, SILVER_DARK)
-    oval(603, 684, 32, SILVER)
+    for side in (False, True):
+        sx = -1 if side else 1
+        cx = 350 - sx * 230                       # centre of each light cluster
+        rr((cx - 90, 628, cx + 90, 742), 56, RIM)
+        oval(cx - sx * 30, 684, 38, SILVER_DARK)
+        oval(cx - sx * 30, 684, 32, SILVER)
+        oval(cx + sx * 44, 702, 26, SILVER_DARK)
+        oval(cx + sx * 44, 702, 21, SILVER)
 
-    # recess under the door, then the gangway door with its frame
-    rr((236, 806, 494, 1006), 34, BLACK)
-    rr((166, 134, 466, 814), 34, FRAME)
-    rr((406, 160, 450, 800), 10, FRAME_LIGHT)
-    poly([(206, 228), (392, 228), (390, 790), (208, 790)], YELLOW)
-    ImageDraw.Draw(img).line([*T(206, 228), *T(392, 228)], fill=YELLOW_DARK, width=max(2, int(6 * K)))
+    # recess under the door, then the central gangway door with its frame
+    rr((222, 806, 478, 1006), 34, BLACK)
+    rr((228, 134, 472, 814), 34, FRAME)
+    rr((240, 150, 460, 800), 22, FRAME_LIGHT)
+    poly([(266, 228), (434, 228), (434, 792), (266, 792)], YELLOW)
+    rr((240, 150, 460, 215), 22, FRAME_LIGHT)
+    ImageDraw.Draw(img).line([*T(266, 228), *T(434, 228)], fill=YELLOW_DARK, width=max(2, int(6 * K)))
 
     # coupler cover and bar
-    rr((244, 836, 362, 924), 10, WHITE_BOX)
-    oval(328, 878, 22, BLACK)
-    oval(276, 880, 14, SILVER_DARK)
-    rr((240, 928, 402, 968), 12, BLACK)
+    rr((290, 836, 410, 924), 10, WHITE_BOX)
+    oval(350, 880, 24, BLACK)
+    oval(312, 880, 9, SILVER_DARK)
+    rr((268, 928, 432, 968), 12, BLACK)
     return img
 
 
