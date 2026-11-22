@@ -358,6 +358,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.27.1** - berthing chart cells
+* **Trains in a berthing chart are left-aligned** in each night's box instead of centred, as on the original charts. A long entry still shrinks to fit rather than spilling over.
+
 **3.27.0** - merging by location, click-to-see values, lean outputs, local saving, a quicker window
 * **Merging is decided by what happens at the location**: AM / PM berths no longer keep a train's variants apart (as promised: a train that differs only where its units berth still merges). Diagram numbers and next-day workings still follow their tick boxes.
 * **Values that differ by day are shown as the value for most days and a ▾** instead of small day codes squeezed into the cell: click the cell to see each day's value. The DAYS column widens when a merged day code needs it.
