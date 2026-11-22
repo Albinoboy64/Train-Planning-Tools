@@ -1,8 +1,8 @@
 """Generate the Train Planning Tools logo (run once; the outputs are committed).
 
-A front-on Class 387 Electrostar cab in the blue, red and white Great British Railways livery: yellow
-gangway door and warning panel, dark windscreens, headlight clusters, the red / white stripe on the
-cab sides, on a sky-blue badge with rails. Drawn at 1024 px and scaled down, so it stays recognisable
+A flat, front-on Class 387 style cab (blue body, yellow hood, gangway door and warning panel, dark
+windscreens, headlight clusters, red / white stripes up the cab sides) on a light tile. No operator
+logos. Drawn at 1024 px and scaled down, so it stays recognisable
 from 16 px (taskbar) to the large README logo. Writes:
   packaging/TrainPlanningTools.ico     - Windows icon, 16-256 px
   rstools/assets/logo.png             - 64 px, shown in the app header (scaled to the text size)
@@ -17,13 +17,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 S = 1024                                  # drawn large, then scaled down for crisp edges
 
-SKY_TOP, SKY_BOTTOM = (120, 186, 236), (214, 236, 250)
-BLUE, BLUE_DARK, BLUE_LIGHT = (32, 44, 120), (18, 26, 78), (58, 74, 160)
-RED, WHITE = (222, 40, 40), (250, 250, 250)
-YELLOW, YELLOW_DARK = (250, 204, 20), (206, 160, 0)
-GLASS, GLASS_SHINE = (14, 20, 30), (70, 92, 118)
-GREY, GREY_DARK = (150, 156, 162), (92, 98, 104)
-BLACK, STEEL, RAIL, SLEEPER = (22, 24, 28), (60, 66, 72), (196, 202, 208), (110, 92, 74)
+TILE_TOP, TILE_BOTTOM = (244, 247, 252), (208, 219, 238)
+BODY_TOP, BODY_BOTTOM = (46, 74, 176), (22, 36, 112)
+NAVY = (16, 26, 82)
+RED, WHITE = (216, 36, 44), (252, 252, 252)
+YELLOW, YELLOW_DARK = (252, 206, 24), (214, 164, 0)
+GLASS, SHINE = (16, 24, 44), (74, 96, 132)
+FRAME, STEEL, BLACK = (92, 98, 108), (66, 72, 82), (20, 22, 26)
 
 
 def _gradient(size, top, bottom):
@@ -35,64 +35,55 @@ def _gradient(size, top, bottom):
 
 
 def draw() -> Image.Image:
+    """A flat, front-on Class 387 style cab on a light tile: few bold shapes, one blue, one yellow, one red."""
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    mask = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([24, 24, S - 24, S - 24], radius=210, fill=255)
-    img.paste(_gradient(S, SKY_TOP, SKY_BOTTOM), (0, 0), mask)
-    d = ImageDraw.Draw(img)
-
-    # ballast, sleepers and rails running towards the viewer
-    d.polygon([(330, 820), (694, 820), (900, S - 40), (124, S - 40)], fill=(150, 140, 128))
-    for y, half in ((846, 200), (900, 255), (956, 310)):
-        d.rectangle([512 - half, y, 512 + half, y + 18], fill=SLEEPER)
-    d.polygon([(452, 820), (482, 820), (330, S - 40), (268, S - 40)], fill=RAIL)
-    d.polygon([(542, 820), (572, 820), (756, S - 40), (694, S - 40)], fill=RAIL)
-    img.paste((0, 0, 0, 0), (0, 0, S, S), Image.eval(mask, lambda v: 255 - v))   # keep inside the badge
+    tile = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(tile).rounded_rectangle([16, 16, S - 16, S - 16], radius=224, fill=255)
+    img.paste(_gradient(S, TILE_TOP, TILE_BOTTOM), (0, 0), tile)
 
     shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).ellipse([230, 780, 794, 860], fill=(0, 0, 0, 130))
-    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18)))
-    d = ImageDraw.Draw(img)
+    ImageDraw.Draw(shadow).ellipse([226, 838, 798, 904], fill=(20, 30, 70, 120))
+    img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(14)))
 
-    # cab body: rounded roof, sides flaring out slightly towards the bottom
-    body = [(286, 330), (318, 210), (392, 150), (632, 150), (706, 210), (738, 330), (758, 790), (266, 790)]
-    d.polygon(body, fill=BLUE)
-    d.polygon([(286, 330), (318, 210), (392, 150), (412, 150), (346, 222), (318, 340), (300, 790), (266, 790)],
-              fill=BLUE_LIGHT)                                              # light on the left edge
-    d.polygon([(738, 330), (706, 210), (632, 150), (612, 150), (678, 222), (706, 340), (724, 790), (758, 790)],
-              fill=BLUE_DARK)                                               # shade on the right edge
-    # red and white stripe sweeping up the cab sides (as on the bodyside next to the cab)
+    # body: rounded roof, squarer base, blue shading from top to bottom, red / white stripes up the sides
+    mask = Image.new("L", (S, S), 0)
+    m = ImageDraw.Draw(mask)
+    m.rounded_rectangle([236, 120, 788, 860], radius=190, fill=255)
+    m.rounded_rectangle([236, 560, 788, 860], radius=44, fill=255)
+    body = _gradient(S, BODY_TOP, BODY_BOTTOM)
+    b = ImageDraw.Draw(body)
     for side in (1, -1):
         x = (lambda v: v) if side == 1 else (lambda v: S - v)
-        d.polygon([(x(266), 790), (x(266), 560), (x(296), 420), (x(330), 420), (x(312), 790)], fill=WHITE)
-        d.polygon([(x(266), 790), (x(266), 610), (x(292), 480), (x(316), 480), (x(302), 790)], fill=RED)
+        b.polygon([(x(236), 560), (x(292), 470), (x(292), 860), (x(236), 860)], fill=WHITE)
+        b.polygon([(x(236), 620), (x(270), 560), (x(270), 860), (x(236), 860)], fill=RED)
+    img.paste(body, (0, 0), mask)
+    d = ImageDraw.Draw(img)
 
-    # front face: one dark glazed band across the cab (windscreens), gangway door in the middle
-    d.polygon([(326, 238), (698, 238), (716, 470), (308, 470)], fill=GLASS)
-    d.polygon([(330, 452), (380, 262), (410, 262), (360, 452)], fill=GLASS_SHINE)       # reflections
-    d.polygon([(620, 452), (670, 262), (690, 262), (640, 452)], fill=GLASS_SHINE)
-    d.rounded_rectangle([348, 248, 416, 268], radius=6, fill=(40, 40, 40))             # destination blind
-    d.rectangle([356, 254, 408, 262], fill=(255, 176, 0))
-    d.rounded_rectangle([430, 210, 594, 610], radius=26, fill=GREY_DARK)               # gangway frame
-    d.rounded_rectangle([446, 226, 578, 600], radius=18, fill=GREY)
-    d.rounded_rectangle([460, 240, 564, 590], radius=12, fill=YELLOW)                  # gangway door
-    d.rectangle([460, 240, 564, 256], fill=YELLOW_DARK)
-    d.rounded_rectangle([484, 286, 540, 376], radius=10, fill=GLASS)                   # door window
+    # yellow hood and dark windscreens
+    d.rounded_rectangle([300, 168, 724, 330], radius=86, fill=YELLOW)
+    d.rounded_rectangle([312, 238, 712, 506], radius=40, fill=GLASS)
+    d.polygon([(330, 480), (372, 262), (398, 262), (358, 480)], fill=SHINE)
+    d.polygon([(694, 480), (652, 262), (626, 262), (666, 480)], fill=SHINE)
 
-    # lower front: yellow warning panel with the headlight clusters, dark valance and coupler
-    d.polygon([(308, 470), (716, 470), (736, 700), (288, 700)], fill=YELLOW)
-    d.polygon([(308, 470), (716, 470), (718, 486), (306, 486)], fill=YELLOW_DARK)
-    d.rounded_rectangle([430, 470, 594, 610], radius=0, fill=GREY_DARK)                # frame continues down
-    d.rounded_rectangle([446, 470, 578, 600], radius=18, fill=GREY)
-    d.rounded_rectangle([460, 470, 564, 590], radius=12, fill=YELLOW)
-    for cx in (366, 658):
-        d.rounded_rectangle([cx - 52, 596, cx + 52, 664], radius=26, fill=BLACK)
-        d.ellipse([cx - 40, 606, cx, 654], fill=(255, 255, 255))             # headlight
-        d.ellipse([cx + 4, 612, cx + 40, 648], fill=(255, 236, 170))          # marker light
-    d.polygon([(288, 700), (736, 700), (758, 790), (266, 790)], fill=BLUE_DARK)
-    d.rounded_rectangle([438, 690, 586, 806], radius=18, fill=STEEL)          # Dellner coupler
-    d.rounded_rectangle([470, 716, 554, 778], radius=12, fill=BLACK)
-    d.rounded_rectangle([488, 734, 536, 760], radius=8, fill=GREY_DARK)
+    # yellow warning panel and headlight clusters
+    d.rounded_rectangle([296, 500, 728, 716], radius=34, fill=YELLOW)
+    d.rectangle([296, 500, 728, 514], fill=YELLOW_DARK)
+    for cx, sx in ((366, 1), (658, -1)):
+        d.rounded_rectangle([cx - 58, 590, cx + 58, 690], radius=34, fill=BLACK)
+        d.ellipse([cx - 26 * sx - 30, 610, cx - 26 * sx + 30, 670], fill=WHITE)
+        d.ellipse([cx + 30 * sx - 13, 628, cx + 30 * sx + 13, 654], fill=(255, 232, 160))
+
+    # gangway door down the middle
+    d.rounded_rectangle([436, 176, 588, 716], radius=24, fill=FRAME)
+    d.rounded_rectangle([450, 190, 574, 702], radius=14, fill=YELLOW)
+    d.rounded_rectangle([474, 238, 550, 352], radius=12, fill=GLASS)
+    d.rectangle([450, 190, 574, 208], fill=YELLOW_DARK)
+
+    # dark skirt and coupler
+    d.rounded_rectangle([276, 716, 748, 806], radius=30, fill=NAVY)
+    d.rectangle([276, 716, 748, 740], fill=NAVY)
+    d.rounded_rectangle([452, 736, 572, 830], radius=20, fill=STEEL)
+    d.rounded_rectangle([480, 762, 544, 806], radius=12, fill=BLACK)
     return img
 
 

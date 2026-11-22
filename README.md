@@ -358,6 +358,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.27.3** - new app icon
+* **A cleaner app icon**: a flat, front-on electric-unit cab (blue body, yellow hood and door, dark windscreens, headlights, red / white side stripes) on a light tile, drawn with a few bold shapes so it stays clear at taskbar size. The window icon, header logo and README logo all use it.
+
 **3.27.2** - automatic releases, small tidy-ups
 * **Releases are published automatically** when a new version is pushed to `main`; pushes that keep the same version only build.
 * Small internal tidy-ups (an unused parameter removed, a few older code idioms modernised). Nothing changes in how the app works.
