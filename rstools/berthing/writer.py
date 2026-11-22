@@ -15,7 +15,7 @@ FONT = "Arial"
 HEADER_FILL = "FFFF00"
 SIDING_FILL = "CCFFFF"          # the siding names and capacities, light blue as on the original charts
 NOTE_COLOUR = "FF0000"          # notes about the sidings: red bold
-NIGHT_LINE = "595959"           # the line between nights (before each FINISH column)
+NIGHT_LINE = "595959"           # the line between one day's FINISH and the next day's START (before each START column)
 COUNT_FILL = "EDEDED"
 OVER_FILL = "FFC7CE"            # more cars than the siding location holds
 DAY_WIDTH = 17.0
@@ -325,16 +325,16 @@ def _siding(ws, r: int, label: str, capacity: str, side_note: str):
 
 
 def _line(c: int, bottom: str = "", top: str = ""):
-    """The vertical lines of column `c`: a box round the siding columns, a darker line between nights (before
-    each FINISH) and a thin one between a night's FINISH and START."""
+    """The vertical lines of column `c`: a box round the siding columns, a darker line between one day's FINISH
+    and the next day's START (before each START column) and a thin one between a day's own START and FINISH."""
     right = "medium" if c == 18 else ""
     if c == 2:
         return _border(left="medium", right="medium", bottom=bottom, top=top)
-    if c >= 3 and c % 2 == 1:
+    if c >= 4 and c % 2 == 0:
         return _border(left="medium", left_colour=NIGHT_LINE, right=right, bottom=bottom, top=top)
-    if c >= 4:
+    if c >= 5:
         return _border(left="thin", right=right, bottom=bottom, top=top)
-    return _border(bottom=bottom, top=top)
+    return _border(right=right, bottom=bottom, top=top)
 
 
 def _note_row(ws, r: int, a: str, b: str, bold_a: bool = False, siding: bool = False):

@@ -358,6 +358,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.27.6** - berthing chart night lines
+* **The thicker line in a berthing chart is now between one day's FINISH and the next day's START** (between the nights), and the thin line between a day's own START and FINISH, instead of the other way round.
+
 **3.27.5** - symmetrical app icon
 * **The app icon is now symmetrical**, like the real front of a Class 387 (the offset in 3.27.4 came from the angle of the reference photo): central gangway door, a windscreen either side, and a headlight and marker lamp in each yellow panel.
 
