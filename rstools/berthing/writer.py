@@ -159,7 +159,7 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
     from openpyxl.styles import Alignment
     from openpyxl.utils import get_column_letter
     from rstools.fsutil import clean_cell
-    fit = Alignment(horizontal="center", vertical="center", shrink_to_fit=True)    # a long unit shrinks, never spills
+    fit = Alignment(horizontal="left", vertical="center", shrink_to_fit=True)    # a long unit shrinks, never spills
     r = 0
     for a, b in sheet.preface:
         r += 1
