@@ -358,6 +358,10 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.27.7** - neater berthing chart notes, no MAINT
+* **Long notes stay inside their berth's box.** A long note about a berth (e.g. "If No 2 Carriage Siding has more than 4 car berthed access to No 3 Siding is blocked", "OUT OF USE UNTIL FURTHER NOTICE") is now written across the day columns of that berth's own box, in red bold on pale yellow, instead of on full-width rows between two siding locations. The boxes on a sheet stay the same height, grown only as far as the longest set of notes needs.
+* **MAINT is left off the berthing chart.** Maintenance moves are no longer berthed, and a location that only had MAINT units (such as "Other - HORSHAM platform/road 2") is no longer listed.
+
 **3.27.6** - berthing chart night lines
 * **The thicker line in a berthing chart is now between one day's FINISH and the next day's START** (between the nights), and the thin line between a day's own START and FINISH, instead of the other way round.
 

@@ -107,7 +107,8 @@ def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units
     """A copy of the layout with every sheet filled from the stays (any units already on it are replaced)."""
     out = copy.deepcopy(layout)
     by_loc: Dict[str, List[Stay]] = defaultdict(list)
-    for s in berthing.stays:
+    charted = [s for s in berthing.stays if s.fleet.upper() != "MAINT"]      # maintenance moves are not berthed
+    for s in charted:
         by_loc[s.loc].append(s)
     no_location = []
     placed_locs: Set[str] = set()
@@ -153,7 +154,7 @@ def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units
                             f"{'platform/road ' + plat if plat else 'with no platform in the XML'}, which is not a "
                             "berth on this sheet; they are listed at the bottom of the sheet. Add the berth to the "
                             "chart or to the berth list.")
-    shown = [s for s in berthing.stays if s.loc in placed_locs]
+    shown = [s for s in charted if s.loc in placed_locs]
     open_ended = sum(1 for s in shown if s.depart is None)
     if open_ended:
         warnings.append(f"{open_ended} unit(s) on the chart end a diagram without a next-day working in the XML "

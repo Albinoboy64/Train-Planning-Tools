@@ -261,6 +261,24 @@ def _fill(cell):
     return cell.fill.fgColor.rgb[-6:] if cell.fill is not None and cell.fill.fill_type == "solid" else ""
 
 
+def test_maint_units_are_left_off_the_chart(tmp_path, monkeypatch):
+    """MAINT moves are not berthed, and a location that only has MAINT units does not get an 'Other' block."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    trains, diagrams = base_plan()
+    trains.append(train("5M01XX", "20", [("HOVE", "01:00:00", "BRGHTN", "01:10:00", "", "9")]))
+    diagrams.append(diagram(50, "MAINT", [("HOVE", "01:00:00", "BRGHTN", "01:10:00", "5M01XX", "20", [])],
+                            "MAINT 04+45"))
+    (tmp_path / "plan.xml").write_text(xml(trains, diagrams))
+    make_chart(str(tmp_path / "chart.xlsx"))
+    assert any(s.fleet.upper() == "MAINT" for s in build([read_xml(str(tmp_path / "plan.xml"))]).stays)
+    res = engine.generate([str(tmp_path / "plan.xml")], str(tmp_path / "chart.xlsx"), str(tmp_path), "maint", "P")
+    ws = openpyxl.load_workbook(res.chart)["Brighton"]
+    text = [str(c.value) for row in ws.iter_rows() for c in row if c.value]
+    assert not any(t.startswith("Other - BRGHTN platform/road 9") for t in text)    # only MAINT berths there
+    assert not any("MAINT" in t.upper() for t in text)
+
+
 def test_original_style_formatting_sections_and_counts(data):
     """Siding names and capacities on light blue, notes in red bold, every berth's box the same height, a coloured
     line between siding locations (from the old Start/Finish counting rows) and, as an option, unit counts per
@@ -285,8 +303,11 @@ def test_original_style_formatting_sections_and_counts(data):
     assert note.font.b and note.font.color.rgb[-6:] == NOTE_COLOUR and _fill(note) == SIDING_FILL
     assert ws.cell(p7 - 1, 1).border.bottom.color.rgb[-6:] == SECTION_LINE      # line under the first location
     other = labels[next(k for k in labels if str(k).startswith("Other -"))]
-    assert ws.cell(other - 1, 1).value == "OUT OF USE UNTIL FURTHER NOTICE"     # a long note: its own wide row
-    assert p7 - p1 == other - 1 - p7                          # every box on the sheet the same height
+    in_box = [r for r in range(p7, other) if ws.cell(r, 3).value == "OUT OF USE UNTIL FURTHER NOTICE"]
+    assert in_box and any(str(rng).startswith(f"C{in_box[0]}:R") for rng in ws.merged_cells.ranges)
+    assert ws.cell(in_box[0], 3).font.b and ws.cell(in_box[0], 3).font.color.rgb[-6:] == NOTE_COLOUR
+    assert not any(ws.cell(r, 1).value == "OUT OF USE UNTIL FURTHER NOTICE" for r in range(1, ws.max_row + 1))
+    assert p7 - p1 == other - p7                              # every box on the sheet the same height
     assert len({ws.column_dimensions[c].width for c in "CDEFGHIJKLMNOPQR"}) == 1
     assert not any(str(v).startswith("Unit counts") for v in labels)            # counts only when asked for
     ws = openpyxl.load_workbook(counted.chart)["Brighton"]

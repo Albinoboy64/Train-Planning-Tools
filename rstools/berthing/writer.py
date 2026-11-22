@@ -15,6 +15,7 @@ FONT = "Arial"
 HEADER_FILL = "FFFF00"
 SIDING_FILL = "CCFFFF"          # the siding names and capacities, light blue as on the original charts
 NOTE_COLOUR = "FF0000"          # notes about the sidings: red bold
+NOTE_FILL = "FFF2CC"            # a long note inside a berth's box: pale yellow
 NIGHT_LINE = "595959"           # the line between one day's FINISH and the next day's START (before each START column)
 COUNT_FILL = "EDEDED"
 OVER_FILL = "FFC7CE"            # more cars than the siding location holds
@@ -149,10 +150,24 @@ def _short_notes(blk: Block) -> Tuple[List[Tuple[str, str]], List[str]]:
     return short, long
 
 
+def _box_notes(blk: Block) -> List[str]:
+    """A berth's long notes, in order: they are written inside its own box (not between two locations)."""
+    _short, long = _short_notes(blk)
+    return long + [t for _k, t in sorted(blk.data_notes.items()) if len(t) > LONG_DATA_NOTE]
+
+
+def _notes_start(blk: Block) -> int:
+    """The first row of the box (counting its label row as 0) below the units, where its long notes start."""
+    used = [o for o, row in blk.units.items() if any(row)] + [
+        o for (o, _i), t in blk.data_notes.items() if len(t) <= LONG_DATA_NOTE]
+    return max(used) + 1 if used else 0
+
+
 def _rows_needed(blk: Block) -> int:
     short, _long = _short_notes(blk)
     used = [o for o, row in blk.units.items() if any(row)] + [o for o, _i in blk.data_notes]
-    return max([MIN_ROWS, 1 + len(short)] + [o + 1 for o in used])
+    notes = _box_notes(blk)
+    return max([MIN_ROWS, 1 + len(short)] + [o + 1 for o in used] + ([_notes_start(blk) + len(notes)] if notes else []))
 
 
 def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), counts: bool = False):
@@ -185,10 +200,9 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
     sections = sorted({b.section for b in sheet.blocks})
     for sec in sections:
         blocks = [b for b in sheet.blocks if b.section == sec]
-        long_notes: List[str] = []
         for blk in blocks:
-            short, long = _short_notes(blk)
-            long_notes += long + [t for t in blk.data_notes.values() if len(t) > LONG_DATA_NOTE]
+            short, _long = _short_notes(blk)
+            notes, first = _box_notes(blk), _notes_start(blk)
             for off in range(height):
                 r += 1
                 if off == 0:
@@ -211,9 +225,8 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
                     cell.alignment = fit
                 _frame(ws, r, bottom="thin" if off == height - 1 else "")
                 ws.row_dimensions[r].height = ROW_HEIGHT
-        for text in long_notes:                         # long notes: a full-width row under the location
-            r += 1
-            _wide_note(ws, r, text)
+                if first <= off < first + len(notes):   # a long note: across the day columns, in this berth's box
+                    _box_note(ws, r, notes[off - first], bottom="thin" if off == height - 1 else "")
         if counts:
             name = sheet.sections[sec] if sec < len(sheet.sections) else ""
             r = _counts(ws, r, name, blocks)
@@ -230,6 +243,20 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
     ws.print_title_rows = f"{hdr}:{hdr}"
     ws.print_area = f"A1:R{max(r, hdr)}"
     _print(ws)
+
+
+def _box_note(ws, r: int, text: str, bottom: str = ""):
+    """A long note about a berth, across all the day columns of one of its rows (red bold on pale yellow)."""
+    from openpyxl.styles import Alignment
+    cell = ws.cell(r, 3)
+    cell.value = fix_text(text)
+    ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=18)
+    for c in range(3, 19):                              # set after merging, so every edge of the range keeps its line
+        part = ws.cell(r, c)
+        part.fill = _fill(NOTE_FILL)
+        part.border = _border(left="medium" if c == 3 else "", right="medium" if c == 18 else "", bottom=bottom)
+    cell.font = _font(10, True, NOTE_COLOUR)
+    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1)
 
 
 def _wide_note(ws, r: int, text: str):
