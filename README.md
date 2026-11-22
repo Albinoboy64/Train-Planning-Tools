@@ -358,6 +358,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.27.4** - app icon drawn from the real train front
+* **The icon now follows the real front of a Class 387**: arched roof with the yellow hood and orange line, the gangway door left of centre, a narrow left and a wide right windscreen, a single lamp on the left and twin lamps on the right in the yellow panels, and the blue valance with the coupler cover. It is used for the window icon, header logo, exe and README.
+
 **3.27.3** - new app icon
 * **A cleaner app icon**: a flat, front-on electric-unit cab (blue body, yellow hood and door, dark windscreens, headlights, red / white side stripes) on a light tile, drawn with a few bold shapes so it stays clear at taskbar size. The window icon, header logo and README logo all use it.
 
