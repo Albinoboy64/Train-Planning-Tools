@@ -136,11 +136,34 @@ jobs:
             dist/TrainPlanningTools.exe
             TrainPlanningTools-portable.zip
 
+      - name: Work out the release tag (version tag, manual release tag, or a new version on main)
+        id: rel
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          tag=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+          elif [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            # a push to main releases its version once: skipped when that version's tag already exists
+            version=$(python -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('cwn_compare/__init__.py').read()).group(1))")
+            if [[ -n "$version" && -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]]; then
+              tag="v$version"
+            else
+              echo "v$version is already released; this push only builds."
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${tag:-none (build only)}"
+
       - name: Release notes (this version's entry in the README version history)
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        if: steps.rel.outputs.tag != ''
         shell: python
         env:
-          TAG: ${{ inputs.release_tag || github.ref_name }}
+          TAG: ${{ steps.rel.outputs.tag }}
         run: |
           import os, re
           text = open("README.md", encoding="utf-8").read()
@@ -164,12 +187,12 @@ jobs:
           open("release_notes.md", "w", encoding="utf-8").write(
               f"{intro}{ident}\n\n## What's new in {version}\n\n{changes}\n")
 
-      - name: Publish release (version tags, or manual run with a release tag)
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+      - name: Publish release (version tags, a manual run with a release tag, or a new version on main)
+        if: steps.rel.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag || github.ref_name }}
-          name: Train Planning Tools ${{ inputs.release_tag || github.ref_name }}
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: Train Planning Tools ${{ steps.rel.outputs.tag }}
           target_commitish: ${{ github.sha }}
           body_path: release_notes.md
           files: |
