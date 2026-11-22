@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Sequence, Set, Tuple
 
 from rstools import naming
+from rstools.fsutil import output_folder
 
 from rstools.docexport import ext_for
 
@@ -277,7 +278,7 @@ def write_pack(per_day: List[Tuple[int, List[Table]]], opts: PackOptions, plan: 
     """Write the stats pack workbook(s) for the chosen output. Returns the paths written."""
     if not per_day:
         raise StatsPackError("No diagrams match the selected days, operators and fleets.")
-    folder = opts.output_dir or os.path.dirname(os.path.abspath(plan.trent.path))
+    folder = output_folder(opts.output_dir)
     days = [d for d, _t in per_day]
     books = _plan_books(days, opts, _safe(opts.output_name.strip() or pack_name(plan.trent, days)))
     tables = _tables_by_key(per_day, _info(plan, version), any(k == "week" for _s, tabs in books for *_x, k in tabs))
@@ -310,7 +311,7 @@ def compare_plans(old: LoadedPlan, new: LoadedPlan, opts: PackOptions, version: 
     warnings = [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new]
     if not new_pd:
         raise StatsPackError("No diagrams in the updated plan match the selected days, operators and fleets.")
-    folder = opts.output_dir or os.path.dirname(os.path.abspath(new.trent.path))
+    folder = output_folder(opts.output_dir)
     days = [d for d, _t in new_pd]
     books = _plan_books(days, opts, _safe(opts.output_name.strip()
                                           or plans_name(old.trent, new.trent, old.attune.path, new.attune.path, days)))
@@ -341,7 +342,7 @@ def compare_packs(old_path: str, new_path: str, output_dir: str = "", output_nam
     for label, path in (("original", old_path), ("updated", new_path)):
         if not path or not os.path.isfile(path):
             raise StatsPackError(f"Choose the {label} stats pack.")
-    folder = output_dir or os.path.dirname(os.path.abspath(new_path))
+    folder = output_folder(output_dir)
     out = unique_path(folder, _safe(output_name.strip() or packs_name(old_path, new_path)), ext_for(fmt))
     try:
         return out, compare_pack_files(old_path, new_path, out, opts)
@@ -404,7 +405,7 @@ def _save_reports(reports, opts: PackOptions, stem: str, folder_of: LoadedPlan) 
     sink = sink_for(opts.fmt)
     for rep in reports:
         sink.report(rep)
-    folder = opts.output_dir or os.path.dirname(os.path.abspath(folder_of.trent.path))
+    folder = output_folder(opts.output_dir)
     path = unique_path(folder, _safe(stem), sink.ext)
     sink.save(path, stem)
     return path

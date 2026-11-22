@@ -285,6 +285,11 @@ def resolve(mode: str) -> str:
     return mode if mode in PALETTES else "light"
 
 
+def title_bar(root: tk.Tk, dark: bool):
+    """Windows: a dark or light title bar to match the theme."""
+    _dark_title_bar(root, dark)
+
+
 def _dark_title_bar(root: tk.Tk, dark: bool):
     if not sys.platform.startswith("win"):
         return
@@ -348,6 +353,14 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
               foreground=[("readonly", p["fg"]), ("disabled", p["disabled"])],
               selectbackground=[("readonly", p["field"])], selectforeground=[("readonly", p["fg"])],
               bordercolor=[("focus", p["accent"])])
+    layouts = root.__dict__.setdefault("_layouts", set())
+    if "Suggest.TCombobox" not in layouts:
+        # a box with suggestions as you type (or a recent-files list): no drop-down arrow
+        def no_arrow(layout):
+            return [(el, dict(opts, children=no_arrow(opts["children"])) if "children" in opts else opts)
+                    for el, opts in layout if not el.endswith("downarrow")]
+        style.layout("Suggest.TCombobox", no_arrow(style.layout("TCombobox")))
+        layouts.add("Suggest.TCombobox")
     style.configure("TNotebook", background=p["bg"], bordercolor=p["border"], tabmargins=(4, 4, 4, 0))
     style.configure("TNotebook.Tab", background=p["panel"], foreground=p["muted"], padding=(14, 5),
                     bordercolor=p["border"])
@@ -412,6 +425,7 @@ def apply_sizes(root: tk.Tk):
 
 def _sizes(root, style: ttk.Style, p: dict):
     k = getattr(root, "ui_scale", 1.0)
+    style.configure("Treeview", rowheight=row_height(root))
     style.configure("TCheckbutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
     style.configure("TRadiobutton", indicatorsize=round(10 * k), indicatormargin=(0, 0, round(4 * k), 0))
     try:

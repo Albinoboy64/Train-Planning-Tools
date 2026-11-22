@@ -188,6 +188,19 @@ def _decorate(event):
         pass
 
 
+def decorate_all(root):
+    """Give every Run, Browse, Open and Add button already built its icon now, before the window is shown, so
+    no button grows (and the layout shifts) the first time its tab is opened."""
+    stack = [root]
+    while stack:
+        w = stack.pop()
+        stack.extend(w.winfo_children())
+        if w.winfo_class() == "TButton":
+            _decorate(type("E", (), {"widget": w})())
+
+
 def watch_buttons(root):
-    """Give Run, Browse, Open and Add buttons their icon the first time each is shown (dialogs included)."""
+    """Give Run, Browse, Open and Add buttons their icon: those built already at once, any made later (dialogs)
+    the first time each is shown."""
+    decorate_all(root)
     root.bind_class("TButton", "<Map>", _decorate, add="+")

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Sequence
 
 from rstools import naming
-from rstools.fsutil import unique_stem
+from rstools.fsutil import output_folder, unique_stem
 
 from . import writer
 from .chart import Units, place
@@ -44,9 +44,7 @@ def _check_paths(paths: Sequence[str], what: str):
 
 
 def _out(folder: str, name: str, default: str, near: str, tails=(".xlsx",)) -> str:
-    folder = folder or os.path.dirname(os.path.abspath(near))
-    if not os.path.isdir(folder):
-        raise BerthingError(f"The output folder does not exist:\n{folder}")
+    folder = output_folder(folder)
     return os.path.join(folder, unique_stem(folder, naming.clip(name or default), tails) + tails[0])
 
 
@@ -81,7 +79,8 @@ def _save(fn, path: str):
 
 
 def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "", name: str = "", issue: str = "",
-             log: Log = lambda m: None, counts: bool = False) -> Result:
+             log: Log = lambda m: None, counts: bool = False,
+             progress: Callable[[float, str], None] = lambda f, m: None) -> Result:
     """A new chart from an LTP XML (or an LTP and an STP XML: STP trains in bold on lavender), laid out like
     `layout_path` - or like the app's built-in layout when none is given. No change colours: the chart starts
     clean. `counts` adds the unit counts of each siding location."""
@@ -94,7 +93,9 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
         layout = load_default()
         log(f"Using {layout.path}")
     _clear_units(layout)
+    progress(0.1, "Reading the timetable...")
     xmls, filled, warnings = _fill(layout, xml_paths, log)
+    progress(0.6, "Writing the chart...")
     stp = len(xml_paths) > 1
     default = f"Berthing Chart {issue}".strip() if issue else "Berthing Chart " + (_timetable(xmls) or naming.today())
     path = _out(out_dir, name, default + (" STP" if stp and "stp" not in default.lower() else ""), xml_paths[-1])
@@ -107,18 +108,23 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
 
 
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",
-              name: str = "", issue: str = "", log: Log = lambda m: None, counts: bool = False) -> Result:
+              name: str = "", issue: str = "", log: Log = lambda m: None, counts: bool = False,
+              progress: Callable[[float, str], None] = lambda f, m: None) -> Result:
     """The chart remade from the updated XML(s), with every cell that differs from the original XML(s)
     filled in `colour`, and the chart's earlier highlights kept where nothing changed. Plus a change report."""
     _check_paths([chart_path], "berthing chart to add the changes to")
     _check_paths(list(original), "original Attune XML")
     _check_paths(list(updated), "updated Attune XML")
     log(f"Reading {os.path.basename(chart_path)}")
+    progress(0.03, "Reading the chart...")
     chart = read_chart(chart_path, load_locations())
     log("Original timetable:")
+    progress(0.15, "Reading the original timetable...")
     _x0, before, _w0 = _fill(chart, original, log)
     log("Updated timetable:")
+    progress(0.4, "Reading the updated timetable...")
     xmls, after, warnings = _fill(chart, updated, log)
+    progress(0.65, "Finding the changes...")
     changes, marked = diff(before, after)
     highlight(after, marked, colour.upper())
     carry_colours(chart, after, skip=[STP_FILL])
@@ -129,17 +135,20 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     first = xmls[-1]
     rewrite = writer.cover_rewriter(issue, first.start, first.end)
     cover = lambda t: _updates_line(rewrite(t), shade)
+    progress(0.75, "Writing the chart...")
     _save(lambda: writer.write(after, path, cover, _legend(len(updated) > 1),
                                _notes(list(updated), chart_path, warnings), counts), path)
     about = [("Chart", os.path.basename(path)), ("Original XML", ", ".join(map(os.path.basename, original))),
              ("Updated XML", ", ".join(map(os.path.basename, updated))), ("Highlight colour", shade),
              ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
+    progress(0.92, "Writing the change report...")
     _save(lambda: write_report(report, changes, "Berthing chart changes", about), report)
     return Result(path, report, f"{len(changes)} change(s) highlighted in {shade}.", warnings)
 
 
 def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "", name: str = "",
-                   log: Log = lambda m: None, counts: bool = False) -> Result:
+                   log: Log = lambda m: None, counts: bool = False,
+                   progress: Callable[[float, str], None] = lambda f, m: None) -> Result:
     """The newer chart, tidied, with every cell that differs from the older one filled in `colour` (its own
     earlier highlights kept), and a change report."""
     _check_paths([old_path, new_path], "two berthing charts")
@@ -147,18 +156,23 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
         raise BerthingError("The two charts selected are the same file.")
     locations = load_locations()
     log(f"Reading {os.path.basename(old_path)}")
+    progress(0.05, "Reading the older chart...")
     old = read_chart(old_path, locations)
     log(f"Reading {os.path.basename(new_path)}")
+    progress(0.35, "Reading the newer chart...")
     new = read_chart(new_path, locations)
+    progress(0.65, "Finding the changes...")
     changes, marked = diff(old, new)
     highlight(new, marked, colour.upper())
     a, b = (naming.short_label(p) for p in (old_path, new_path))
     path = _out(out_dir, name, f"{naming.today()} {naming.vs(a, b)}", new_path)
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
+    progress(0.75, "Writing the chart...")
     _save(lambda: writer.write(new, path, lambda t: _updates_line(t, shade), (), [], counts), path)
     about = [("Older chart", os.path.basename(old_path)), ("Newer chart", os.path.basename(new_path)),
              ("Highlight colour", shade), ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
+    progress(0.92, "Writing the change report...")
     _save(lambda: write_report(report, changes, "Berthing chart changes", about), report)
     return Result(path, report, f"{len(changes)} difference(s) between the charts, highlighted in {shade}.", [])
 

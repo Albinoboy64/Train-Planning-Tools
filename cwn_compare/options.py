@@ -71,7 +71,8 @@ class Options:
     github_token: str = ""           # read-only token for a private repository (DPAPI-protected)
     recent: Dict[str, List[str]] = field(default_factory=dict)   # file box -> recent files
     days: List[int] = field(default_factory=list)   # CWN days to check and output (empty = every day)
-    last_tab: int = 0                # tab shown when the app opens (0 Stock Tools, 1 Stats Pack, 2 Timetable)
+    window: str = ""                 # the window's last size and place, 'WxH+X+Y' (normal state only)
+    last_tab: int = 0                # tab shown at start (0 Stock Tools, 1 Stats Pack, 2 Timing Tools, 3 Live View)
     categories: Dict[str, Dict[str, bool]] = field(default_factory=default_categories)
 
     def cat(self, key: str, what: str) -> bool:
@@ -84,13 +85,6 @@ class Options:
         from rstools.branding import settings_dir
         return os.path.join(settings_dir(), "settings.json")
 
-    @classmethod
-    def _read_path(cls) -> str:
-        """Settings to load: the current file, or the one saved by CWN Compare 1.x before the rename."""
-        new = cls.settings_path()
-        old = os.path.join(os.path.dirname(os.path.dirname(new)), "CWNCompare", "settings.json")   # 1.x
-        return old if (not os.path.exists(new) and os.path.exists(old)) else new
-
     def save(self):
         from rstools.fsutil import write_json
         write_json(self.settings_path(), asdict(self))
@@ -99,7 +93,7 @@ class Options:
     def load(cls) -> "Options":
         o = cls()
         try:
-            with open(cls._read_path(), encoding="utf-8") as fh:
+            with open(cls.settings_path(), encoding="utf-8") as fh:
                 d = json.load(fh)
             defaults = cls()
             for k, v in d.items():         # ignore unknown keys and values of the wrong type

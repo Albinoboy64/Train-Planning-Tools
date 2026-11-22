@@ -20,14 +20,13 @@ from typing import Dict, List, Optional, Set
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.styles import PatternFill, Alignment
-from openpyxl.utils import get_column_letter
 
 from rstools.fsutil import clean_cell
 from .compare import Change
 from .model import CWNModel, SheetModel, Block, cell_text
 from .options import Options
+from .xlsxfix import MAX_AUTO_WIDTH, col_dim, text_width
 
-MAX_AUTO_WIDTH = 60
 _LINK_RE = re.compile(r"^'?(.*?)'?!\$?([A-Z]{1,3})\$?(\d+)(.*)$")
 
 
@@ -127,7 +126,8 @@ def apply_changes(wb, model: CWNModel, changes: List[Change], opts: Options,
                 continue
         else:
             summary[sm.title] = n_applied
-        orig_heights = {r: ws.row_dimensions[r].height for r in range(sm.header_row + 1, ws.max_row + 1)}
+        dims = ws.row_dimensions                 # .get: looking a row up must not create one for every row
+        orig_heights = {r: d.height for r, d in dims.items() if r > sm.header_row}
         _write_cell_ops(ws, ops)
         if ops.inserts or acwn or only_blocks:
             keep: Optional[Set[int]] = None
@@ -215,33 +215,6 @@ def _apply_one(c: Change, ops: _SheetOps, blocks: Dict[str, Block], opts: Option
     return True
 
 
-def _text_width(text: str, font) -> float:
-    """Approximate Excel column width needed to show text on one line."""
-    sz = float(font.sz or 11)
-    mono = (font.name or "").lower() in ("courier new", "courier", "consolas", "lucida console")
-    em = 0.60 if mono else 0.55
-    if font.b and not mono:
-        em += 0.04
-    px = len(text) * em * sz * 96 / 72
-    return px / 7.0 + 1.5
-
-
-def _col_dim(ws, c: int):
-    """Column dimension for column c, splitting a grouped <col min..max> range if needed
-    (two overlapping column definitions make Excel repair the file)."""
-    for dim in list(ws.column_dimensions.values()):
-        if dim.min and dim.max and dim.min <= c <= dim.max:
-            if dim.min == dim.max:
-                return dim
-            for i in range(dim.min, dim.max + 1):
-                nd = copy(dim)
-                nd.index = get_column_letter(i)
-                nd.min = nd.max = i
-                ws.column_dimensions[nd.index] = nd
-            return ws.column_dimensions[get_column_letter(c)]
-    return ws.column_dimensions[get_column_letter(c)]
-
-
 def _write_cell_ops(ws, ops: _SheetOps):
     default_h = ws.sheet_format.defaultRowHeight or 15
     lines_per_row: Dict[int, tuple] = {}
@@ -270,14 +243,14 @@ def _write_cell_ops(ws, ops: _SheetOps):
         sz = float(font.sz or 11)
         prev = lines_per_row.get(r, (1, 0))
         lines_per_row[r] = (max(prev[0], n_lines), max(prev[1], sz))
-        need = max(_text_width(t, font) for t in olds + [cur])
+        need = max(text_width(t, font) for t in olds + [cur])
         col_need[c] = max(col_need.get(c, 0), need)
 
     for r, (n, sz) in lines_per_row.items():
         line_h = max(ws.row_dimensions[r].height or default_h, sz * 1.32)
         ws.row_dimensions[r].height = round(line_h * n, 2)
     for c, need in col_need.items():
-        dim = _col_dim(ws, c)
+        dim = col_dim(ws, c)
         cur_w = dim.width if dim.width else 8.43
         if need > cur_w:
             dim.width = min(round(need, 1), max(cur_w, MAX_AUTO_WIDTH))
@@ -316,7 +289,7 @@ def _write_notes(ws, ops: _SheetOps):
         cell.font = _font_with(ws.cell(row=r, column=1).font, i=True, strike=None, u=None)
         cell.alignment = Alignment(vertical="center", wrap_text=len(text) > MAX_AUTO_WIDTH)
         width = max(width, min(len(text) + 2, MAX_AUTO_WIDTH))
-    _col_dim(ws, col).width = width
+    col_dim(ws, col).width = width
 
 
 def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
@@ -325,9 +298,11 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
 
     Returns {original row: new row (None if dropped)} so hyperlinks can be re-pointed.
     """
+    from .xlsxfix import data_extent
     hr = sm.header_row
-    max_row = ws.max_row
-    mc = max(ws.max_column, sm.max_col)
+    max_row, data_cols = data_extent(ws)          # not formatting that runs on past the data
+    max_row = max(max_row, hr)
+    mc = max(data_cols, sm.max_col + 1)
     snap = {}
     for r in range(hr + 1, max_row + 1):
         cells = []
@@ -335,7 +310,8 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
             cell = ws.cell(row=r, column=c)
             cells.append((cell.value, copy(cell._style), cell.hyperlink))
             cell.hyperlink = None
-        snap[r] = (cells, ws.row_dimensions[r].height)
+        dim = ws.row_dimensions.get(r)
+        snap[r] = (cells, dim.height if dim is not None else None)
 
     seq = [("ins", x) for x in inserts.get(hr, [])]
     for r in range(hr + 1, max_row + 1):
@@ -356,7 +332,8 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
                 cell._style = copy(style)
                 if link is not None:
                     cell.hyperlink = copy(link)
-            ws.row_dimensions[t].height = h
+            if h is not None or t in ws.row_dimensions:
+                ws.row_dimensions[t].height = h
             row_map[item] = t
             t += 1
             continue
@@ -373,9 +350,11 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
                     cell.data_type = "s"       # a re-inserted train's text, never a live formula
                 if c - 1 < len(tmpl_cells):
                     cell._style = copy(tmpl_cells[c - 1][1])
-                cell.font = _font_with(cell.font, b=bool(spec.get("b")), i=bool(spec.get("i")), strike=True)
-                # colour the text, not the empty cells (which may have copied a neighbour's highlight)
-                cell.fill = fill if cell.value is not None else PatternFill(fill_type=None)
+                if cell.value is not None:             # strike and colour the text, not the empty cells
+                    cell.font = _font_with(cell.font, b=bool(spec.get("b")), i=bool(spec.get("i")), strike=True)
+                    cell.fill = fill
+                else:                                  # (which may have copied a neighbour's highlight)
+                    cell.fill = PatternFill(fill_type=None)
             ws.row_dimensions[t].height = tmpl_h
             t += 1
 

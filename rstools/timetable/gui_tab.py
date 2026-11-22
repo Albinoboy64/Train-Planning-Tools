@@ -11,9 +11,10 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
+from rstools.widgets import Progress, local_folder_box
 from rstools.branding import APP_NAME, settings_dir
 from rstools.naming import file_label
-from rstools.fsutil import write_json
+from rstools.fsutil import output_folder, write_json
 
 from .engine import MODES, TimetableRunError, default_name, run
 
@@ -121,7 +122,7 @@ class TimetableTab(ttk.Frame):
         self._build()
         self._load_settings()
         self._mode_changed()
-        self._poll_id = self.after(150, self._poll)
+        app.pump.add(self.q, self._poll, lambda: self.running)
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -150,31 +151,30 @@ class TimetableTab(ttk.Frame):
         for i, (key, (text, _btn)) in enumerate(MODE_TEXT.items()):
             ttk.Radiobutton(mrow, text=text, variable=self.mode, value=key, command=self._mode_changed).grid(
                 row=i, column=0, sticky="w")
-        ff = mf
         self.vars = {"a": tk.StringVar(), "b": tk.StringVar()}
         self.rows, self.clear_btns = {}, {}
         for r, key in enumerate(self.vars, start=1):
             side = r - 1
-            lab = ttk.Label(ff, text="")
-            box = self.app.file_box(ff, self.vars[key], f"tt_{key}")
+            lab = ttk.Label(mf, text="")
+            box = self.app.file_box(mf, self.vars[key], f"tt_{key}")
             box.configure(postcommand=lambda b=box, side=side, k=key: b.configure(values=[    # this type's files only
                 p for p in self.app.recent(f"tt_{k}") if p.lower().endswith(EXTS[self._cmp_mode()][side])]))
             box.bind("<FocusIn>", lambda _e: self._pick_section("compare"), add="+")
-            btn = ttk.Button(ff, text="Browse...", command=lambda k=key: self._browse(k))
+            btn = ttk.Button(mf, text="Browse...", command=lambda k=key: self._browse(k))
             pad = (6, 2) if r == 1 else 2
             lab.grid(row=r, column=0, sticky="w", pady=pad)
             box.grid(row=r, column=1, sticky="ew", padx=4, pady=pad)
             btn.grid(row=r, column=2, pady=pad)
             self.rows[key] = (lab, box, btn)
-            clear = ttk.Button(ff, text="Clear", width=6, command=lambda k=key: self.vars[k].set(""))
+            clear = ttk.Button(mf, text="Clear", width=6, command=lambda k=key: self.vars[k].set(""))
             clear.grid(row=r, column=3, padx=(4, 0), pady=pad)
             self.clear_btns[key] = clear
             self.vars[key].trace_add("write", lambda *_a: self._update_name_hint())
-        ttk.Button(ff, text="Swap files", command=self._swap).grid(row=3, column=2, pady=(2, 0))
-        self.note = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"),
+        ttk.Button(mf, text="Swap files", command=self._swap).grid(row=3, column=2, pady=(2, 0))
+        self.note = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=480, justify="left"),
                               "What is checked")
         self.note.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
+        self.dnd_hint = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.dnd_hint.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
 
         # --- utilities: the Section 4 possession check (Attune XML + Network Rail's Section 4 PDFs)
@@ -216,7 +216,8 @@ class TimetableTab(ttk.Frame):
         of.columnconfigure(1, weight=1)
         ttk.Label(of, text="Save to folder:").grid(row=0, column=0, sticky="w")
         self.out_dir = tk.StringVar()
-        ttk.Entry(of, textvariable=self.out_dir).grid(row=0, column=1, sticky="ew", padx=4)
+        out_box = local_folder_box(ttk.Entry(of, textvariable=self.out_dir), self.out_dir)
+        out_box.grid(row=0, column=1, sticky="ew", padx=4)
         ttk.Button(of, text="Browse...", command=self._browse_dir).grid(row=0, column=2)
         ttk.Label(of, text="Output name:").grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
@@ -245,6 +246,7 @@ class TimetableTab(ttk.Frame):
         self.prog.grid(row=0, column=1, sticky="ew", padx=8)
         self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
         self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
+        self.progress = Progress(self.prog, self.status)
         logf = ttk.Frame(rf)
         logf.grid(row=2, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
@@ -283,7 +285,7 @@ class TimetableTab(ttk.Frame):
         if not self._dnd or isinstance(widget, tk.Text):
             return
         util = util or widget is self.util_frame
-        key = next((k for k, (_l, box, _b) in self.rows.items() if box is widget), None)
+        key = next((k for k, row in self.rows.items() if widget in row), None)       # a box's whole row
         try:
             widget.drop_target_register(self._dnd)
             widget.dnd_bind("<<Drop>>", lambda e, k=key, u=util: self._on_drop(e, k, u))
@@ -295,9 +297,17 @@ class TimetableTab(ttk.Frame):
     def _on_drop(self, event, key=None, util=False):
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data) if os.path.isfile(p)]
         xmls = [p for p in paths if p.lower().endswith(".xml")]
-        # Section 4 PDFs only when every file is one: stop reading at the first that is not
-        if util or xmls or (paths and all(is_section4(p) for p in paths)):
+        if util or xmls:
             self.place_section4(paths)
+        elif paths and all(p.lower().endswith(".pdf") for p in paths):
+            def sniff():                           # opening PDFs takes a moment: not on the window's thread
+                try:   # Section 4 PDFs only when every file is one: stop reading at the first that is not
+                    s4 = all(is_section4(p) for p in paths)
+                except Exception:
+                    s4 = False
+                self.q.put(("dropped", paths, key, s4))
+            threading.Thread(target=sniff, daemon=True).start()
+            self.app.pump.kick()
         else:
             self.place_files(paths, key)
         return event.action
@@ -435,7 +445,6 @@ class TimetableTab(ttk.Frame):
         self.note.configure(text=NOTES[cmp])
         self.run_btn.configure(text="Check Section 4" if util else MODE_TEXT[cmp][1])
         if not self.running:
-            self.prog["value"] = 0
             self.status.configure(text="Ready - press F5 or Ctrl+Enter to run")
         self._update_name_hint()
 
@@ -491,7 +500,7 @@ class TimetableTab(ttk.Frame):
         self._set_mode(S4)
 
     def _browse_dir(self):
-        d = filedialog.askdirectory(parent=self, initialdir=self.out_dir.get() or self._last_dir or None)
+        d = filedialog.askdirectory(parent=self, initialdir=output_folder(self.out_dir.get()))
         if d:
             self.out_dir.set(os.path.normpath(d))
 
@@ -556,7 +565,7 @@ class TimetableTab(ttk.Frame):
         self.log.configure(state="disabled")
 
     def stop(self):
-        self.after_cancel(self._poll_id)
+        pass                                    # the window's queue pump stops with it
 
     def run(self):
         if self.running:
@@ -579,9 +588,7 @@ class TimetableTab(ttk.Frame):
                                                          f"file:\n{p}")
         if set(sides["a"]) & set(sides["b"]):
             return messagebox.showwarning(TITLE, "The same file is chosen on both sides.")
-        out_dir = self.out_dir.get().strip().strip('"') or os.path.dirname(sides["b"][0])
-        if not os.path.isdir(out_dir):
-            return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{out_dir}")
+        out_dir = output_folder(self.out_dir.get())
         name = re.sub(r'[<>:"/\\|?*]', "-", self.out_name.get().strip()).strip(" .")
         for key in ("a", "b"):
             self.app.add_recent(f"tt_{key}", *sides[key][:1])
@@ -594,11 +601,12 @@ class TimetableTab(ttk.Frame):
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
-        self.prog["value"] = 0
+        self.progress.begin()
         self._started = time.monotonic()
         self.app.set_busy(True)
         threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get()),
                          daemon=True).start()
+        self.app.pump.kick()
 
     def _run_section4(self):
         xml = self.s4_vars["xml"].get().strip().strip('"')
@@ -618,9 +626,7 @@ class TimetableTab(ttk.Frame):
         bad = [p for p in pdfs if not p.lower().endswith(".pdf")]
         if bad:
             return messagebox.showwarning(TITLE, f"The Section 4 file(s) should be PDFs:\n{bad[0]}")
-        out_dir = self.out_dir.get().strip().strip('"') or os.path.dirname(xml)
-        if not os.path.isdir(out_dir):
-            return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{out_dir}")
+        out_dir = output_folder(self.out_dir.get())
         name = re.sub(r'[<>:"/\\|?*]', "-", self.out_name.get().strip()).strip(" .")
         self.app.add_recent("s4_xml", xml)
         if pdfs:
@@ -630,6 +636,7 @@ class TimetableTab(ttk.Frame):
         self._begin()
         threading.Thread(target=self._work_section4, args=(xml, pdfs, out_dir, name, self.fmt_var.get()),
                          daemon=True).start()
+        self.app.pump.kick()
 
     def _begin(self):
         self.running = True
@@ -639,7 +646,7 @@ class TimetableTab(ttk.Frame):
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
-        self.prog["value"] = 0
+        self.progress.begin()
         self._started = time.monotonic()
         self.app.set_busy(True)
 
@@ -687,14 +694,16 @@ class TimetableTab(ttk.Frame):
             while True:
                 item = self.q.get_nowait()
                 if item[0] == "prog":
-                    self.prog["value"] = item[1]
-                    self.status.configure(text=item[2])
+                    self.progress.set(item[1], item[2])
                 elif item[0] == "log":
                     self._append(item[1], item[2])
+                elif item[0] == "dropped":
+                    _k, paths, key, s4 = item
+                    (self.place_section4(paths) if s4 else self.place_files(paths, key))
                 elif item[0] == "done":
                     res = item[1]
                     self._finish(True)
-                    self.prog["value"] = 1.0
+                    self.progress.finish()
                     self.outputs = [res.path]
                     for line in res.lines:
                         self._append(line)
@@ -716,7 +725,7 @@ class TimetableTab(ttk.Frame):
                 elif item[0] == "s4done":
                     _k, path, lines, summary, nwarn, start = item
                     self._finish(True)
-                    self.prog["value"] = 1.0
+                    self.progress.finish()
                     self.outputs = [path]
                     for line in lines:
                         self._append(line, "warn" if line.startswith("WARNING") else None)
@@ -736,5 +745,3 @@ class TimetableTab(ttk.Frame):
                     messagebox.showerror(TITLE, item[1][:1500])
         except queue.Empty:
             pass
-        finally:
-            self._poll_id = self.after(150, self._poll)

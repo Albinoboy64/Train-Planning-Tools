@@ -43,6 +43,7 @@ class Suggest:
         self.box: Optional[tk.Listbox] = None
         self._hide_job = None
         entry.bind("<KeyRelease>", self._typed, add="+")
+        entry.bind("<ButtonRelease-1>", self._clicked_box, add="+")
         entry.bind("<Down>", self._down)
         entry.bind("<Up>", self._up)
         entry.bind("<Return>", self._enter, add="+")
@@ -52,6 +53,14 @@ class Suggest:
         entry.bind("<FocusOut>", lambda _e: self._later_hide(), add="+")
         entry.bind("<Destroy>", lambda _e: self._gone(), add="+")
         entry.bind("<Configure>", lambda _e: self._place() if self.shown else None, add="+")
+
+    def _clicked_box(self, _e=None):
+        """A click in the empty box lists everything it can suggest (there is no drop-down arrow)."""
+        try:
+            if not self.entry.get().strip() and str(self.entry.cget("state")) != "disabled":
+                self.show(list(self.names())[:MAX_ROWS * 20])
+        except tk.TclError:
+            pass
 
     @property
     def shown(self) -> bool:

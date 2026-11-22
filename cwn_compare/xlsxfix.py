@@ -9,12 +9,15 @@
 * openpyxl writes the child elements of <font> in a non-standard order; they
   are re-ordered to the schema sequence (Excel's own order).
 * row "spans" (a loading hint Excel itself always writes) are added.
+* formatting outside the data (styled empty cells, whole-row and whole-column styles running far past the
+  last train - common in CWNs) is trimmed, so Excel's Check Performance finds no unused formatting.
 """
 from __future__ import annotations
 
 import io
 import re
 import zipfile
+from copy import copy
 
 from rstools.zipw import write_zip
 
@@ -81,18 +84,159 @@ class _SharedStrings:
                 f"{body}</sst>").encode("utf-8")
 
 
-def save_workbook(wb, path: str):
+MAX_AUTO_WIDTH = 60
+
+
+def text_width(text: str, font) -> float:
+    """Approximate Excel column width needed to show text on one line."""
+    sz = float(font.sz or 11)
+    mono = (font.name or "").lower() in ("courier new", "courier", "consolas", "lucida console")
+    em = 0.60 if mono else 0.55
+    if font.b and not mono:
+        em += 0.04
+    px = len(text) * em * sz * 96 / 72
+    return px / 7.0 + 1.5
+
+
+def col_dim(ws, c: int):
+    """Column dimension for column c, splitting a grouped <col min..max> range if needed
+    (two overlapping column definitions make Excel repair the file)."""
+    from copy import copy
+    from openpyxl.utils import get_column_letter
+    for dim in list(ws.column_dimensions.values()):
+        if dim.min and dim.max and dim.min <= c <= dim.max:
+            if dim.min == dim.max:
+                return dim
+            for i in range(dim.min, dim.max + 1):
+                nd = copy(dim)
+                nd.index = get_column_letter(i)
+                nd.min = nd.max = i
+                ws.column_dimensions[nd.index] = nd
+            return ws.column_dimensions[get_column_letter(c)]
+    return ws.column_dimensions[get_column_letter(c)]
+
+
+def fit_column(ws, c: int, cells):
+    """Widen column c (never narrow it, and not past MAX_AUTO_WIDTH unless it already is) so the text of
+    `cells` shows in full on one line - e.g. a longer DAYS code after variants were merged."""
+    from .model import cell_text
+    need = max((text_width(cell_text(cell.value), cell.font) for cell in cells if cell.value not in (None, "")),
+               default=0)
+    if not need:
+        return
+    dim = col_dim(ws, c)
+    cur = dim.width if dim.width else 8.43
+    if need > cur:
+        dim.width = min(round(need, 1), max(cur, MAX_AUTO_WIDTH))
+
+
+def data_extent(ws):
+    """(last row, last column) holding anything: a value, merged cells, a link, a comment or a drop-down."""
+    rows = cols = 0
+    for (r, c), cell in ws._cells.items():
+        v = cell._value
+        if (v is not None and v != "") or getattr(cell, "_hyperlink", None) is not None \
+                or getattr(cell, "_comment", None) is not None:
+            if r > rows:
+                rows = r
+            if c > cols:
+                cols = c
+    ranges = list(ws.merged_cells.ranges)
+    for dv in ws.data_validations.dataValidation:
+        ranges += list(dv.sqref.ranges)
+    for rng in ranges:
+        rows, cols = max(rows, rng.max_row), max(cols, rng.max_col)
+    return rows, cols
+
+
+def _visible(cell_or_dim) -> bool:
+    """Formatting that shows on an empty cell: a fill or a border."""
+    try:
+        fill, border = cell_or_dim.fill, cell_or_dim.border
+    except AttributeError:
+        return False
+    if fill is not None and fill.fill_type not in (None, "none"):
+        return True
+    return border is not None and any(getattr(border, side) is not None and getattr(border, side).style
+                                      for side in ("left", "right", "top", "bottom"))
+
+
+def trim_unused_formatting(ws, keep_visible: bool = True):
+    """Remove formatting outside the data: styled empty cells beyond the last row and column with data, and
+    row and column styles (which Excel applies to every one of the row's 16,384 cells / the column's million
+    rows). Fills and borders a row or column style showed inside the data are kept on those cells.
+    keep_visible: empty cells with a fill or border just past the data (an output's own frame) count as data."""
+    from openpyxl.styles.cell_style import StyleArray
+    rows, cols = data_extent(ws)
+    cells_of = ws._cells
+    if keep_visible:
+        for (r, c), cell in cells_of.items():
+            if (r > rows or c > cols) and cell.has_style and _visible(cell):
+                rows, cols = max(rows, r), max(cols, c)
+    if not rows or not cols:
+        rows = cols = 0
+    for key in [k for k in cells_of if k[0] > rows or k[1] > cols]:
+        del cells_of[key]
+    # row styles: carried onto the row's empty cells inside the data if they show, then removed
+    for r in list(ws.row_dimensions):
+        dim = ws.row_dimensions[r]
+        if r > rows:
+            del ws.row_dimensions[r]
+            continue
+        if dim.has_style:
+            if _visible(dim):
+                for c in range(1, cols + 1):
+                    if (r, c) not in cells_of:
+                        ws.cell(row=r, column=c)._style = copy(dim._style)
+            dim._style = StyleArray()
+    from openpyxl.utils import column_index_from_string
+    for key in list(ws.column_dimensions):
+        dim = ws.column_dimensions[key]
+        lo = dim.min or column_index_from_string(dim.index)
+        hi = dim.max or lo
+        if lo > cols:
+            del ws.column_dimensions[key]
+            continue
+        if hi > cols:
+            dim.max = cols
+        if dim.has_style:
+            if _visible(dim):
+                for c in range(lo, min(hi, cols) + 1):
+                    for r in range(1, rows + 1):
+                        if (r, c) not in cells_of:
+                            ws.cell(row=r, column=c)._style = copy(dim._style)
+            dim._style = StyleArray()
+
+
+def save_workbook(wb, path: str, progress=None, trim: str = "visible"):
     """Save an openpyxl workbook straight into the tidy form Excel opens without complaint.
     openpyxl writes it uncompressed in memory; it is then fixed up and compressed once, on all
-    cores (instead of compressing, re-reading and compressing again)."""
+    cores (instead of compressing, re-reading and compressing again).
+    trim: 'visible' trims formatting outside the data but keeps fills and borders just past it (an output's
+    own frame); 'data' trims everything outside the data (a CWN read in, whose formatting can run to the
+    end of the sheet); '' trims nothing. progress(fraction) is called as each tab is written."""
     import datetime
     from openpyxl.writer.excel import ExcelWriter
+    if trim:
+        for ws in wb.worksheets:
+            trim_unused_formatting(ws, keep_visible=trim == "visible")
+    total = max(len(wb.worksheets), 1)
+    done = [0]
+
+    class Writer(ExcelWriter):
+        def write_worksheet(self, ws):
+            super().write_worksheet(ws)
+            done[0] += 1
+            if progress:
+                progress(0.8 * done[0] / total)
     buf = io.BytesIO()
     archive = zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED, allowZip64=True)
     wb.properties.modified = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
-    ExcelWriter(wb, archive).save()
+    Writer(wb, archive).save()
     with zipfile.ZipFile(buf) as zin:
         write_zip(path, _fixed_parts(zin))
+    if progress:
+        progress(1.0)
 
 
 def _fixed_parts(zin: zipfile.ZipFile):

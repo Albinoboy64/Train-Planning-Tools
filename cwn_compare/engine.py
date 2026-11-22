@@ -55,7 +55,8 @@ def writing_options(opts: Options) -> Options:
 
 
 def output_paths(opts: Options):
-    folder = opts.output_dir or os.path.dirname(os.path.abspath(opts.updated)) or os.getcwd()
+    from rstools.fsutil import output_folder
+    folder = output_folder(opts.output_dir)
     name = opts.output_name.strip() or default_name(opts.original, opts.updated)
     if opts.days and not opts.output_name.strip():
         name += f" ({day_label(opts.days)})"
@@ -155,7 +156,8 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
     p(0.15, "Reading updated CWN...")
     lg(f"Reading {os.path.basename(opts.updated)}")
     try:
-        wb_new = load_any(opts.updated)
+        wb_new = load_any(opts.updated, progress=lambda f: p(0.15 + 0.3 * f, "Reading updated CWN..."))
+        p(0.46, "Reading the trains...")
         m_new = parse_workbook(wb_new)
         if m_old is None:
             try:
@@ -240,7 +242,8 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
 
     cwn_path, rep_path = output_paths(opts)
     p(0.82, "Saving output CWN...")
-    _save(lambda: save_workbook(wb_new, cwn_path), cwn_path)
+    _save(lambda: save_workbook(wb_new, cwn_path, trim="data",
+                                progress=lambda f: p(0.82 + 0.1 * f, "Saving output CWN...")), cwn_path)
     lg(f"Saved CWN: {cwn_path}")
 
     result = {"cwn": cwn_path, "report": None, "changes": len(changes),

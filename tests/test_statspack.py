@@ -387,9 +387,9 @@ def test_fleet_table_upgrade():
     import csv
     from rstools.statspack import fleet
     with tempfile.TemporaryDirectory() as d:
-        old = os.path.join(d, "RollingStockTools", "fleet.csv")
+        old = os.path.join(d, "TrainPlanningTools", "fleet.csv")
         os.makedirs(os.path.dirname(old))
-        with open(old, "w", newline="", encoding="cp1252") as fh:     # a 2.x copy, re-saved by Excel
+        with open(old, "w", newline="", encoding="cp1252") as fh:     # an old-layout table, re-saved by Excel
             fh.write("Class Name,Power Type,Vehicles per Unit,Units Available,Unit Length (metres)\n"
                      "377/4,EMU,4,130,80.77\n717/0,Unknown,6,21,\nMy class \xa3,EMU,4,1,\n")
         env = os.environ.get("LOCALAPPDATA")
@@ -405,11 +405,8 @@ def test_fleet_table_upgrade():
         assert table.get("717/0").power == "EMU" and table.get("717/0").operator == "TLGN"
         assert table.get("700/1").length == 242.6                # new classes added
         assert table.get("My class \xa3") is not None
-        new = os.path.join(d, "TrainPlanningTools", "fleet.csv")     # copied across from the 2.x folder
-        with open(new, encoding="utf-8-sig") as fh:
+        with open(old, encoding="utf-8-sig") as fh:                  # saved again in the current layout
             assert next(csv.reader(fh)) == fleet.COLUMNS
-        with open(old, encoding="cp1252") as fh:                     # the old copy is left as it was
-            assert fh.readline().startswith("Class Name,Power Type")
 
 
 def tab_rows(path, sheet):

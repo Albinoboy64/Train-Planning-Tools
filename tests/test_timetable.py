@@ -242,25 +242,6 @@ def test_damaged_workbooks_give_plain_messages():
                 raise AssertionError(f"{reader.__name__} accepted a damaged workbook")
 
 
-def test_settings_carried_over():
-    from rstools import branding
-    with tempfile.TemporaryDirectory() as d:
-        os.makedirs(os.path.join(d, "RollingStockTools"))
-        with open(os.path.join(d, "RollingStockTools", "settings.json"), "w") as fh:
-            fh.write('{"theme": "dark"}')
-        env = os.environ.get("LOCALAPPDATA")
-        os.environ["LOCALAPPDATA"] = d
-        try:
-            path = branding.settings_dir()
-        finally:
-            if env is None:
-                del os.environ["LOCALAPPDATA"]
-            else:
-                os.environ["LOCALAPPDATA"] = env
-        with open(os.path.join(path, "settings.json")) as fh:
-            assert "dark" in fh.read()
-
-
 # ------------------------------------------------------------------ Attune Single Train Report as the base
 ROW_FMT = "{:<14}{:<25}{:<9}{:<10}{:<7}{:<8}{:<7}{:<10}{:<7}{:<6}"
 

@@ -43,10 +43,6 @@ class Stay:
     arrive: End
     depart: Optional[End]       # None when the XML does not say what the unit works next
 
-    @property
-    def last_night(self) -> int:
-        return (self.first_night + self.nights - 1) % 7
-
 
 @dataclass
 class Visit:

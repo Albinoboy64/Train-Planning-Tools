@@ -17,6 +17,7 @@ from typing import Dict, List, Tuple
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
+from rstools.widgets import Progress
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 
@@ -73,8 +74,8 @@ class LiveTab(ttk.Frame):
         self._days_known = set()
         self._build()
         self._mode_changed()
-        self._poll_id = self.after(100, self._poll)
-        self._watch_id = self.after(POLL_MS, self._watch_files)
+        app.pump.add(self.q, self._poll, lambda: self.running)
+        self._watch_id = None                # the saved-file check runs only while there is something to watch
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -131,6 +132,7 @@ class LiveTab(ttk.Frame):
         self.run_btn = ttk.Button(ctl, text="Compare", style="Run.TButton", command=self.run)
         self.run_btn.grid(row=0, column=0)
         self.auto_var = tk.BooleanVar(value=True)
+        self.auto_var.trace_add("write", lambda *_a: self._keep_watching())
         ttk.Checkbutton(ctl, text="Refresh when a file is saved", variable=self.auto_var).grid(row=0, column=1,
                                                                                             padx=(12, 0))
         opts = ttk.Frame(top)
@@ -142,11 +144,11 @@ class LiveTab(ttk.Frame):
         ttk.Checkbutton(opts, text="Check for differences (untick to pair trains for checking by eye)",
                         variable=self.check_var, command=self._view_changed).grid(row=0, column=1, sticky="w",
                                                                                  padx=(16, 0))
-        self.prog = ttk.Progressbar(ctl, mode="indeterminate", length=120)
-        self.prog.grid(row=0, column=2, padx=(12, 0))
-        self.prog.grid_remove()                       # shown only while comparing
+        self.prog = ttk.Progressbar(ctl, mode="determinate", maximum=1.0, length=120)
+        self.prog.grid(row=0, column=2, padx=(12, 0))          # always in place: nothing moves when it runs
         self.status = ttk.Label(ctl, text="Choose the files and press Compare (F5).", style="Small.TLabel")
         self.status.grid(row=0, column=3, sticky="w", padx=(10, 0))
+        self.progress = Progress(self.prog)
 
         pane = ttk.Panedwindow(self, orient="horizontal")
         pane.grid(row=3, column=0, sticky="nsew")
@@ -314,7 +316,7 @@ class LiveTab(ttk.Frame):
     def _add_drop_target(self, widget):
         if not self._dnd or isinstance(widget, (tk.Text, ttk.Treeview)):
             return
-        key = next((k for k, (_l, box, _b) in self.rows.items() if box is widget), None)
+        key = next((k for k, row in self.rows.items() if widget in row), None)       # a box's whole row
         try:
             widget.drop_target_register(self._dnd)
             widget.dnd_bind("<<Drop>>", lambda e, k=key: self._on_drop(e, k))
@@ -344,16 +346,11 @@ class LiveTab(ttk.Frame):
             messagebox.showwarning(TITLE, f"The {file_label(label)} box takes {' / '.join(exts)} files.",
                                    parent=self)
             return
-        for key, _label, exts, many in spec:
-            fits = [p for p in paths if p.lower().endswith(exts)]
-            if not fits:
-                continue
-            if many and len([s for s in spec if s[2] == exts]) == 1:
-                self.vars[key].set(_join(self.vars[key].get(), fits))
-                paths = [p for p in paths if p not in fits]
-            elif not self.vars[key].get().strip() or len(paths) > 1:
-                self.vars[key].set(fits[0])
-                paths.remove(fits[0])
+        from rstools.dropping import Slot, route_drop
+        slots = [Slot(self.vars[k], lambda p, e=exts: p.lower().endswith(e), multi=many) for k, _l, exts, many in spec]
+        _placed, left = route_drop(paths, slots, join=lambda fs: _join("", fs))
+        if left:
+            self.status.configure(text=f"{len(left)} file(s) did not fit a box for this comparison and were left out.")
 
     def _files(self):
         out = {}
@@ -421,7 +418,7 @@ class LiveTab(ttk.Frame):
 
     # ------------------------------------------------------------------ comparing
     def stop(self):
-        for job in (self._poll_id, self._watch_id, getattr(self, "_search_after", None)):
+        for job in (self._watch_id, getattr(self, "_search_after", None)):
             if not job:
                 continue
             try:
@@ -444,14 +441,15 @@ class LiveTab(ttk.Frame):
                 self.app.add_recent(f"live_{key}", *paths[:1])
         self.running = True
         self.run_btn.state(["disabled"])
-        self.prog.grid()
-        self.prog.start(12)
+        self.progress.begin()
+        self.progress.set(0.05)
         self._started = time.monotonic()
         self.status.configure(text="Refreshing..." if refresh else "Comparing...")
         self.app.set_busy(True)
         days = self._days()
         stamps = {p: self._stamp(p) for ps in files.values() for p in ps}
         threading.Thread(target=self._work, args=(mode, files, days, refresh, stamps), daemon=True).start()
+        self.app.pump.kick()
 
     @staticmethod
     def _stamp(path):
@@ -464,7 +462,7 @@ class LiveTab(ttk.Frame):
     def _work(self, mode, files, days, refresh, stamps):
         from .adapters import compute
         try:
-            res = compute(mode, files, days, log=lambda m: None)
+            res = compute(mode, files, days, log=lambda m: self.q.put(("step", m)))   # a step done
             known = self._learn_days(files) if mode == "cwn" and not self._days_known else None
             self.q.put(("done", mode, res, refresh, stamps, known))
         except Exception as exc:                  # readable messages from the readers; details logged
@@ -479,8 +477,6 @@ class LiveTab(ttk.Frame):
     def _finished(self):
         self.running = False
         self.run_btn.state(["!disabled"])
-        self.prog.stop()
-        self.prog.grid_remove()
         self.app.set_busy(False)
 
     def _loaded(self, mode, res, refresh, stamps, known):
@@ -493,6 +489,7 @@ class LiveTab(ttk.Frame):
         self.items = {it.key: it for it in res.items}
         self.fresh = {k for k, it in self.items.items() if refresh and old.get(k) != it.signature()}
         self.watch = dict(stamps)
+        self._keep_watching()
         if known is not None:
             self._days_known = known
             for i, (cb, var) in enumerate(zip(self.day_cbs, self.day_vars)):
@@ -552,6 +549,7 @@ class LiveTab(ttk.Frame):
             except Exception as exc:
                 self.q.put(("exported", path, errorlog.file_problem(exc) or f"The export failed: {exc}"))
         threading.Thread(target=work, daemon=True).start()
+        self.app.pump.kick()
 
     def _clear(self):
         self.result, self.raw, self.items, self.fresh, self.watch = None, None, {}, set(), {}
@@ -731,13 +729,23 @@ class LiveTab(ttk.Frame):
                     else:
                         self._pending_change = now
         finally:
+            self._watch_id = None
+            self._keep_watching()
+
+    def _keep_watching(self):
+        """Look for saved files every POLL_MS while a comparison is shown with 'Refresh when a file is saved'
+        ticked; otherwise no timer runs."""
+        if self._watch_id is None and self.auto_var.get() and self.result is not None and self.watch:
             self._watch_id = self.after(POLL_MS, self._watch_files)
 
     def _poll(self):
         try:
             while True:
                 item = self.q.get_nowait()
-                if item[0] == "done":
+                if item[0] == "step":                    # each step read or compared moves the bar on
+                    self.progress.set(self.progress.value + (0.9 - self.progress.value) * 0.3)
+                elif item[0] == "done":
+                    self.progress.finish()
                     self._loaded(*item[1:])
                 elif item[0] == "exported":
                     _k, path, err = item
@@ -756,6 +764,7 @@ class LiveTab(ttk.Frame):
                     self._finished()
                     if refresh:                          # e.g. a file saved while half-written: try later
                         self.watch.update(stamps)
+                        self._keep_watching()
                         self.status.configure(text=f"Refresh failed at {time.strftime('%H:%M:%S')}: "
                                                    f"{msg.splitlines()[0]} - will try again when the file is saved.")
                     else:
@@ -764,5 +773,3 @@ class LiveTab(ttk.Frame):
                         messagebox.showerror(TITLE, msg[:1500])
         except queue.Empty:
             pass
-        finally:
-            self._poll_id = self.after(100, self._poll)

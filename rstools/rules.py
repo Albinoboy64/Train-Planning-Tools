@@ -29,6 +29,7 @@ BUILT_IN = [
 ]
 BUILT_IN_S4 = "2027 EAS v4 (built in)"     # the Section 4 rule set shipped with the app
 BUILT_IN_S4_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "timetable", "section4_builtin.json.gz")
+BUILT_IN_S4_INFO = BUILT_IN_S4_FILE.replace(".json.gz", ".info.json")     # its name, dates and files, for the header
 _builtin_cache: dict = {}
 
 
@@ -140,8 +141,22 @@ def _builtin_data() -> Optional[dict]:
     return _builtin_cache["data"]
 
 
+def _builtin_summary() -> Optional[dict]:
+    """The built-in rule set's name, dates and files from its small summary file - so the header can say
+    which rules are in use without unpacking every possession. None if it is missing or out of step."""
+    try:
+        with open(BUILT_IN_S4_INFO, encoding="utf-8") as fh:
+            info = json.load(fh)
+        if info.get("gz_size") == os.path.getsize(BUILT_IN_S4_FILE) and isinstance(info.get("info"), dict):
+            return info
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
 def _builtin_info() -> Optional[dict]:
-    data = _builtin_data()
+    data = _builtin_summary() if "data" not in _builtin_cache else None
+    data = data or _builtin_data()
     if data is None:
         return None
     return dict(data.get("info", {}), name=BUILT_IN_S4, files=list(data.get("files", [])), added="",

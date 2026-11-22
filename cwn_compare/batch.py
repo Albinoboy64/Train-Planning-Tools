@@ -144,7 +144,13 @@ def _one(opts: Options) -> dict:
 def run_batch(pairs: List[Tuple[str, str]], base: Options,
               done: Callable[[int, int, str, str, Optional[dict], str], None] = lambda *a: None) -> List[dict]:
     """Compare every pair; done(index, total, original, updated, result or None, error) after each one."""
-    jobs = [dataclasses.replace(base, original=o, updated=u, output_name="", days=[]) for o, u in pairs]
+    from rstools.fsutil import output_folder
+    folder = output_folder(base.output_dir)
+    if pairs and folder != base.output_dir:   # no folder chosen: a folder in Downloads named after the updated CWNs'
+        folder = os.path.join(folder, os.path.basename(os.path.dirname(os.path.abspath(pairs[0][1]))) or "CWNs")
+        os.makedirs(folder, exist_ok=True)
+    jobs = [dataclasses.replace(base, original=o, updated=u, output_name="", days=[], output_dir=folder)
+            for o, u in pairs]
     results: List[dict] = []
     workers = workers_for(pairs)
     if workers > 1:

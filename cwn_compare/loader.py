@@ -26,8 +26,37 @@ class LoadError(Exception):
     pass
 
 
-def load_any(path: str, read_only: bool = False) -> "openpyxl.Workbook":
-    """read_only=True is faster and lighter for files that are only read (close() it after use)."""
+def _load_native(path: str, read_only: bool, rich_text: bool, progress):
+    """openpyxl's load_workbook, reporting how many of the tabs have been read so far."""
+    import openpyxl
+    if progress is None or read_only:
+        return openpyxl.load_workbook(path, data_only=True, read_only=read_only, rich_text=rich_text)
+    from openpyxl.reader.excel import ExcelReader
+
+    class Reader(ExcelReader):
+        def read_worksheets(self):
+            sheets = list(self.parser.find_sheets())
+            find = self.parser.find_sheets
+
+            def each():
+                for i, item in enumerate(sheets):
+                    progress(i / max(len(sheets), 1))
+                    yield item
+                progress(1.0)
+            self.parser.find_sheets = each
+            try:
+                super().read_worksheets()
+            finally:
+                self.parser.find_sheets = find
+    reader = Reader(path, read_only=False, keep_vba=False, data_only=True, keep_links=True, rich_text=rich_text)
+    reader.read()
+    return reader.wb
+
+
+def load_any(path: str, read_only: bool = False, rich_text: bool = False, progress=None) -> "openpyxl.Workbook":
+    """read_only=True is faster and lighter for files that are only read (close() it after use). rich_text keeps
+    text formatting within cells (a comparison CWN's struck-through previous values); progress(fraction) is
+    called as each tab is read."""
     from rstools.fsutil import long_path
     path = long_path(path)              # files in very deep folders
     import openpyxl                     # imported here so the app window opens faster
@@ -38,7 +67,7 @@ def load_any(path: str, read_only: bool = False) -> "openpyxl.Workbook":
         if ext in NATIVE_EXT:
             from rstools.fsutil import check_office_file
             check_office_file(path)     # refuse a 'zip bomb' before unpacking
-            return openpyxl.load_workbook(path, data_only=True, read_only=read_only)
+            return _load_native(path, read_only, rich_text, progress)
         if ext == ".xls":
             return _load_xls(path)
         if ext == ".xlsb":

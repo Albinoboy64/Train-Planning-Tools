@@ -24,6 +24,63 @@ def long_path(path: str) -> str:
     return "\\\\?\\" + full
 
 
+def downloads_dir() -> str:
+    """The user's Downloads folder - where Windows really keeps it, even when IT has moved it - or ~/Downloads,
+    or the home folder."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            import uuid
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                            ("Data4", ctypes.c_ubyte * 8)]
+            u = uuid.UUID("374DE290-123F-4565-9164-39C4925E467B")       # FOLDERID_Downloads
+            g = GUID(u.time_low, u.time_mid, u.time_hi_version, (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) == 0:
+                path = out.value
+                ctypes.windll.ole32.CoTaskMemFree(out)
+                if path and os.path.isdir(path) and not is_network_path(path):
+                    return path
+        except Exception:
+            pass
+    home = os.path.expanduser("~")
+    dl = os.path.join(home, "Downloads")
+    return dl if os.path.isdir(dl) else home
+
+
+def is_network_path(path: str) -> bool:
+    """A folder on a network or shared drive: a \\\\server\\share path, or a drive letter mapped to one."""
+    if not path:
+        return False
+    full = path.strip().strip('"')
+    if os.name == "nt":
+        full = os.path.abspath(full)
+    if full.startswith("\\\\") or full.startswith("//"):
+        return not full.startswith("\\\\?\\") or full[4:].upper().startswith("UNC\\")
+    if os.name == "nt" and len(full) >= 2 and full[1] == ":":
+        try:
+            import ctypes
+            return ctypes.windll.kernel32.GetDriveTypeW(full[:2] + "\\") == 4      # DRIVE_REMOTE
+        except Exception:
+            return False
+    return False
+
+
+NETWORK_REFUSED = ("Outputs are saved on this PC only, not on a network or shared drive. Choose a local folder, "
+                   "or leave the box empty to save to your Downloads folder.")
+
+
+def output_folder(chosen: str = "") -> str:
+    """Where an output is saved: the folder chosen if it is on this PC and exists, else Downloads."""
+    chosen = (chosen or "").strip().strip('"')
+    if chosen and os.path.isdir(chosen) and not is_network_path(chosen):
+        return chosen
+    return downloads_dir()
+
+
 def temp_path(path: str) -> str:
     """A short temporary name in the same folder (a long '<name>.tmp' could pass the path limit)."""
     return os.path.join(os.path.dirname(os.path.abspath(path)), f"~tpt{os.getpid() % 100000}{os.urandom(2).hex()}.tmp")

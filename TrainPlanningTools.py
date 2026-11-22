@@ -51,7 +51,7 @@ def cli(argv):
     ap.add_argument("--acwn", action="store_true", help="output amended trains only")
     ap.add_argument("--colour", default=None, help="highlight colour as hex, e.g. FFFF00")
     ap.add_argument("--name", default="", help="output name (default: today's date)")
-    ap.add_argument("--out", default="", help="output folder (default: folder of updated CWN)")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--no-report", action="store_true")
     ap.add_argument("--keep-links", action="store_true",
                     help="keep the headcode hyperlinks between tabs (output opens more slowly)")
@@ -63,7 +63,7 @@ def cli(argv):
                     help="report differences in spacing / punctuation in destinations and notes")
     ap.add_argument("--exclude", default="", help="comma separated categories to strip, e.g. PLATFORM,DIAGRAM")
     ap.add_argument("--days", default="", help="check and output only trains running on these days, e.g. MO,FO")
-    a = ap.parse_args(argv)
+    a = _local_out(ap, ap.parse_args(argv))
     o = Options()
     o.mode = "cumulative" if a.previous else "batch" if a.original_folder else "compare"
     o.original = a.previous or a.original or a.original_folder
@@ -131,8 +131,8 @@ def stationbook_cli(argv):
     ap.add_argument("--label", default="", help="sheet name before SX / SO / Su (default: station (operator))")
     ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
     ap.add_argument("--name", default="", help="output name")
-    ap.add_argument("--out", default="", help="output folder (default: folder of the XML)")
-    a = ap.parse_args(argv)
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
+    a = _local_out(ap, ap.parse_args(argv))
     entries = parse_station_list(a.station)
     if len(entries) > 1:
         try:
@@ -158,6 +158,14 @@ def stationbook_cli(argv):
     print(summary)
 
 
+def _local_out(ap, a):
+    """--out must be a folder on this PC: outputs are never written to a network or shared drive."""
+    from rstools.fsutil import NETWORK_REFUSED, is_network_path
+    if getattr(a, "out", "") and is_network_path(a.out):
+        ap.error(NETWORK_REFUSED)
+    return a
+
+
 def reorder_cli(argv):
     from cwn_compare.reorder import ReorderError, reorder_cwn
     ap = argparse.ArgumentParser(prog="TrainPlanningTools reorder",
@@ -174,8 +182,8 @@ def reorder_cli(argv):
     ap.add_argument("--merge-berth-diagrams", action="store_true",
                     help="with --merge-berths: also when that next working's diagram number differs")
     ap.add_argument("--name", default="", help="output name")
-    ap.add_argument("--out", default="", help="output folder (default: folder of the CWN)")
-    a = ap.parse_args(argv)
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
+    a = _local_out(ap, ap.parse_args(argv))
     try:
         from cwn_compare.reorder import MergeRules
         res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print, merge=a.merge,
@@ -236,7 +244,7 @@ def statspack_cli(argv):
     ap.add_argument("--at", default="", help="capacity report: the station for --between, e.g. 'London Victoria'")
     ap.add_argument("--direction", choices=["arriving", "departing", "both"], default=None,
                     help="capacity report: count trains arriving at / departing from --at (default arriving)")
-    a = ap.parse_args(argv)
+    a = _local_out(ap, ap.parse_args(argv))
     from rstools.statspack.compare import CompareOptions
     cmp = CompareOptions(summary=not a.no_summary, changed_tabs_only=a.changed_tabs_only,
                          changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
@@ -346,9 +354,9 @@ def timetable_cli(argv):
     ap.add_argument("--nr", help="Network Rail timetable workbook (the reference)")
     ap.add_argument("--vs", nargs="+", help="updated train print(s) or train list")
     ap.add_argument("--name", default="", help="output name (default chosen from the inputs)")
-    ap.add_argument("--out", default="", help="output folder (default: folder of the second input)")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
-    a = ap.parse_args(argv)
+    a = _local_out(ap, ap.parse_args(argv))
     if a.gtr:
         mode, first, second = "timetables", [a.gtr], [a.nr] if a.nr else []
     elif a.base_prints or a.base_list:
@@ -359,7 +367,8 @@ def timetable_cli(argv):
     if not second:
         ap.error("--nr is needed with --gtr, --vs with --prints / --lists, and --check with --base-prints / "
                  "--base-list")
-    out = a.out or os.path.dirname(os.path.abspath(second[0]))
+    from rstools.fsutil import output_folder
+    out = output_folder(a.out)
     try:
         res = run(mode, first, second, out, a.name, a.format, log=print)
     except Exception as exc:                 # readable messages from the readers and the engine
@@ -388,9 +397,9 @@ def berthing_cli(argv):
     ap.add_argument("--issue", default="", help="the issue shown on the cover, e.g. 'Proof 2'")
     ap.add_argument("--colour", default="",
                     help="highlight colour: a name (" + ", ".join(PRESET_COLOURS) + ") or RRGGBB")
-    ap.add_argument("--out", default="", help="output folder (default: beside the input)")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--name", default="", help="output file name, without .xlsx")
-    a = ap.parse_args(argv)
+    a = _local_out(ap, ap.parse_args(argv))
     named = {k.lower(): v for k, v in PRESET_COLOURS.items()}
     colour = named.get(a.colour.lower(), a.colour.lstrip("#")) if a.colour else ""
     try:

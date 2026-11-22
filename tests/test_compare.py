@@ -788,8 +788,9 @@ def test_merge_berths_with_a_different_next_day_diagram():
     assert res["merged"] == 3
     rows = [r for r in ws.iter_rows(min_row=3) if r[13].value == "1T66HS"]
     assert len(rows) == 1 and rows[0][1].value == "FX"                         # MTWThO in a weekday CWN
-    assert _text(rows[0][4].value) == [("Berth ", False), ("HE317", False), ("TThFO", True), (" / HE318", False),
-                                       ("WO", True), (" 05.17TWThFO", False)]
+    assert rows[0][4].value == "Berth HE317 \u25be 05.17TWThFO"               # the diagram for most days, marked
+    assert _dv(ws, rows[0][4].coordinate) == ("Next working varies by day", "TThFO: HE317\nWO: HE318",
+                                              '"HE317 (TThFO),HE318 (WO)"')
 
 
 def test_merge_when_only_diagram_numbers_differ():
@@ -807,6 +808,130 @@ def test_merge_when_only_diagram_numbers_differ():
     assert res["merged"] == 2
     got = [r for r in ws.iter_rows(min_row=3) if r[0].value == "2C02BT"]
     assert len(got) == 2                                                     # the original 2C02BT and the merged one
-    merged = next(r for r in got if r[1].value is None and isinstance(_text(r[8].value), list))
-    assert _text(merged[8].value) == [("311", False), ("MO", True), (" / 319", False), ("TWThO", True),
-                                      (" / 312", False), ("FO", True)]
+    merged = next(r for r in got if r[1].value is None and "\u25be" in str(r[8].value))
+    assert merged[8].value == "319 \u25be"                                    # TWThO: the most days
+    assert merged[8].font.color.rgb == "FF00707A"
+    assert _dv(ws, merged[8].coordinate) == ("Diagram varies by day", "MO: 311\nTWThO: 319\nFO: 312",
+                                             '"311 (MO),319 (TWThO),312 (FO)"')
+
+
+def _dv(ws, coord):
+    """(title, prompt, list) of the click-to-show box on a cell, or None."""
+    for dv in ws.data_validations.dataValidation:
+        if coord in dv.sqref:
+            assert dv.showInputMessage and not dv.showErrorMessage
+            return dv.promptTitle, dv.prompt, dv.formula1
+    return None
+
+
+def test_merge_when_only_am_pm_berths_differ():
+    """AM / PM berths say where the unit starts and ends its day, not anything about this location: variants
+    differing only there merge with no option ticked; the PM cell shows the berth for most days, marked, and
+    lists each day's berth when clicked. The longer DAYS code widens its column."""
+    from cwn_compare.reorder import MergeRules
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days, pm):
+        r = list(rows[2]); r[1], r[7] = days, pm; return r
+    extra = [v("MO", "THBDTGS"), v("ThO", "EBOUSID")]
+    res, ws = _merged(MergeRules(), [], extra)
+    assert res["merged"] == 1
+    got = [r for r in ws.iter_rows(min_row=3) if r[0].value == "2C02BT" and r[1].value]
+    assert len(got) == 1 and got[0][1].value == "MThO" and got[0][7].value == "THBDTGS \u25be"
+    assert _dv(ws, got[0][7].coordinate)[1] == "MO: THBDTGS\nThO: EBOUSID"
+
+
+def test_fit_column_widens_only():
+    from cwn_compare.xlsxfix import fit_column
+    ws = openpyxl.Workbook().active
+    ws.column_dimensions["B"].width = 4
+    ws["B2"] = "MTWThO"
+    fit_column(ws, 2, [ws["B2"]])
+    assert ws.column_dimensions["B"].width > 5
+    w = ws.column_dimensions["B"].width
+    ws["B3"] = "MO"
+    fit_column(ws, 2, [ws["B3"]])
+    assert ws.column_dimensions["B"].width == w
+
+
+def test_variants_with_another_formation_stay_apart_and_say_why():
+    from cwn_compare.reorder import MergeRules
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days):
+        r = list(rows[2]); r[1] = days; return r
+    extra = [v("MO"), U("(377/3", "BTN", "312)"), v("TO")]
+    res, _ws = _merged(MergeRules(diagrams=True), [], extra)
+    assert res["merged"] == 0
+    assert any("2C02BT (TO) kept apart from 2C02BT (MO)" in a and "2 rows" in a for a in res["apart"])
+
+
+def test_reorder_comparison_cwn():
+    """A comparison CWN made by the app can be put in order: struck-through previous values, highlights and the
+    hidden comparison data move with it; a highlighted variant is never merged with one that is not."""
+    from cwn_compare.reorder import reorder_cwn
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days, pl, time="05.42"):
+        r = list(rows[2]); r[1], r[2], r[3] = days, time, pl; return r
+    old = rows[:2] + [v("FO", "7"), v("MO", "7"), v("TO", "7")] + rows[3:]
+    new = rows[:2] + [v("FO", "7"), v("MO", "7", "05.44"), v("TO", "7")] + rows[3:]
+    res, _changes = _run_pair(old, new, "cmp-reorder")
+    d = os.path.dirname(res["cwn"])
+    out = reorder_cwn(res["cwn"], d, merge=True)
+    assert out["path"]
+    ws = openpyxl.load_workbook(out["path"], rich_text=True)["BTN"]
+    got = [(r[1].value, r[2].value) for r in ws.iter_rows(min_row=3) if r[0].value == "2C02BT"]
+    assert [g[0] for g in got] == ["MO", "TFO"]                               # MO (changed) first; TO + FO merged
+    assert "05.42" in str(got[0][1]) and "05.44" in str(got[0][1])            # old time still struck above new
+    assert read_meta_file(out["path"]) is not None
+
+
+def _sheet_xml(path, title):
+    import re
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        wbx = z.read("xl/workbook.xml").decode()
+        rels = z.read("xl/_rels/workbook.xml.rels").decode()
+        rid = re.search(rf'<sheet [^>]*name="{title}"[^>]*r:id="(\w+)"', wbx).group(1)
+        target = re.search(rf'Id="{rid}"[^>]*Target="([^"]+)"|Target="([^"]+)"[^>]*Id="{rid}"', rels)
+        target = target.group(1) or target.group(2)
+        return z.read("xl/" + target.lstrip("/").replace("xl/", "")).decode()
+
+
+def test_no_unused_formatting_in_outputs():
+    """A CWN whose formatting runs on to the last column and far below its trains (common in real CWNs): the
+    comparison CWN, the change report and the reordered copy carry no formatting past their data."""
+    import re
+    from openpyxl.styles import Border, Side
+    from cwn_compare.reorder import reorder_cwn
+    d = tempfile.mkdtemp()
+    rows = [list(r) for r in BTN_ORIG]
+    btn = rows[:3] + [[*rows[2][:1], "MO", *rows[2][2:]]] + rows[3:]
+    btn[2][1] = "FO"
+    for name, data in (("o", rows), ("u", btn)):
+        make(os.path.join(d, name + ".xlsx"), data, VIC_ORIG)
+        wb = openpyxl.load_workbook(os.path.join(d, name + ".xlsx"))
+        for ws in wb.worksheets:
+            thin = Side(style="thin")
+            for r in range(1, 3000, 7):                       # styled empty cells far below and to the right
+                ws.cell(row=r, column=200).font = Font(bold=True)
+                ws.cell(row=r, column=3).border = Border(top=thin)
+            ws.column_dimensions.group("P", "XFD")
+            ws.column_dimensions["P"].font = Font(italic=True)
+            ws.row_dimensions[2500].font = Font(bold=True)
+        wb.save(os.path.join(d, name + ".xlsx"))
+    o = Options(original=os.path.join(d, "o.xlsx"), updated=os.path.join(d, "u.xlsx"), output_dir=d,
+                output_name="trim")
+    res = run(o)
+    ro = reorder_cwn(os.path.join(d, "u.xlsx"), d)
+    for path in (res["cwn"], res["report"], ro["path"]):
+        wb = openpyxl.load_workbook(path)
+        for ws in wb.worksheets:
+            if ws.sheet_state != "visible":
+                continue
+            xml = _sheet_xml(path, ws.title)
+            ref = re.search(r'<dimension ref="([^"]+)"', xml).group(1)
+            last = max((c.row for row in ws.iter_rows() for c in row if c.value not in (None, "")), default=1)
+            assert int(re.sub(r"[A-Z]+", "", ref.split(":")[-1])) <= last + 1, (path, ws.title, ref, last)
+            assert "XFD" not in xml and 'max="16384"' not in xml and ' customFormat="1"' not in xml, (path, ws.title)

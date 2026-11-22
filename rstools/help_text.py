@@ -18,7 +18,8 @@ TIPS = {
     "Check for differences (untick to pair trains for checking by eye)": "Untick to switch error checking off: "
         "each train is put side by side with its match for checking by eye, with nothing coloured or flagged. "
         "Trains found in only one file are still listed, so nothing is missed.",
-    "Save to folder:": "Where the output is saved. Leave blank to save it next to the (updated) input file.",
+    "Save to folder:": "Where the output is saved, on this PC (never a network or shared drive). Leave blank "
+                       "to save it to your Downloads folder.",
     "Output name:": "File name for the output, without the extension. Leave blank to use the name shown "
                     "underneath. An existing file is never overwritten: (2), (3)... is added instead.",
     "Save as:": "Excel (default) keeps colours, filters and frozen headings. PDF and Word are for printing "

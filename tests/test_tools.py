@@ -1009,3 +1009,104 @@ def test_window_partly_off_screen_is_moved_back(monkeypatch):
             assert app.winfo_x() + app.winfo_width() <= area[2] + 1
         finally:
             app._on_close()
+
+
+# ------------------------------------------------------------------ 3.27: drops, local outputs, steady UI
+class _Var:
+    def __init__(self, v=""):
+        self.v = v
+
+    def get(self):
+        return self.v
+
+    def set(self, v):
+        self.v = v
+
+
+def test_drop_replaces_the_box_it_is_dropped_on():
+    """A file dropped on a filled box replaces it; dropped elsewhere it fills an empty box first, else replaces
+    the box it belongs in; two files for two boxes go in date order; files with no box are left over."""
+    from rstools.dropping import Slot, route_drop
+    d = tempfile.mkdtemp()
+    old, new = os.path.join(d, "old.xlsx"), os.path.join(d, "new.xlsx")
+    for i, p in enumerate((old, new)):
+        open(p, "w").close()
+        os.utime(p, (1000 + i, 1000 + i))
+    xlsx = (lambda p: p.endswith(".xlsx"))
+    a, b = _Var("a.xlsx"), _Var("b.xlsx")
+    slots = [Slot(a, xlsx), Slot(b, xlsx, prefer=lambda p: True)]
+    assert route_drop(["x.xlsx"], slots, slots[0]) == (1, []) and a.v == "x.xlsx" and b.v == "b.xlsx"
+    assert route_drop(["y.xlsx"], slots) == (1, []) and b.v == "y.xlsx"              # its home box, replaced
+    a.v = ""
+    route_drop(["z.xlsx"], slots)
+    assert a.v == "z.xlsx" and b.v == "y.xlsx"                                     # the empty box first
+    route_drop([new, old], slots)
+    assert (a.v, b.v) == (old, new)                                                # older file first
+    placed, left = route_drop(["n.xml"], slots)
+    assert placed == 0 and left == ["n.xml"]
+    many = _Var("p1.pdf")
+    route_drop(["p2.pdf"], [Slot(many, lambda p: p.endswith(".pdf"), multi=True)])
+    assert many.v == "p1.pdf ; p2.pdf"                                             # a box of several adds
+
+
+def test_outputs_saved_locally(monkeypatch):
+    """No folder chosen, or a network folder: outputs go to Downloads; a local folder chosen is used."""
+    from rstools import fsutil
+    d = tempfile.mkdtemp()
+    monkeypatch.setattr(fsutil, "downloads_dir", lambda: d)
+    assert fsutil.is_network_path(r"\\server\share\CWNs")
+    assert fsutil.is_network_path(r"\\?\UNC\server\share")
+    assert not fsutil.is_network_path(r"\\?\C:\Users\me")
+    assert not fsutil.is_network_path(tempfile.gettempdir())
+    assert fsutil.output_folder("") == d
+    assert fsutil.output_folder(r"\\server\share") == d
+    assert fsutil.output_folder(tempfile.gettempdir()) == tempfile.gettempdir()
+
+
+def test_progress_never_goes_back():
+    """Real progress from the reorder engine only ever moves forward and ends at 1."""
+    import openpyxl
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import test_compare as tc
+    from cwn_compare.reorder import reorder_cwn
+    d = tempfile.mkdtemp()
+    rows = [list(r) for r in tc.BTN_ORIG]
+    rows[2][1] = "FO"
+    late = list(rows[2]); late[1] = "MO"
+    src = os.path.join(d, "p.xlsx")
+    tc.make(src, rows[:3] + [late] + rows[3:], tc.VIC_ORIG)
+    seen = []
+    reorder_cwn(src, d, progress=lambda f, m: seen.append(f))
+    assert seen == sorted(seen) and seen[-1] == 1.0 and len(seen) > 4
+    assert openpyxl.load_workbook(os.path.join(d, "p (variants in day order).xlsx"))
+
+
+def test_idle_window_runs_no_fast_timers(monkeypatch):
+    """Once started and idle, the window reads its queues about once a second (not several times a second on
+    every tab), the window was built before being shown, and buttons have their icons before first shown."""
+    import pytest
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    with tempfile.TemporaryDirectory() as d:
+        monkeypatch.setenv("LOCALAPPDATA", d)
+        try:
+            import cwn_compare.gui as g
+            app = g.App()
+        except tk.TclError:
+            return
+        try:
+            assert app.pump.parts and len(app.pump.parts) == 4                     # one pump for every tab
+            for q, handle, _busy in app.pump.parts:                                 # start-up work read
+                while not q.empty():
+                    handle()
+            app.pump.stop()
+            app.pump._fast_until = 0
+            app.pump._tick()
+            assert app.pump._due - __import__("time").monotonic() > 0.5            # idle: the slow beat
+            run = app.run_btn
+            assert str(run.cget("image"))                                         # icon set before shown
+            for tab in (app.stats_tab, app.tt_tab, app.live_tab):
+                assert not hasattr(tab, "_poll_id")
+            assert app.live_tab._watch_id is None                                  # nothing to watch yet
+        finally:
+            app.destroy()

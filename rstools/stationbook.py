@@ -24,6 +24,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
+from rstools.fsutil import output_folder
+
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 DAY_GROUPS = {"SX": (0, 1, 2, 3, 4), "SO": (5,), "Su": (6,)}
 SINGLE_DAYS = {"MO": (0,), "TO": (1,), "WO": (2,), "ThO": (3,), "FO": (4,), "SO": (5,), "Su": (6,)}
@@ -654,7 +656,8 @@ def parse_platforms(text: str) -> Optional[Set[str]]:
 def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", operator: str = "",
               timetable: str = "", services: str = "", label: str = "", platforms: str = "",
               day_types: Sequence[str] = ("SX", "SO", "Su"),
-              log: Callable[[str], None] = lambda m: None) -> Tuple[str, List[str], str]:
+              log: Callable[[str], None] = lambda m: None,
+              progress: Callable[[float, str], None] = lambda f, m: None) -> Tuple[str, List[str], str]:
     """Write the Station Working Book. Returns (path, warnings, summary)."""
     from rstools.statspack.fleet import FleetTable
     from rstools.statspack.seats import Stations
@@ -664,7 +667,9 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     if not station.strip():
         raise StationBookError("Choose the station.")
     log(f"Reading {os.path.basename(xml)}")
+    progress(0.03, "Reading the XML...")
     plan = _plan_of(xml)
+    progress(0.45, f"Finding the trains at {station.strip()}...")
     tips = Stations(plan.locations).find(station.strip())
     if not tips:
         raise StationBookError(f"'{station}' is not a location in the XML.")
@@ -682,7 +687,8 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         raise StationBookError("Choose at least one day type (SX, SO or Su).")
     sheets, warnings, total = [], [], 0
     missing_days: Set[int] = set()
-    for dt, days in groups:
+    for n, (dt, days) in enumerate(groups):
+        progress(0.45 + 0.4 * n / len(groups), f"{station.strip()}: {dt} departures...")
         rows, no_diag = sheet_rows(builder, days)
         missing_days |= no_diag
         log(f"{dt}: {len(rows)} row(s)")
@@ -697,13 +703,15 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
                         + " in this XML.")
     header = (f"{operator.strip() + ' ' if operator.strip() else ''}{timetable + ' ' if timetable else ''}"
               f"Station Working Book - {station.strip()}" + (f" ({services.strip()})" if services.strip() else ""))
-    folder = out_dir or os.path.dirname(os.path.abspath(xml))
+    folder = output_folder(out_dir)
     stem = out_name.strip() or (f"{operator.strip() + ' ' if operator.strip() else ''}"
                                 f"{timetable + ' ' if timetable else ''}Station Working Book - {station.strip()}"
                                 + (f" {_plat_label(plats)}" if plats else ""))
     path = os.path.join(folder, unique_stem(folder, stem, (".xlsx",)) + ".xlsx")
+    progress(0.88, "Saving...")
     write_book(path, sheets, header)
     log(f"Saved: {path}")
+    progress(1.0, "Done")
     summary = f"{total} departure row(s) on {len(sheets)} sheet(s) for {station.strip()}."
     return path, warnings, summary
 
@@ -750,7 +758,8 @@ def _books_job(xml: str, entries: Sequence[Tuple[str, str]], kw: dict) -> List[t
 
 def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", operator: str = "",
                timetable: str = "", services: str = "", day_types: Sequence[str] = ("SX", "SO", "Su"),
-               log: Callable[[str], None] = lambda m: None) -> List[tuple]:
+               log: Callable[[str], None] = lambda m: None,
+               progress: Callable[[float, str], None] = lambda f, m: None) -> List[tuple]:
     """A Station Working Book for each (station, platforms), one file each, shared over the CPU cores (each
     helper reads the XML once). Returns [(station, path, warnings, summary, error)] in the order given; a
     station that cannot be made gives its error, the others are still made."""
@@ -763,14 +772,17 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
     import multiprocessing
     workers = min(max(1, (os.cpu_count() or 1) - 1), len(entries) // 2)
     if workers >= 2 and multiprocessing.parent_process() is None:
-        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures import ProcessPoolExecutor, as_completed
         from multiprocessing import get_context
-        order = [list(range(len(entries)))[i::workers] for i in range(workers)]
         log(f"Making {len(entries)} books on {workers} CPU cores...")
-        try:
+        progress(0.02, f"Making {len(entries)} books...")
+        try:                                        # one job per station: each helper reads the XML once (cached)
             with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
-                parts = [(idx, pool.submit(_books_job, xml, [entries[i] for i in idx], kw)) for idx in order]
-                done = {i: r for idx, part in parts for i, r in zip(idx, part.result())}
+                jobs = {pool.submit(_books_job, xml, [e], kw): i for i, e in enumerate(entries)}
+                done = {}
+                for fut in as_completed(jobs):
+                    done[jobs[fut]] = fut.result()[0]
+                    progress(0.02 + 0.98 * len(done) / len(entries), f"{len(done)} of {len(entries)} books made")
             results = [done[i] for i in range(len(entries))]
             for st, _path, _w, summary, err in results:
                 log(f"{st}: {summary or err}")
@@ -778,8 +790,9 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
         except Exception as exc:                    # helpers unavailable: make them here instead
             log(f"(made one at a time: {exc})")
     results = []
-    for station, plats in entries:
-        res = _books_job(xml, [(station, plats)], dict(kw, log=log))[0]
+    for n, (station, plats) in enumerate(entries):
+        part = (lambda f, m, n=n: progress((n + f) / len(entries), m))
+        res = _books_job(xml, [(station, plats)], dict(kw, log=log, progress=part))[0]
         results.append(res)
     return results
 

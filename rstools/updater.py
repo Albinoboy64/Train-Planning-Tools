@@ -27,7 +27,6 @@ REPO = "Albinoboy64/Train-Planning-Tools"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 ASSET = "TrainPlanningTools.exe"
-ASSETS = (ASSET, "RollingStockTools.exe")       # the app's name before 3.0.0
 TIMEOUT = 20
 
 
@@ -117,7 +116,7 @@ def latest_release(token: str = "") -> Release:
         raise UpdateError(f"Could not reach GitHub - check the internet connection or proxy. ({exc})")
     try:
         found = {a.get("name"): a for a in data.get("assets", []) if isinstance(a, dict)}
-        asset = next((found[n] for n in ASSETS if n in found), None)
+        asset = found.get(ASSET)
         if asset is None:
             raise UpdateError(f"The latest release has no {ASSET} to download.")
         return Release(version=str(data.get("tag_name") or "").lstrip("vV"), tag=str(data.get("tag_name") or ""),

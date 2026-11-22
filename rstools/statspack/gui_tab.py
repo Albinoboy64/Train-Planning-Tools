@@ -14,6 +14,7 @@ from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
 from rstools.autocomplete import Suggest
+from rstools.widgets import Progress, local_folder_box
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 from rstools.fsutil import write_json
@@ -97,7 +98,7 @@ class StatsPackTab(ttk.Frame):
         self._build()
         self._load_settings()
         self._mode_changed()
-        self._poll_id = self.after(150, self._poll)
+        app.pump.add(self.q, self._poll, lambda: self.running)
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -204,7 +205,8 @@ class StatsPackTab(ttk.Frame):
         ttk.Label(flag, text="miles").grid(row=0, column=2)
         ttk.Label(of, text="Save to folder:").grid(row=5, column=0, sticky="w", pady=(6, 0))
         self.out_dir = tk.StringVar()
-        ttk.Entry(of, textvariable=self.out_dir).grid(row=5, column=1, sticky="ew", padx=4, pady=(6, 0))
+        out_box = local_folder_box(ttk.Entry(of, textvariable=self.out_dir), self.out_dir)
+        out_box.grid(row=5, column=1, sticky="ew", padx=4, pady=(6, 0))
         ttk.Button(of, text="Browse...", command=self._browse_dir).grid(row=5, column=2, pady=(6, 0))
         ttk.Label(of, text="Output name:").grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
@@ -262,6 +264,7 @@ class StatsPackTab(ttk.Frame):
         self.prog.grid(row=0, column=1, sticky="ew", padx=8)
         self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
         self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
+        self.progress = Progress(self.prog, self.status)
         logf = ttk.Frame(rf)
         logf.grid(row=2, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
@@ -298,7 +301,7 @@ class StatsPackTab(ttk.Frame):
     def _add_drop_target(self, widget):
         if not self._dnd or isinstance(widget, tk.Text):
             return
-        entry_key = next((k for k, (_l, e, _b) in self.file_rows.items() if e is widget), None)
+        entry_key = next((k for k, row in self.file_rows.items() if widget in row), None)    # a box's whole row
         try:
             widget.drop_target_register(self._dnd)
             widget.dnd_bind("<<Drop>>", lambda e, k=entry_key: self._on_drop(e, k))
@@ -328,19 +331,16 @@ class StatsPackTab(ttk.Frame):
         if mode != self.mode.get():
             self.mode.set(mode)
             self._mode_changed()
+        from rstools.dropping import Slot, route_drop
         for kind, files in by_kind.items():
-            slots = [k for k, _l in files_for(mode, self.two_plans.get()) if _kind(k) == kind]
-            if not files or not slots:
+            keys = [k for k, _l in files_for(mode, self.two_plans.get()) if _kind(k) == kind]
+            if not files or not keys:
                 continue
-            if kind == "trent" and (len(slots) == 1 or len(by_kind["xml"]) < 2):
-                self.vars[slots[0]].set(" ; ".join(files))    # several prints read as one (TLGN SX/SO/SU)
-            elif len(files) >= 2 and len(slots) == 2:     # two at once: the older file is the original
-                files = sorted(files[:2], key=os.path.getmtime)
-                for slot, f in zip(slots, files):
-                    self.vars[slot].set(f)
-            else:
-                empty = [s for s in slots if not self.vars[s].get().strip()]
-                self.vars[(empty or slots[-1:])[0]].set(files[0])
+            if kind == "trent" and (len(keys) == 1 or len(by_kind["xml"]) < 2) and len(files) > 1:
+                self.vars[keys[0]].set(" ; ".join(files))    # several prints read as one (TLGN SX/SO/SU)
+                continue
+            slots = [Slot(self.vars[k], lambda p, e=EXT[kind]: p.lower().endswith(e)) for k in keys]
+            route_drop(files, slots)
         return event.action
 
     def _build_seats(self, parent, row):
@@ -357,7 +357,8 @@ class StatsPackTab(ttk.Frame):
         for r, kind in enumerate(("Service group", "Corridor")):
             ttk.Radiobutton(sf, text=labels[kind], variable=self.seat_kind, value=kind,
                             command=self._seat_kind_changed).grid(row=2 * r, column=0, sticky="w")
-            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=36)     # pick or type
+            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=36,     # pick or type
+                               style="Suggest.TCombobox")
             box.grid(row=2 * r, column=1, sticky="ew", padx=(4, 0), pady=1)
             pick = (lambda _v=None, k=kind: (self.seat_kind.set(k), self._seat_kind_changed()))
             box.bind("<<ComboboxSelected>>", lambda _e, f=pick: f())
@@ -368,10 +369,14 @@ class StatsPackTab(ttk.Frame):
                                                               justify="left"))
         self.seat_group_note.grid(row=1, column=1, sticky="w", padx=(4, 0))
         self.corridor_dir = tk.StringVar(value="both")
-        self.corridor_dir_box = ttk.Combobox(sf, state="readonly", width=36)
-        self.corridor_dir_box.grid(row=3, column=1, sticky="ew", padx=(4, 0), pady=1)
-        self.corridor_dir_box.bind("<<ComboboxSelected>>", lambda _e: (self.seat_kind.set("Corridor"),
-                                                                       self._seat_kind_changed()))
+        self.corridor_dir_box = cdf = ttk.Frame(sf)               # which way along the corridor
+        cdf.grid(row=3, column=1, sticky="w", padx=(4, 0), pady=1)
+        self.corridor_dir_radios = {}
+        for i, k in enumerate(("forward", "reverse", "both")):
+            rb = ttk.Radiobutton(cdf, text=k, variable=self.corridor_dir, value=k,
+                                 command=lambda: (self.seat_kind.set("Corridor"), self._seat_kind_changed()))
+            rb.grid(row=i, column=0, sticky="w")
+            self.corridor_dir_radios[k] = rb
         self.seat_group["Corridor"].trace_add("write", lambda *_a: self._fill_corridor_dirs())
         ttk.Radiobutton(sf, text="Station to station:", variable=self.seat_kind, value=JOURNEY,
                         command=self._seat_kind_changed).grid(row=4, column=0, sticky="w")
@@ -382,7 +387,7 @@ class StatsPackTab(ttk.Frame):
         self.journey_from, self.journey_to = tk.StringVar(), tk.StringVar()
         self.journey_boxes = []
         for c, var in ((0, self.journey_from), (2, self.journey_to)):
-            box = ttk.Combobox(jf, textvariable=var, width=16)
+            box = ttk.Combobox(jf, textvariable=var, width=16, style="Suggest.TCombobox")
             box.grid(row=0, column=c, sticky="ew")
             box.bind("<<ComboboxSelected>>", lambda _e: (self.seat_kind.set(JOURNEY), self._seat_kind_changed()))
             journey = (lambda _v=None: (self.seat_kind.set(JOURNEY), self._seat_kind_changed()))
@@ -417,12 +422,14 @@ class StatsPackTab(ttk.Frame):
         af = self.seat_at_frame = ttk.Frame(sf)
         af.grid(row=7, column=0, columnspan=2, sticky="ew", padx=(22, 0), pady=(2, 0))
         af.columnconfigure(1, weight=1)
-        self.seat_dir_box = ttk.Combobox(af, state="readonly", width=21, values=[
-            DIRECTIONS[k] for k in ("arriving", "departing", "both")])
-        self.seat_dir_box.set(DIRECTIONS["arriving"])
-        self.seat_dir_box.grid(row=0, column=0, sticky="w")
+        self.seat_dir = tk.StringVar(value="arriving")
+        self.seat_dir_box = sdf = ttk.Frame(af)
+        sdf.grid(row=0, column=0, sticky="w")
+        for i, k in enumerate(("arriving", "departing", "both")):
+            ttk.Radiobutton(sdf, text=DIRECTIONS[k], variable=self.seat_dir, value=k).grid(row=0, column=i,
+                                                                                         padx=(0, 6))
         self.seat_station = tk.StringVar(value="London Victoria")
-        self.seat_station_box = ttk.Combobox(af, textvariable=self.seat_station, width=22)
+        self.seat_station_box = ttk.Combobox(af, textvariable=self.seat_station, width=22, style="Suggest.TCombobox")
         self.seat_station_box.grid(row=0, column=1, sticky="ew", padx=(4, 0))
         Suggest(self.seat_station_box, self._station_names)
         self.seat_at_note = ttk.Label(sf, text="(departing the first station)", style="Small.TLabel")
@@ -472,17 +479,17 @@ class StatsPackTab(ttk.Frame):
     def _fill_corridor_dirs(self):
         g = next((g for g in getattr(self, "_groups", []) if g.name == self.seat_group["Corridor"].get()), None)
         if g is None or len(g.route) < 2:
-            self.corridor_dir_box.configure(values=[])
-            self.corridor_dir_box.set("")
+            self.corridor_dir_box.grid_remove()
             return
         opts = {k: g.with_direction(k).direction_text for k in ("forward", "reverse", "both")}
-        cap = {k: v[:1].upper() + v[1:] for k, v in opts.items()}       # 'Both directions', station names kept
-        self.corridor_dir_box.configure(values=[cap[k] for k in ("forward", "reverse", "both")])
-        self.corridor_dir_box.set(cap.get(self.corridor_dir.get(), cap["both"]))
-        self._dir_texts = {v: k for k, v in cap.items()}
+        for k, v in opts.items():                                        # 'Both directions', station names kept
+            self.corridor_dir_radios[k].configure(text=v[:1].upper() + v[1:])
+        if self.corridor_dir.get() not in opts:
+            self.corridor_dir.set("both")
+        self.corridor_dir_box.grid()
 
     def _corridor_dir_key(self) -> str:
-        return getattr(self, "_dir_texts", {}).get(self.corridor_dir_box.get(), self.corridor_dir.get() or "both")
+        return self.corridor_dir.get() or "both"
 
     def _station_names(self):
         """The stations offered as you type: the XML's, else every station on the corridors."""
@@ -502,11 +509,12 @@ class StatsPackTab(ttk.Frame):
         (self.seat_at_frame.grid_remove if journey else self.seat_at_frame.grid)()
         (self.seat_at_note.grid if journey else self.seat_at_note.grid_remove)()
         self.seat_station_box.state(["!disabled"] if on else ["disabled"])
-        self.seat_dir_box.state(["!disabled", "readonly"] if on else ["disabled"])
+        for rb in self.seat_dir_box.winfo_children():
+            rb.state(["!disabled"] if on else ["disabled"])
 
     def _seat_direction_key(self) -> str:
         from .seats import DIRECTIONS
-        return next((k for k, v in DIRECTIONS.items() if v == self.seat_dir_box.get()), "both")
+        return self.seat_dir.get() if self.seat_dir.get() in DIRECTIONS else "both"
 
     def edit_groups(self):
         from .seats import ensure_user_groups
@@ -601,7 +609,8 @@ class StatsPackTab(ttk.Frame):
             self.vars[key].set(os.path.normpath(p))
 
     def _browse_dir(self):
-        p = filedialog.askdirectory(title="Choose output folder", initialdir=self.out_dir.get() or None)
+        from rstools.fsutil import output_folder
+        p = filedialog.askdirectory(title="Choose output folder", initialdir=output_folder(self.out_dir.get()))
         if p:
             self.out_dir.set(os.path.normpath(p))
 
@@ -665,6 +674,7 @@ class StatsPackTab(ttk.Frame):
             if kind == "trent":
                 self.fleet_note.configure(text="Reading the TRENT print...")
             threading.Thread(target=self._read_worker, args=(kind, token, paths), daemon=True).start()
+            self.app.pump.kick()
 
     def _read_worker(self, kind, token, paths):
         try:
@@ -727,8 +737,6 @@ class StatsPackTab(ttk.Frame):
         """One row per operator: its fleets from the fleet table, plus any others in the print.
         Fleets not in the TRENT print are greyed out."""
         previous = {f: v.get() for f, v in self.fleet_vars.items()}
-        for w in self.fleet_frame.winfo_children():
-            w.destroy()
         table = FleetTable.load()
         groups: Dict[str, List[str]] = {op: [] for op in OPERATORS}
         in_print = {}
@@ -744,6 +752,13 @@ class StatsPackTab(ttk.Frame):
                 groups[r.operator].append(r.cls)
         for fleet, op in in_print.items():
             groups[op].append(fleet)
+        key = (tuple((op, tuple(sorted(f))) for op, f in groups.items()), tuple(sorted(in_print.items())),
+               tuple((r.cls, r.operator, r.available) for r in table.rows))
+        if key == getattr(self, "_fleet_key", None):
+            return                                  # the same tick boxes: nothing is rebuilt (or flickers)
+        self._fleet_key = key
+        for w in self.fleet_frame.winfo_children():
+            w.destroy()
         self.fleet_info = {}
         new_vars = {}
         row = 0
@@ -852,7 +867,7 @@ class StatsPackTab(ttk.Frame):
                     var.set(seats[key])
             from .seats import DIRECTIONS
             if seats.get("direction") in DIRECTIONS:
-                self.seat_dir_box.set(DIRECTIONS[seats["direction"]])
+                self.seat_dir.set(seats["direction"])
             self._seat_window_changed()
         if s.get("fmt") in ("xlsx", "pdf", "docx"):
             self.fmt_var.set(s["fmt"])
@@ -927,7 +942,7 @@ class StatsPackTab(ttk.Frame):
 
     def stop(self):
         """Stop polling (the window is closing)."""
-        self.after_cancel(self._poll_id)
+        pass                                    # the window's queue pump stops with it
 
     def run(self):
         """Start the selected run (Run button, F5 or Ctrl+Enter)."""
@@ -1001,12 +1016,13 @@ class StatsPackTab(ttk.Frame):
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
-        self.prog["value"] = 0
+        self.progress.begin()
         self._started = time.monotonic()
         self.app.set_busy(True)
         extra = {"two_plans": self.two_plans.get() and mode in ("units", "seats"), "seats": self._seat_state(),
                  "which": [k for k, v in self.unit_vars.items() if v.get()], "unit_week": self.unit_week.get()}
         threading.Thread(target=self._work, args=(mode, files, opts, extra), daemon=True).start()
+        self.app.pump.kick()
 
     def _work(self, mode, files, opts, extra):
         """Runs in a helper thread: uses only its arguments (Tk variables are read in run())."""
@@ -1085,8 +1101,7 @@ class StatsPackTab(ttk.Frame):
                 item = self.q.get_nowait()
                 kind = item[0]
                 if kind == "prog":
-                    self.prog["value"] = item[1]
-                    self.status.configure(text=item[2])
+                    self.progress.set(item[1], item[2])
                 elif kind == "log":
                     self._append(item[1], item[2])
                 elif kind == "inputs":
@@ -1105,7 +1120,7 @@ class StatsPackTab(ttk.Frame):
                     self._finish(True)
                     self.outputs = outs
                     self.app.open_outputs(outs)
-                    self.prog["value"] = 1.0
+                    self.progress.finish()
                     self._append(summary, "ok")
                     for p in outs:
                         self._append(f"Saved: {p}", "ok")
@@ -1127,5 +1142,3 @@ class StatsPackTab(ttk.Frame):
                     messagebox.showerror(TITLE, item[1][:1500])
         except queue.Empty:
             pass
-        finally:
-            self._poll_id = self.after(150, self._poll)

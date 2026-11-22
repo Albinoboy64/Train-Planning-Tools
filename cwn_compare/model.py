@@ -70,12 +70,22 @@ _DAY_CANON = {"m": "M", "t": "T", "tu": "T", "w": "W", "th": "Th", "f": "F", "s"
 # --------------------------------------------------------------------------- #
 # Normalisation helpers (comparison ignores formatting-only differences)
 # --------------------------------------------------------------------------- #
+MARKER = "\u25be"           # put after a merged value that varies by day (reorder.py); not part of the value
+
+
 def cell_text(v) -> str:
-    """Display text for a raw cell value (whitespace collapsed)."""
+    """Display text for a raw cell value (whitespace collapsed). The marker after a merged value that varies by
+    day is left out; in rich text (a comparison CWN read with its formatting), struck-through previous values
+    are too."""
     if v is None:
         return ""
     if type(v) is str:
+        if MARKER in v:
+            v = v.replace(" " + MARKER, "").replace(MARKER, "")
         return " ".join(v.split())
+    if type(v).__name__ == "CellRichText":
+        return cell_text("".join(str(b.text) if hasattr(b, "font") and not (b.font and b.font.strike) else
+                                 "" if hasattr(b, "font") else str(b) for b in v))
     if isinstance(v, _dt.datetime):
         if v.year <= 1900:
             return v.strftime("%H.%M")
