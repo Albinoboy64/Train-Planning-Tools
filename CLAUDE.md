@@ -14,6 +14,8 @@
 - **Formula and XML safety:** all text copied from CWNs, XMLs, train lists, or PDFs must pass through `rstools.fsutil.clean_cell()` and `rstools.fsutil.plain_text()` so strings beginning with `=`, `+`, `-`, or `@` remain text. Strip control characters that could make output files invalid.
 - **Archive guards:** validate zipped Office inputs (`.xlsx`, `.xlsm`, `.xlsb`, `.docx`) with `rstools.fsutil.check_office_file()` or `rstools.fsutil.check_zip()` before unpacking.
 - **Atomic writes and no overwrites:** never overwrite existing user outputs. Use `unique_stem()` and `atomic_path()` / `write_zip()`.
+- **Unique temporary files:** temporary probe and write files must be created securely and uniquely. Never open or overwrite a predictable filename, and always remove it afterwards.
+- **Real planning data:** never commit real CWNs, TRENT prints, Attune XML, or other sensitive timetable data. Use synthetic fixtures only. Repository ignore rules must cover relevant Office and XML files in all directories, not only the repository root.
 
 ## Architecture and consistency rules
 
@@ -34,6 +36,16 @@
   `python -m rstools.berthing.layout CHART.xlsx`
 - Generate app icons:
   `python packaging/make_icon.py`
+
+## Audit follow-up checklist
+
+Before finishing a bugfix or audit pass:
+
+1. For any writable-folder check, use a uniquely named temporary file and verify that no pre-existing file is opened, truncated, or deleted.
+2. Review `.gitignore` for repository-wide coverage of real timetable data, especially `*.xml`, `*.xlsx`, `*.xls*`, `*.docx`, and portable data directories.
+3. Verify the temporary-file fix with synthetic tests that place an unrelated pre-existing file at a potential probe path and confirm it remains unchanged.
+4. Test ignore-rule coverage using sample nested XML and Office files, ensuring real planning fixtures stay untracked while synthetic test fixtures remain in `tests/`.
+5. Check that the packaged executable and source build use the same Python target and pinned dependencies.
 
 ## Cleanup and bugfix checklist
 
