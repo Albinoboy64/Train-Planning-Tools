@@ -4,16 +4,17 @@ build/
 dist/
 *.spec
 .venv/
-# never commit real CWN data
+# Never commit real planning data, wherever it appears.
 *.xlsx
 *.xls
 *.xlsb
 *.xlsm
-# ...or real plan data (Attune XML, TRENT prints)
-/*.xml
+*.xml
 *.docx
-!packaging/TrainPlanningTools.spec
+*.pdf
+# Explicitly keep the sample template used by the app.
 !rstools/timetable/template.xlsx
+# Never commit local app data or generated smoke-test inputs/outputs.
 TrainPlanningTools-data/
 smoke/
 version_info.txt
