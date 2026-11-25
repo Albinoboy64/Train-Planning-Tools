@@ -189,7 +189,7 @@ jobs:
 
       - name: Publish release (version tags, a manual run with a release tag, or a new version on main)
         if: steps.rel.outputs.tag != ''
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: Train Planning Tools ${{ steps.rel.outputs.tag }}
