@@ -51,6 +51,6 @@ Before finishing a bugfix or audit pass:
 When asked for a cleanup, audit, or debloat pass:
 
 1. Check for duplicated helpers across `cwn_compare/` and `rstools/`, especially Attune XML parsing, workbook saving, and path helpers.
-2. Remove unused imports, dead parameters, unreachable branches, and stale references left behind by renamed flags or modes.
+2. Remove dead parameters, unreachable branches, and stale references left behind by renamed flags or modes.
 3. Verify `pyproject.toml`, `build_windows.bat`, `.github/workflows/build-windows.yml`, `packaging/TrainPlanningTools.spec`, and `README.md` agree on the Python version (checked by `tests/test_release.py`), bundled data files, and packaging steps.
 4. Preserve synthetic test coverage for parsing and output behaviour; real CWN, TRENT, or Attune data must not be committed.
