@@ -182,9 +182,12 @@ def plain_text(ws):
                 cell.data_type = "s"
 
 
-ZIP_PART_LIMIT = 512 * 1024 * 1024          # one part of an Office file (the largest real CWN part is ~100 MB)
-ZIP_TOTAL_LIMIT = 2 * 1024 * 1024 * 1024    # a whole Office file, unpacked
-ZIP_RATIO_LIMIT = 200                       # unpacked / packed: real workbooks are under ~30
+# the Office file limits (rstools.limits, where they can be changed): the defaults, kept here for older imports
+from rstools.limits import DEFAULTS as _LIMITS  # noqa: E402
+
+ZIP_PART_LIMIT = _LIMITS["ZIP_PART_LIMIT"]
+ZIP_TOTAL_LIMIT = _LIMITS["ZIP_TOTAL_LIMIT"]
+ZIP_RATIO_LIMIT = _LIMITS["ZIP_RATIO_LIMIT"]
 
 
 class UnsafeFileError(OSError):          # an OSError, so every reader reports it as an unreadable file
@@ -195,17 +198,20 @@ def check_zip(z, name: str = ""):
     """Refuse an Office file (a zip) that would unpack to far more than any real one - a 'zip bomb'
     that could fill the memory or disk of the PC. Checks the sizes recorded in the zip, before
     anything is unpacked."""
+    from rstools import limits
+    part, whole, most = limits.get("ZIP_PART_LIMIT"), limits.get("ZIP_TOTAL_LIMIT"), limits.get("ZIP_RATIO_LIMIT")
     infos = [z.getinfo(name)] if name else z.infolist()
     total = 0
     for info in infos:
         total += info.file_size
         ratio = info.file_size / max(info.compress_size, 1)
-        if info.file_size > ZIP_PART_LIMIT or (info.file_size > 50 * 1024 * 1024 and ratio > ZIP_RATIO_LIMIT):
+        if info.file_size > part or (info.file_size > 50 * 1024 * 1024 and ratio > most):
             raise UnsafeFileError(f"'{os.path.basename(str(z.filename))}' unpacks to an unrealistic size "
                                   f"({info.file_size // (1024 * 1024)} MB in one part), so it was not opened. It "
                                   "may be damaged or not a genuine Office file.")
-    if total > ZIP_TOTAL_LIMIT:
-        raise UnsafeFileError(f"'{os.path.basename(str(z.filename))}' unpacks to over 2 GB, so it was not opened.")
+    if total > whole:
+        raise UnsafeFileError(f"'{os.path.basename(str(z.filename))}' unpacks to over {limits.size_text(whole)}, so "
+                              "it was not opened.")
 
 
 def zip_read(z, name: str) -> bytes:

@@ -187,6 +187,8 @@ class App(tk.Tk):
             self.notebook.select(pages[self.opts.last_tab])
         for key in ("<F5>", "<Control-Return>"):
             self.bind(key, self._run_current_tab)
+        for key in ("<Control-Shift-P>", "<Control-Shift-p>"):    # Live View in its own window / back
+            self.bind(key, lambda _e: self.live_window.toggle() or "break")
         for i in range(4):                                   # Ctrl+1 / 2 / 3 / 4: switch tab
             self.bind(f"<Control-Key-{i + 1}>", lambda _e, i=i: self.notebook.select(i) or "break")
         for keys, step in ((("<Control-plus>", "<Control-equal>", "<Control-KP_Add>"), 1),
@@ -442,10 +444,11 @@ class App(tk.Tk):
             "Keyboard shortcuts",
             "F5 or Ctrl+Enter\tRun the current tab\nCtrl+1 / 2 / 3 / 4\tStock Tools / Stats Pack / "
             "Timing Tools / Live View\nF3 / Shift+F3\tLive View: next / previous difference\n"
+            "Ctrl+Shift+P\tLive View in its own window / back\nF11\t\tLive View window: full screen\n"
             "Ctrl++ / Ctrl+- / Ctrl+0\tLarger / smaller / normal text\nAlt+O / Alt+S / Alt+H\tOptions / Save/Load / "
             "Help menu\nF1\t\tUser guide\n\nFiles can also be dragged onto any tab: each goes to the right box.",
             parent=self))
-        help_menu.add_command(label="Open error log", command=self._open_error_log)
+        help_menu.add_command(label="Error log...", command=self._open_error_log)
         help_menu.add_command(label="Third-party software and licences", command=self._licences)
         help_menu.add_command(label=f"About {APP_NAME}", command=self._about)
         bar.add("Help", help_menu)
@@ -654,13 +657,78 @@ class App(tk.Tk):
                             f"Train Planning.\n\nhttps://github.com/{updater.REPO}")
 
     def _open_error_log(self):
-        """The log of unexpected errors (to send with a support request), if any have been recorded."""
+        """The log of unexpected errors, to send with a support request: previewed with file paths, user and
+        computer names and quoted file contents hidden (each can be shown), then copied or exported."""
         path = errorlog.log_path()
-        if os.path.isfile(path) and os.path.getsize(path):
-            _open_path(path)
-        else:
+        raw = errorlog.read()
+        if not raw.strip():
             messagebox.showinfo(APP_NAME, "No errors have been recorded.\n\nIf one happens, its details are "
                                            f"saved to:\n{path}", parent=self)
+            return
+        win = tk.Toplevel(self)
+        win.title("Error log")
+        win.transient(self)
+        hide = {k: tk.BooleanVar(value=True) for k in ("paths", "user", "content")}
+        ticks = ttk.Frame(win, padding=(10, 8, 10, 0))
+        ticks.grid(row=0, column=0, columnspan=2, sticky="ew")
+        for i, (key, label) in enumerate((("paths", "Hide file paths"), ("user", "Hide user and computer names"),
+                                          ("content", "Hide text quoted from files"))):
+            ttk.Checkbutton(ticks, text=label, variable=hide[key], command=lambda: show()).grid(
+                row=0, column=i, sticky="w", padx=(0, 14))
+        ttk.Label(ticks, text="Only what is shown here is copied or exported. The log never holds the contents of "
+                              "your XML, workbook or PDF files.", style="Small.TLabel").grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        box = tk.Text(win, wrap="none", width=110, height=30, relief="flat", padx=10, pady=8, font="TkFixedFont",
+                      background=self.palette["field"], foreground=self.palette["fg"])
+        sb = ttk.Scrollbar(win, orient="vertical", command=box.yview)
+        box.configure(yscrollcommand=sb.set)
+        box.grid(row=1, column=0, sticky="nsew", padx=(10, 0), pady=6)
+        sb.grid(row=1, column=1, sticky="ns", pady=6)
+
+        def shown() -> str:
+            return errorlog.redact(raw, **{k: v.get() for k, v in hide.items()})
+
+        def show():
+            box.configure(state="normal")
+            box.delete("1.0", "end")
+            box.insert("1.0", shown())
+            box.configure(state="disabled")
+            box.see("end")
+
+        def copy():
+            self.clipboard_clear()
+            self.clipboard_append(shown())
+
+        def export():
+            folder = filedialog.askdirectory(parent=win, title="Save the error log in",
+                                             initialdir=self.opts.output_dir or None) or ""
+            if not folder:
+                return
+            try:
+                saved = errorlog.export(shown(), folder)
+            except OSError as exc:
+                messagebox.showerror(APP_NAME, f"The error log could not be saved:\n{exc}", parent=win)
+                return
+            messagebox.showinfo(APP_NAME, f"Saved:\n{saved}", parent=win)
+
+        def clear():
+            if messagebox.askyesno(APP_NAME, "Delete every entry in the error log?", parent=win):
+                errorlog.clear()
+                win.destroy()
+
+        bar = ttk.Frame(win, padding=(10, 0, 10, 10))
+        bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        ttk.Button(bar, text="Export...", command=export).grid(row=0, column=0)
+        ttk.Button(bar, text="Copy", command=copy).grid(row=0, column=1, padx=6)
+        ttk.Button(bar, text="Open log folder", command=lambda: _open_path(os.path.dirname(path))).grid(row=0,
+                                                                                                     column=2)
+        ttk.Button(bar, text="Clear log", command=clear).grid(row=0, column=3, padx=6)
+        ttk.Button(bar, text="Close", command=win.destroy).grid(row=0, column=4)
+        win.columnconfigure(0, weight=1)
+        win.rowconfigure(1, weight=1)
+        win.bind("<Escape>", lambda _e: win.destroy())
+        show()
+        self._error_log_win = win
 
     def _licences(self):
         """The open-source software the app is built with, and its licences (shipped with the app)."""
@@ -785,6 +853,7 @@ class App(tk.Tk):
                 APP_NAME, "A run is still in progress and its output will not be saved.\n\nClose anyway?"):
             return
         try:
+            self.live_window._save_place()          # Live View's own window: its size and place for next time
             self.save_app_settings()
         except Exception:
             pass
@@ -870,8 +939,12 @@ class App(tk.Tk):
         self.notebook.add(tt_page, text="  Timing Tools  ")
         from rstools.live.gui_tab import LiveTab
         live_page = self.live_page = ScrollPage(self.notebook)
-        self.live_tab = LiveTab(live_page.body, self)
+        live_holder = tk.Frame(live_page.body)      # a plain Tk frame: it can become a window of its own (popout)
+        live_holder.pack(fill="both", expand=True)
+        self.live_tab = LiveTab(live_holder, self)
         self.live_tab.pack(fill="both", expand=True)
+        from rstools.live.popout import LiveWindow
+        self.live_window = self.live_tab.window = LiveWindow(self, live_holder, live_page.body, self.live_tab)
         self.notebook.add(live_page, text="  Live View  ")
         from rstools import icons
         for page, name in ((cwn_page, "stock"), (stats_page, "stats"), (tt_page, "timing"), (live_page, "live")):

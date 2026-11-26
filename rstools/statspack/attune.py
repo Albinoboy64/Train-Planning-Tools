@@ -12,6 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
+from rstools import safexml
 from .days import days_of_mask
 
 
@@ -108,7 +109,7 @@ def parse_attune_xml(path: str) -> AttuneData:
     cur_unit: Optional[UnitDiagram] = None
     in_coupled = 0
     try:
-        for event, el in ET.iterparse(path, events=("start", "end")):
+        for event, el in ET.iterparse(safexml.check_file(path), events=("start", "end")):
             tag = _local(el.tag)
             if event == "start":
                 if tag == "diagramExchange":

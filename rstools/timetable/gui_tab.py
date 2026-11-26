@@ -87,6 +87,8 @@ def is_section4(path: str) -> bool:
         return False
     try:
         import pypdfium2 as pdfium
+        from rstools import limits
+        limits.check_pdf(path)
         pdf = pdfium.PdfDocument(path)
         try:
             text = pdf[0].get_textpage().get_text_range() if len(pdf) else ""
@@ -109,11 +111,11 @@ def sheet_names(path: str) -> list[str]:
     """The workbook's sheet names, in order, read from its index part alone - the same names openpyxl
     gives, without loading the shared strings and styles (a big workbook took up to half a second)."""
     import zipfile
-    import xml.etree.ElementTree as ET
+    from rstools import safexml
     from rstools.fsutil import check_zip
     with zipfile.ZipFile(path) as z:
         check_zip(z, "xl/workbook.xml")     # refuse a 'zip bomb' before unpacking
-        root = ET.fromstring(z.read("xl/workbook.xml"))
+        root = safexml.fromstring(z.read("xl/workbook.xml"), "xl/workbook.xml")
     return [el.get("name") or "" for el in root.iter() if el.tag.rsplit("}", 1)[-1] == "sheet"]
 
 

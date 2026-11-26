@@ -188,6 +188,22 @@ class LiveTab(ttk.Frame):
         self.prog.grid(row=0, column=2, padx=(12, 0))          # always in place: nothing moves when it runs
         self.status = ttk.Label(ctl, text="Choose the files and press Compare (F5).", style="Small.TLabel")
         self.status.grid(row=0, column=3, sticky="w", padx=(10, 0))
+        self.window = None                  # popout.LiveWindow, set by the app: Live View in its own window
+        win = ttk.Frame(ctl)
+        win.grid(row=0, column=4, sticky="e", padx=(8, 0))
+        self.pop_btn = ttk.Button(win, text="Pop out", command=self.toggle_window)
+        self.pop_btn.grid(row=0, column=0)
+        self.full_btn = ttk.Button(win, text="Full screen (F11)", command=lambda: self.window and
+                                   self.window.toggle_fullscreen())
+        self.full_btn.grid(row=0, column=1, padx=(4, 0))
+        self.top_cb = ttk.Checkbutton(win, text="Always on top", command=lambda: self.window and
+                                      self.window.set_on_top())
+        self.top_cb.grid(row=0, column=2, padx=(4, 0))
+        self.full_btn.grid_remove()
+        self.top_cb.grid_remove()
+        Tooltip(self.pop_btn, "Open Live View in its own window (Ctrl+Shift+P), to move it to another monitor or "
+                              "show it full screen. Everything in it carries on; close the window or press Bring "
+                              "back to put it back in this tab.")
         self.progress = Progress(self.prog)
 
         pane = ttk.Panedwindow(self, orient="horizontal")
@@ -291,6 +307,8 @@ class LiveTab(ttk.Frame):
 
     def retheme(self, p: dict):
         """Colours of the difference rows and the notes box for the current theme."""
+        if isinstance(self.master, tk.Frame):         # the plain frame that holds the Live View (popout)
+            self.master.configure(background=p["bg"])
         for tv in (self.listv, self.detail):
             tv.tag_configure(CHANGED, background=p["d_changed"])
             tv.tag_configure(ADDED, background=p["d_added"])
@@ -482,6 +500,23 @@ class LiveTab(ttk.Frame):
         return days
 
     # ------------------------------------------------------------------ comparing
+    # ------------------------------------------------------------------ own window
+    def toggle_window(self):
+        if self.window is not None:
+            self.window.toggle()
+
+    def window_changed(self, out: bool):
+        """The Live View was moved into its own window (out) or back into its tab: show the window's controls."""
+        self.pop_btn.configure(text="Bring back" if out else "Pop out")
+        if out and self.window is not None:
+            self.top_cb.configure(variable=self.window.on_top)
+            self.full_btn.configure(text="Leave full screen (Esc)" if self.window.fullscreen else "Full screen (F11)")
+            self.full_btn.grid()
+            self.top_cb.grid()
+        else:
+            self.full_btn.grid_remove()
+            self.top_cb.grid_remove()
+
     def stop(self):
         if self._autosave_after:                      # closing: save the confirmations now
             try:

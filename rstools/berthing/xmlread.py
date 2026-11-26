@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
+from rstools import safexml
 from rstools.stationbook import Call, _calls, _days, _secs, _unroll
 
 
@@ -75,7 +76,7 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
     cdepot = cnum = ""
     in_static = False
     try:
-        for event, el in ET.iterparse(long_path(path), events=("start", "end")):
+        for event, el in ET.iterparse(safexml.check_file(long_path(path)), events=("start", "end")):
             tag = el.tag.rsplit("}", 1)[-1]
             if event == "start":
                 if tag == "diagramExchange":

@@ -69,6 +69,8 @@ class Options:
     live_check_header: bool = True   # Live View: header differences (days, IDs, class...) are checked
     live_check_timing: bool = True   # Live View: timing differences are checked
     live_passenger_only: bool = False    # Live View: passing / one-sided intermediate times hidden
+    live_window: str = ""            # Live View's own window: its last size and place, 'WxH+X+Y'
+    live_window_on_top: bool = False     # Live View's own window: kept above other windows
     check_updates: bool = True       # look for a newer release on GitHub when the app starts
     notify_done: bool = True         # flash the taskbar and show a notice when a run ends in the background
     saved: Dict[str, dict] = field(default_factory=dict)     # saved comparisons: name -> {tab, state}

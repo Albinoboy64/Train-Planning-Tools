@@ -49,21 +49,55 @@ def cells(layout: Layout) -> Dict[Key, List[Tuple[int, Cell]]]:
     return out
 
 
+CHANGED, ADDED, REMOVED = "Changed", "Added", "Removed"
+KINDS = (CHANGED, ADDED, REMOVED)
+WHOLE_SHEET = "(whole sheet)"
+
+
 @dataclass
 class Change:
+    """One difference between two charts (see diff()).
+
+    sheet / berth: the names as the newer chart writes them (berth is WHOLE_SHEET for a sheet only one chart has);
+    column: the day / column heading ('SAT START', a depot column, or '' for a whole sheet);
+    kind: one of KINDS - CHANGED (a cell's unit or time differs: old -> new), ADDED (only in the newer chart:
+    old is '') or REMOVED (only in the older chart: new is '');
+    old / new: the cell text as written in each chart ('' where there is none);
+    section / rank: the siding location and its position on a sheet that has several ('' / 0 otherwise)."""
     sheet: str
     berth: str
     column: str
-    kind: str                   # 'Changed', 'Added', 'Removed'
+    kind: str
     old: str
     new: str
-    section: str = ""           # the siding location, on a sheet that has several (else '')
-    rank: int = 0               # that location's position on the sheet (chart order)
+    section: str = ""
+    rank: int = 0
+
+
+def same_cells(old: Layout, new: Layout) -> Dict[Tuple[str, str], List[Tuple[int, str, str]]]:
+    """The cells that did not change: {(sheet key, berth key): [(column index, column heading, newer text)]},
+    keys as mapping.norm() gives them. Used to show a changed berth's unchanged cells beside its changes."""
+    a, b = cells(old), cells(new)
+    heads = {norm(sheet.name): (DAY_COLUMNS if isinstance(sheet, GridSheet) else _depot_heads())
+             for sheet in new.sheets}
+    out: Dict[Tuple[str, str], List[Tuple[int, str, str]]] = defaultdict(list)
+    for key in sorted(set(a) & set(b), key=lambda k: (k[0], k[1], k[2])):
+        sheet_key, berth_key, col = key
+        left = Counter(canonical(c.text) for _r, c in a[key])
+        head = heads.get(sheet_key, DAY_COLUMNS)
+        for _r, c in b[key]:
+            t = canonical(c.text)
+            if left[t] > 0:
+                left[t] -= 1
+                out[(sheet_key, berth_key)].append((col, head[col] if col < len(head) else str(col + 1), c.text))
+    return out
 
 
 def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
-    """(changes, {key: rows of the new chart that changed}). A cell counts as changed when its unit and
-    time are not in the same berth's same column in the old chart."""
+    """(changes, marked): every Change between the charts, in sheet / berth / column order, and {key: rows of the
+    newer chart that changed} (for highlighting). A cell counts as changed when its unit and time are not in the
+    same berth's same column in the old chart; within a berth and column, added and removed cells are paired up as
+    CHANGED, and any left over are ADDED / REMOVED."""
     a, b = cells(old), cells(new)
     # a sheet renamed slightly between issues ('RDH Up Tonb Goods Loop' / 'RDH Up Tonb Sdg') is the same sheet
     old_sheets = {norm(sh.name) for sh in old.sheets}
@@ -98,10 +132,10 @@ def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
     heads = {sheet.name: (DAY_COLUMNS if isinstance(sheet, GridSheet) else _depot_heads()) for lay in (old, new)
              for sheet in lay.sheets}
     for gone in sorted(old_sheets - new_sheets):
-        changes.append(Change(names.get(gone, gone), "(whole sheet)", "", "Removed", "Sheet not in the newer chart",
+        changes.append(Change(names.get(gone, gone), WHOLE_SHEET, "", REMOVED, "Sheet not in the newer chart",
                               ""))
     for fresh in sorted(new_sheets - old_sheets):
-        changes.append(Change(names.get(fresh, fresh), "(whole sheet)", "", "Added", "", "Sheet new in this chart"))
+        changes.append(Change(names.get(fresh, fresh), WHOLE_SHEET, "", ADDED, "", "Sheet new in this chart"))
     for key in sorted(set(a) | set(b), key=lambda k: (k[0], k[1], k[2])):
         sheet_key, berth_key, col = key
         if sheet_key not in old_sheets or sheet_key not in new_sheets:
@@ -131,11 +165,11 @@ def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
         for i, (r, c) in enumerate(added):
             marked[key].add(r)
             if i < len(removed):
-                changes.append(Change(sheet_name, berth, column, "Changed", removed[i], c.text, place, rank))
+                changes.append(Change(sheet_name, berth, column, CHANGED, removed[i], c.text, place, rank))
             else:
-                changes.append(Change(sheet_name, berth, column, "Added", "", c.text, place, rank))
+                changes.append(Change(sheet_name, berth, column, ADDED, "", c.text, place, rank))
         for t in removed[len(added):]:
-            changes.append(Change(sheet_name, berth, column, "Removed", t, "", place, rank))
+            changes.append(Change(sheet_name, berth, column, REMOVED, t, "", place, rank))
     return changes, marked
 
 

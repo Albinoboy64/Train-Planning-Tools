@@ -27,6 +27,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
+from rstools import safexml
+
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _TIME = re.compile(r"(?<![\d/:.])([01]\d|2[0-3])[:.]?([0-5]\d)(½|H)?(?![\d/])")
 _HEADCODE = re.compile(r"\b(\d[A-Z]\d{2})(?:[A-Z0-9]{2})?\b")
@@ -132,7 +134,7 @@ def _docx_lines(path: str) -> List[List[str]]:
     try:
         with zipfile.ZipFile(path) as z:
             from rstools.fsutil import zip_read
-            root = ET.fromstring(zip_read(z, "word/document.xml"))
+            root = safexml.fromstring(zip_read(z, "word/document.xml"), os.path.basename(path))
     except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
         raise PrintError(f"'{os.path.basename(path)}' could not be read as a Word document ({exc}).")
     body = root.find(f"{W}body")
@@ -283,7 +285,8 @@ def _pdfium_lines(path: str) -> Optional[List[List[str]]]:
     if multiprocessing.parent_process() is not None:      # already a helper process (e.g. one of several
         try:                                               # files read at once): read it here
             count, attune = _pdfium_probe(path)
-            return _pdfium_range(path, 0, count) if attune else None
+            from rstools import limits
+            return _pdfium_range(path, 0, count) if attune and count <= limits.get("PDF_MAX_PAGES") else None
         except Exception:
             return None
     from concurrent.futures import ProcessPoolExecutor
@@ -296,7 +299,8 @@ def _pdfium_lines(path: str) -> Optional[List[List[str]]]:
     ok = False
     try:
         count, attune = pool.submit(_pdfium_probe, path).result(timeout=120)
-        if not attune:
+        from rstools import limits
+        if not attune or count > limits.get("PDF_MAX_PAGES"):     # too many pages: pypdf reports it
             ok = True
             return None
         parts = max(1, min(workers, count // (PAGES_PER_WORKER * 4)))
@@ -321,8 +325,13 @@ def _pdf_lines(path: str) -> List[List[str]]:
     """Every page's text, laid out as on paper. An Attune Single Train Report is read with PDFium when
     available (much quicker); otherwise pypdf, with a big PDF split into page ranges read on several
     CPU cores at once (one core is left free for the window); it falls back to one core if that fails."""
+    from rstools import limits
     from rstools.fsutil import long_path
     path = long_path(path)              # files in very deep folders
+    try:
+        limits.check_pdf(path)
+    except OSError as exc:
+        raise PrintError(str(exc))
     fast = _pdfium_lines(path)
     if fast is not None:
         return fast
@@ -330,6 +339,7 @@ def _pdf_lines(path: str) -> List[List[str]]:
         from pypdf import PdfReader
         reader = PdfReader(path)
         count = len(reader.pages)
+        limits.check_pages(count, path)
         pages = None
         workers = min((os.cpu_count() or 1) - 1, count // PAGES_PER_WORKER)
         import multiprocessing
@@ -339,6 +349,8 @@ def _pdf_lines(path: str) -> List[List[str]]:
             pages = [_page_text(page) for page in reader.pages]
     except PrintError:
         raise
+    except limits.TooLargeError as exc:
+        raise PrintError(str(exc))
     except Exception as exc:
         raise PrintError(f"'{os.path.basename(path)}' could not be read as a PDF ({exc}).")
     if pages and not any(line.strip() for p in pages for line in p):

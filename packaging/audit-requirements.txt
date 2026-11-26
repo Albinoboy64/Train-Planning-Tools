@@ -1,0 +1,4 @@
+# The dependency audit (the 'audit' job in .github/workflows/build-windows.yml): pip-audit checks every package
+# pinned in build-requirements.txt against the Python Packaging Advisory Database. Kept apart so its own
+# dependencies never change the app's pinned build packages.
+pip-audit==2.10.1

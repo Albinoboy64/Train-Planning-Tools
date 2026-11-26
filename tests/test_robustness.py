@@ -18,6 +18,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
+
+def set_limits(monkeypatch, **values):
+    """Lower (or raise) rstools.limits for one test."""
+    from rstools import limits
+    monkeypatch.setattr(limits, "_cache", {**limits.DEFAULTS, **values})
+
 def make_zip(path, parts):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in parts.items():
@@ -42,19 +48,17 @@ def test_xlsb_is_checked_before_it_is_opened(tmp_path, monkeypatch):
 def test_oversized_xlsb_is_refused_like_xlsx(tmp_path, monkeypatch):
     """The same part and total limits apply to every zip-based CWN format; the unpacker is never reached."""
     from cwn_compare import loader
-    from rstools import fsutil
     called = []
     monkeypatch.setattr(loader, "_load_xlsb", lambda path: called.append(path))
-    monkeypatch.setattr(fsutil, "ZIP_PART_LIMIT", 1000)                  # a few KB stand in for 600 MB
+    set_limits(monkeypatch, ZIP_PART_LIMIT=1000)                         # a few KB stand in for 600 MB
     for ext in (".xlsb", ".xlsx", ".xlsm"):
         p = make_zip(tmp_path / f"big{ext}", {"[Content_Types].xml": "<Types/>", "xl/part.bin": os.urandom(5000)})
         with pytest.raises(loader.LoadError, match="unrealistic size"):
             loader.load_any(p)
     assert called == []
-    monkeypatch.setattr(fsutil, "ZIP_PART_LIMIT", 10 ** 9)
-    monkeypatch.setattr(fsutil, "ZIP_TOTAL_LIMIT", 3000)                 # many small parts add up
+    set_limits(monkeypatch, ZIP_PART_LIMIT=10 ** 9, ZIP_TOTAL_LIMIT=3000)  # many small parts add up
     p = make_zip(tmp_path / "many.xlsb", {f"xl/p{i}.bin": os.urandom(1200) for i in range(4)})
-    with pytest.raises(loader.LoadError, match="over 2 GB"):
+    with pytest.raises(loader.LoadError, match="unpacks to over"):
         loader.load_any(p)
     assert called == []
 
@@ -575,7 +579,7 @@ def test_install_only_works_for_the_windows_exe(install, monkeypatch):
 # --------------------------------------------------------------------------- 8. oversized and truncated inputs
 def test_zip_limits_refuse_oversized_parts_before_unpacking(tmp_path, monkeypatch):
     from rstools import fsutil
-    monkeypatch.setattr(fsutil, "ZIP_PART_LIMIT", 1000)
+    set_limits(monkeypatch, ZIP_PART_LIMIT=1000)
     p = make_zip(tmp_path / "x.zip", {"small.xml": b"<a/>", "big.xml": os.urandom(4000)})
     with zipfile.ZipFile(p) as z:
         assert fsutil.zip_read(z, "small.xml") == b"<a/>"
@@ -665,9 +669,8 @@ def test_cut_off_files_never_end_in_a_traceback(tmp_path):
 
 
 def test_oversized_archives_are_refused_by_every_zip_based_reader(tmp_path, monkeypatch):
-    from rstools import fsutil
     kinds, _wb = hostile_and_cut(tmp_path)
-    monkeypatch.setattr(fsutil, "ZIP_PART_LIMIT", 1000)                   # a few KB stand in for hundreds of MB
+    set_limits(monkeypatch, ZIP_PART_LIMIT=1000)                          # a few KB stand in for hundreds of MB
     for kind in ("xlsx", "docx"):
         _make, ext, readers = kinds[kind]
         parts = {"[Content_Types].xml": "<Types/>", "xl/workbook.xml": os.urandom(4000),
@@ -699,3 +702,135 @@ def test_sheet_titles_are_valid_and_unique(tmp_path):
     for n in ("Totals: A", "Totals. A"):
         wb.add(n, wb.new_sheet(), [], [])
     assert len({n.lower() for n, _x in wb.sheets}) == 2
+
+
+# --------------------------------------------------------------------------- 9. central limits and XML guards
+LOL = ('<?xml version="1.0"?><!DOCTYPE l [<!ENTITY a "aaaaaaaaaa">' + "".join(
+    f'<!ENTITY {chr(98 + i)} "' + ("&" + chr(97 + i) + ";") * 10 + '">' for i in range(9)) + ']><l>&j;</l>')
+
+
+def test_every_xml_reader_refuses_declarations_and_external_entities(tmp_path):
+    """Billion laughs, an external SYSTEM entity, a DOCTYPE hidden behind a long comment, and a DOCTYPE in UTF-16:
+    every Attune XML reader refuses them in its own words, before anything is expanded or fetched."""
+    kinds, _wb = hostile_and_cut(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET")
+    hostile = {
+        "lol": LOL.encode(),
+        "xxe": f'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file://{secret}">]><r>&x;</r>'.encode(),
+        "long_prolog": b'<?xml version="1.0"?><!--' + b"x" * 70000 + b'--><!DOCTYPE r [<!ENTITY x "y">]><r>&x;</r>',
+        "utf16": '﻿<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE r [<!ENTITY x "y">]><r>&x;</r>'.encode(
+            "utf-16-le"),
+    }
+    _make, _ext, readers = kinds["xml"]
+    for label, data in hostile.items():
+        path = tmp_path / f"{label}.xml"
+        path.write_bytes(data)
+        for name, read, error in readers:
+            with pytest.raises(error) as caught:
+                read(str(path))
+            assert "TOPSECRET" not in str(caught.value), (label, name)
+            assert label != "lol" or "declaration" in str(caught.value), (name, str(caught.value))
+
+
+def test_office_parts_with_declarations_are_refused(tmp_path):
+    """A Word or Excel file whose XML part has a DOCTYPE is refused by every zip-based reader."""
+    kinds, _wb = hostile_and_cut(tmp_path)
+    for kind in ("xlsx", "docx"):
+        _make, ext, readers = kinds[kind]
+        parts = {"[Content_Types].xml": "<Types/>", "xl/workbook.xml": LOL, "word/document.xml": LOL,
+                 "xl/sharedStrings.xml": LOL, "xl/_rels/workbook.xml.rels": LOL}
+        path = make_zip(tmp_path / f"decl{ext}", parts)
+        for name, read, error in readers:
+            with pytest.raises(error) as caught:
+                read(path)
+            assert str(caught.value), (kind, name)
+
+
+def test_normal_files_pass_the_guards(tmp_path):
+    """Ordinary (synthetic) files of every kind are read with the default limits: none is refused."""
+    import test_stationbook as tsb
+    from rstools import limits, safexml
+    limits.reload()
+    p = str(tmp_path / "plan.xml")
+    tsb.write_xml(p)
+    assert safexml.check_file(p) == p
+    assert safexml.fromstring(b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<!-- a note --><a/>').tag \
+        == "a"
+    kinds, _wb = hostile_and_cut(tmp_path)
+    for kind, (make, ext, readers) in kinds.items():
+        good = tmp_path / f"good{ext}"
+        make(str(good))
+        for name, read, error in readers:
+            try:
+                read(str(good))
+            except error as exc:                            # e.g. a CWN read as a stats pack: not a guard
+                text = str(exc)
+                assert not any(w in text for w in ("declaration", "limit is", "unrealistic size", "Office file part",
+                                                   "start like an XML")), (kind, name, text)
+
+
+def test_size_and_page_limits_refuse_oversized_files(tmp_path, monkeypatch):
+    import test_stationbook as tsb
+    import test_timetable as tt
+    from rstools.stationbook import StationBookError, read_plan
+    from rstools.timetable.prints import PrintError, read_print
+    from rstools.timetable.section4 import Section4Error, read_statement
+    p = str(tmp_path / "plan.xml")
+    tsb.write_xml(p)
+    set_limits(monkeypatch, XML_MAX_BYTES=100)
+    with pytest.raises(StationBookError, match="XML_MAX_BYTES"):
+        read_plan(p)
+    vpt = str(tmp_path / "a.vpt")
+    tt.write_vpt(vpt, [tt.vpt_1h05()])
+    set_limits(monkeypatch, VPT_MAX_BYTES=100)
+    with pytest.raises(PrintError, match="VPT_MAX_BYTES"):
+        read_print(vpt)
+    pdf = str(tmp_path / "s4.pdf")
+    tt.write_s4_pdf(pdf, tt.S4_ROWS, notes=tt.S4_NOTES)
+    set_limits(monkeypatch, PDF_MAX_BYTES=100)
+    with pytest.raises(Section4Error, match="PDF_MAX_BYTES"):
+        read_statement([pdf])
+    with pytest.raises(PrintError, match="PDF_MAX_BYTES"):
+        read_print(pdf)
+    set_limits(monkeypatch, PDF_MAX_PAGES=0)
+    with pytest.raises(Section4Error, match="PDF_MAX_PAGES"):
+        read_statement([pdf])
+
+
+def test_limits_json_overrides_known_keys_only(tmp_path, monkeypatch):
+    import json
+    from rstools import limits
+    monkeypatch.setattr("rstools.branding.settings_dir", lambda: str(tmp_path))
+    (tmp_path / limits.FILE_NAME).write_text(json.dumps({"XML_MAX_BYTES": 123, "PDF_MAX_PAGES": -5,
+                                                         "VPT_MAX_BYTES": "big", "ZIP_RATIO_LIMIT": True,
+                                                         "SOMETHING_ELSE": 9}))
+    limits.reload()
+    try:
+        assert limits.get("XML_MAX_BYTES") == 123                                   # used
+        assert limits.get("PDF_MAX_PAGES") == limits.DEFAULTS["PDF_MAX_PAGES"]      # not positive: ignored
+        assert limits.get("VPT_MAX_BYTES") == limits.DEFAULTS["VPT_MAX_BYTES"]      # not a number: ignored
+        assert limits.get("ZIP_RATIO_LIMIT") == limits.DEFAULTS["ZIP_RATIO_LIMIT"]  # true / false: ignored
+        (tmp_path / limits.FILE_NAME).write_text("{not json")
+        limits.reload()
+        assert limits.get("XML_MAX_BYTES") == limits.DEFAULTS["XML_MAX_BYTES"]      # a damaged file: defaults
+        assert limits.size_text(2 * limits.GB) == "2 GB" and limits.size_text(1536 * limits.MB) == "1.5 GB"
+        assert limits.size_text(500 * limits.MB) == "500 MB" and limits.size_text(10) == "1 KB"
+    finally:
+        limits.reload()
+
+
+def test_bad_characters_and_cut_off_xml_are_reported(tmp_path):
+    import test_stationbook as tsb
+    from rstools.stationbook import StationBookError, read_plan
+    p = tmp_path / "plan.xml"
+    tsb.write_xml(str(p))
+    data = p.read_bytes()
+    bad = tmp_path / "bad.xml"
+    bad.write_bytes(data.replace(b"<trainList>", b"<trainList>\x01\x02", 1))     # control characters
+    with pytest.raises(StationBookError, match="could not be read"):
+        read_plan(str(bad))
+    cut = tmp_path / "cut.xml"
+    cut.write_bytes(data[: len(data) - 40])
+    with pytest.raises(StationBookError, match="could not be read|complete Attune"):
+        read_plan(str(cut))

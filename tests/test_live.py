@@ -379,3 +379,109 @@ def test_live_prints_status_names_the_kind_of_change_and_header_timing_checks():
         assert by(res, "5H07").status == "Days run change"
         res = compute("prints", {"a": [a], "b": [o]}, header=False)
         assert by(res, "5H07").state == "same" and by(res, "1H05").status == "Activity change"
+
+
+def test_live_berthing_cells_side_by_side(tmp_path, monkeypatch):
+    """Each changed berth lists its cells side by side: changed, added and removed cells marked, unchanged ones in
+    column order between them; berths with no difference are not listed. The export carries the rows."""
+    import openpyxl
+    import test_berthing as tb
+    from rstools.live.adapters import compute
+    from rstools.live.export import export
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    old, new = str(tmp_path / "old.xlsx"), str(tmp_path / "new.xlsx")
+    tb.make_chart(old)
+    tb.make_chart(new)
+    wb = openpyxl.load_workbook(old)
+    wb["Brighton"]["D2"], wb["Brighton"]["E2"] = "4 387 0510", "4 377 0600"
+    wb.save(old)
+    wb = openpyxl.load_workbook(new)
+    wb["Brighton"]["D2"], wb["Brighton"]["F2"] = "4 387 0520", "4 387 0700"
+    wb.save(new)
+    res = compute("berthing", {"a": [old], "b": [new]})
+    assert [(i.group, i.label) for i in res.items] == [("Brighton - Plat 1", "Plat 1")]   # Hove Yard: no change
+    item = res.items[0]
+    assert item.state == "changed" and item.status == "1 changed, 1 added, 1 removed cell(s)"
+    assert [(r.cells, r.state) for r in item.rows] == [
+        (["FRI FINISH", "4 387 0000", "4 387 0000"], "same"),
+        (["SAT START", "4 387 0510", "4 387 0520"], "changed"),
+        (["SAT FINISH", "4 377 0600", ""], "removed"),
+        (["SUN START", "", "4 387 0700"], "added")]
+    assert res.columns == ["Column", "Older chart", "Newer chart"]
+    out = str(tmp_path / "live.xlsx")
+    export(out, res, res.items, "All", "")
+    text = " ".join(str(c) for ws in openpyxl.load_workbook(out) for r in ws.iter_rows(values_only=True) for c in r)
+    assert "4 387 0520" in text and "4 387 0700" in text and "4 377 0600" in text
+    import shutil
+    copy = shutil.copy(old, str(tmp_path / "copy.xlsx"))
+    same = compute("berthing", {"a": [old], "b": [copy]})                 # unchanged charts: nothing listed
+    assert same.items == [] and same.warnings == ["No differences between the charts."]
+
+
+def test_live_window_geometry_falls_back_when_off_screen():
+    from rstools.live.popout import fit_geometry, parse_geometry
+    desk = (-1920, 0, 3286, 1080)                         # a monitor left of the main 1366 x 768 one
+    assert parse_geometry("1200x800+-1900+10") == (1200, 800, -1900, 10)
+    assert parse_geometry("rubbish") is None and parse_geometry("") is None
+    assert fit_geometry("1200x800+-1900+10", desk, (1366, 768)) == "1200x800+-1900+10"    # on the left monitor
+    assert fit_geometry("1200x800+100+50", desk, (1366, 768)) == "1200x800+100+50"
+    default = fit_geometry("", desk, (1366, 768))
+    assert default == "1200x688+83+26"
+    assert fit_geometry("1200x800+-1900+10", (0, 0, 1366, 768), (1366, 768)) == default   # that monitor is gone
+    assert fit_geometry("1200x800+5000+10", desk, (1366, 768)) == default
+    assert fit_geometry("100x80+10+10", desk, (1366, 768)) == default                     # too small to use
+    assert fit_geometry("1200x800+100+-500", desk, (1366, 768)) == default                # title bar off the top
+
+
+def test_live_view_pops_out_and_comes_back(tmp_path, monkeypatch):
+    """The Live View moves into its own window keeping its comparison and selection, goes full screen and back,
+    and returns to its tab; the window's place is kept in the settings."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from rstools.live.model import LiveItem, LiveResult, LiveRow
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        tab, win = app.live_tab, app.live_window
+        items = [LiveItem("k1", "G", "1A01", "changed", "Time changed", [LiveRow(["Time", "0500", "0510"],
+                                                                                 "changed")]),
+                 LiveItem("k2", "G", "1A02", "changed", "Time changed", [LiveRow(["Time", "0600", "0610"],
+                                                                                 "changed")])]
+        tab._loaded(tab.mode(), LiveResult("t", ["Field", "Original", "Updated"], items), False, {}, None, {})
+        app.update()
+        before = tab.listv.get_children()
+        assert len(before) == 2
+        tab.listv.selection_set(before[-1])
+        assert win.pop_out()
+        app.update()
+        assert win.out and tab.pop_btn.cget("text") == "Bring back"
+        assert str(app.tk.call("wm", "title", str(win.holder))) == "Live View"
+        assert win.note.winfo_ismapped()
+        assert tab.listv.get_children() == before and tab.listv.selection() == (before[-1],)
+        assert tab.full_btn.winfo_ismapped() and tab.top_cb.winfo_ismapped()
+        win.toggle_fullscreen()
+        app.update()
+        win.toggle_fullscreen()
+        assert not win.fullscreen
+        win.set_on_top(True)
+        assert app.opts.live_window_on_top
+        win.set_on_top(False)
+        app.tk.call("wm", "geometry", str(win.holder), "900x600+40+30")
+        app.update()
+        win.bring_back()
+        app.update()
+        assert not win.out and tab.winfo_ismapped() and not win.note.winfo_ismapped()
+        assert tab.pop_btn.cget("text") == "Pop out" and not tab.full_btn.winfo_ismapped()
+        assert tab.listv.get_children() == before
+        assert app.opts.live_window.startswith("900x600")
+        win.toggle()                                    # Ctrl+Shift+P does the same
+        assert win.out
+        win.toggle()
+        assert not win.out
+    finally:
+        app.destroy()

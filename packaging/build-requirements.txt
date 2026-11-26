@@ -16,6 +16,8 @@ pypdfium2==5.15.2
 
 # tests and checks
 pytest==9.2.0
+pytest-cov==7.1.0
+coverage==7.17.5
 iniconfig==2.3.1
 pluggy==1.7.0
 pygments==2.21.0

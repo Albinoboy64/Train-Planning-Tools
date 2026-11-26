@@ -29,6 +29,8 @@ Command-line use:
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...] [--vpt OURS.vpt]
                                      [--other-vpt OTHER.vpt ...]
+    TrainPlanningTools.exe section4 --xml PLAN.xml [--pdf SECTION4.pdf ...] [--vpt OURS.vpt]
+                                    [--other-vpt OTHER.vpt ...] [--out DIR] [--name NAME] [--format xlsx|pdf|docx]
     TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...] [--highlight-pdfs]
     TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...] [--highlight-pdfs]
 """
@@ -421,6 +423,7 @@ def timetable_cli(argv):
     if a.passenger_only and not a.prints:
         ap.error("--passenger-only is used with --prints")
     if a.s4_check:
+        _check_vpts(ap, a)
         _section4_cli(a)
         return
     if a.s4_compare:
@@ -450,7 +453,43 @@ def timetable_cli(argv):
     print("Saved:", res.path)
 
 
+def section4_cli(argv):
+    """`section4`: the Section 4 possession check of an Attune XML (the same check as `timetable --s4-check`)."""
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools section4",
+                                 description="Section 4 check: every train in a Section 4 possession window, with "
+                                             "the clashes, the trains the remarks exempt and those not checked")
+    ap.add_argument("--xml", required=True, help="the Attune XML to check")
+    ap.add_argument("--pdf", nargs="+", default=[], metavar="PDF",
+                    help="Network Rail Section 4 PDF(s) (default: the Section 4 rule set in use)")
+    ap.add_argument("--vpt", metavar="VPT", help="a VPT of the same timetable, whose running lines settle clashes "
+                                                 "where only some lines are blocked")
+    ap.add_argument("--other-vpt", nargs="+", default=[], metavar="VPT",
+                    help="other operators' VPT(s), whose trains are checked too")
+    ap.add_argument("--name", default="", help="output name (default chosen from the XML)")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
+    ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
+    a = _local_out(ap, ap.parse_args(argv))
+    not_pdf = [p for p in a.pdf if not p.lower().endswith(".pdf")]
+    if not_pdf:
+        ap.error("--pdf takes Section 4 PDF files: " + ", ".join(not_pdf))
+    for p in [a.xml] + a.pdf + ([a.vpt] if a.vpt else []) + a.other_vpt:
+        if not os.path.isfile(p):
+            ap.error(f"this file could not be found: {p}")
+    _check_vpts(ap, a)
+    a.s4_check, a.s4 = a.xml, a.pdf
+    _section4_cli(a)
+
+
+def _check_vpts(ap, a):
+    """--vpt / --other-vpt must be Attune VPT exports (checked before any large file is read)."""
+    from rstools.timetable.vpt import is_vpt
+    bad = [p for p in ([a.vpt] if a.vpt else []) + list(a.other_vpt) if not (os.path.isfile(p) and is_vpt(p))]
+    if bad:
+        ap.error("these are not Attune VPT exports (.vpt): " + ", ".join(bad))
+
+
 def _section4_cli(a):
+    """Run the Section 4 check for `section4` and `timetable --s4-check` and print its summary."""
     from rstools.timetable.engine import TimetableRunError
     from rstools.timetable.section4 import Section4Error, run_check
     try:
@@ -459,10 +498,6 @@ def _section4_cli(a):
         missing = [p for p in a.s4 if not os.path.isfile(p)]
         if missing:
             raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
-        from rstools.timetable.vpt import is_vpt
-        bad = [p for p in ([a.vpt] if a.vpt else []) + list(a.other_vpt) if not (os.path.isfile(p) and is_vpt(p))]
-        if bad:
-            raise Section4Error("These are not Attune VPT exports (.vpt):\n" + "\n".join(bad))
         path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print,
                                           vpt=a.vpt or "", others=a.other_vpt)
     except (Section4Error, TimetableRunError) as exc:
@@ -573,6 +608,8 @@ if __name__ == "__main__":
         reorder_cli(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1].lower() == "timetable":
         timetable_cli(sys.argv[2:])
+    elif len(sys.argv) > 1 and sys.argv[1].lower() == "section4":
+        section4_cli(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1].lower() == "berthing":
         berthing_cli(sys.argv[2:])
     elif len(sys.argv) > 1 and sys.argv[1].lower() == "selftest":

@@ -20,6 +20,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from rstools import safexml
 from .stats import Clock, Dur, Row, Table, TAB_ORDER
 from .xlsxw import HIGHLIGHT, LAYOUT, Workbook, nowrap, font_size, fit_columns, fmt_dur
 
@@ -395,15 +396,15 @@ def _read_pack(z: zipfile.ZipFile, path: str) -> List[Tuple[str, Table]]:
     try:
         from rstools.fsutil import check_zip
         check_zip(z)
-        wb = ET.fromstring(z.read("xl/workbook.xml"))
-        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        wb = safexml.fromstring(z.read("xl/workbook.xml"), "xl/workbook.xml")
+        rels = safexml.fromstring(z.read("xl/_rels/workbook.xml.rels"), "workbook.xml.rels")
     except (zipfile.BadZipFile, KeyError, OSError, ET.ParseError) as exc:
         raise PackReadError(f"'{os.path.basename(path)}' is not a readable Excel stats pack: {exc}")
     targets = {r.get("Id"): r.get("Target") for r in rels}
     sst = []
     if "xl/sharedStrings.xml" in z.namelist():
         try:
-            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(NS + "si"):
+            for si in safexml.fromstring(z.read("xl/sharedStrings.xml"), "sharedStrings.xml").iter(NS + "si"):
                 sst.append("".join(t.text or "" for t in si.iter(NS + "t")))
         except (zipfile.BadZipFile, OSError, ET.ParseError) as exc:
             raise PackReadError(f"'{os.path.basename(path)}' looks damaged (its text table could not be read: "
@@ -500,7 +501,7 @@ def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
 
 def _sheet_cells_et(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
     rows: Dict[int, Dict[int, object]] = {}
-    for c in ET.fromstring(data).iter(NS + "c"):
+    for c in safexml.fromstring(data, "sheet").iter(NS + "c"):
         ref = _REF.match(c.get("r", ""))
         if not ref:
             continue

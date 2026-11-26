@@ -1244,3 +1244,67 @@ def test_section4_check_uses_vpt_running_lines_and_other_operators():
     assert res.by_line == 12 and res.other_trains == 1                            # 3 trains x 4 days
     row = S4.clash_row(by["9Z99XX"])
     assert row[-2:] == ["FL", "AA"]
+
+
+# ------------------------------------------------------------------ `section4` subcommand
+def _s4_cli(args):
+    import contextlib
+    import io
+    import TrainPlanningTools as cli
+    out, err, code = io.StringIO(), io.StringIO(), 0
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            cli.section4_cli(args)
+        except SystemExit as exc:
+            code = exc.code
+    return code, out.getvalue() + err.getvalue()
+
+
+def test_section4_subcommand_flag_checks(tmp_path):
+    d = str(tmp_path)
+    f = write_rule_docs(d)
+    xml = os.path.join(d, "plan.xml")
+    write_s4_xml(xml)
+    notvpt = os.path.join(d, "x.vpt")
+    open(notvpt, "w").write("not a vpt")
+    cases = [
+        ([], "--xml"),                                                           # --xml is required
+        (["--xml", os.path.join(d, "missing.xml")], "could not be found"),
+        (["--xml", xml, "--pdf", xml], "--pdf takes"),
+        (["--xml", xml, "--pdf", os.path.join(d, "gone.pdf")], "could not be found"),
+        (["--xml", xml, "--pdf", f["s4_old"], "--vpt", notvpt], "not Attune VPT"),
+        (["--xml", xml, "--pdf", f["s4_old"], "--other-vpt", notvpt], "not Attune VPT"),
+        (["--xml", xml, "--pdf", f["s4_old"], "--format", "csv"], "invalid choice"),
+        (["--xml", xml, "--out", r"\\server\share"], ""),
+    ]
+    for args, text in cases:
+        code, out = _s4_cli(args + ["--out", d, "--name", "bad"] if "--out" not in args else args + ["--name", "bad"])
+        assert code == 2, (args, code, out)
+        assert text in out, (args, out)
+    assert not [n for n in os.listdir(d) if n.startswith("bad")]               # nothing was written
+
+
+def test_section4_subcommand_runs_and_matches_timetable_s4_check(tmp_path):
+    import contextlib
+    import io
+    import openpyxl
+    import TrainPlanningTools as cli
+    d = str(tmp_path)
+    f = write_rule_docs(d)
+    xml = os.path.join(d, "plan.xml")
+    write_s4_xml(xml)
+    write_vpt(os.path.join(d, "v1.vpt"), [vpt_1h05()])
+    code, out = _s4_cli(["--xml", xml, "--pdf", f["s4_old"], "--vpt", os.path.join(d, "v1.vpt"),
+                         "--out", d, "--name", "sub"])
+    assert code == 0 and "Saved:" in out, out
+    assert os.path.isfile(os.path.join(d, "sub.xlsx"))
+    with contextlib.redirect_stdout(io.StringIO()):
+        cli.timetable_cli(["--s4-check", xml, "--s4", f["s4_old"], "--vpt", os.path.join(d, "v1.vpt"),
+                           "--out", d, "--name", "old"])
+
+    def sheets(p):
+        wb = openpyxl.load_workbook(p)
+        return {ws.title: [[c for c in r] for r in ws.iter_rows(values_only=True)][2:] for ws in wb}
+    assert sheets(os.path.join(d, "sub.xlsx")) == sheets(os.path.join(d, "old.xlsx"))
+    code, out = _s4_cli(["--xml", xml, "--pdf", f["s4_old"], "--out", d, "--name", "sub", "--format", "docx"])
+    assert code == 0 and os.path.isfile(os.path.join(d, "sub.docx")), out

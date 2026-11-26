@@ -1,7 +1,7 @@
 @echo off
 REM Optional: build TrainPlanningTools.exe yourself on a Windows PC (no admin rights needed).
 REM Mirrors the release build (.github\workflows\build-windows.yml): Python 3.14, the same pinned packages
-REM (packaging\build-requirements.txt), lint, type-check, tests, build and a smoke test of the exe.
+REM (packaging\build-requirements.txt), lint, type-check, tests with coverage, build, smoke tests of the exe and the SBOM.
 REM One deliberate difference: the release compiles PyInstaller's bootloader from source (fewer false virus
 REM warnings), which needs a C compiler; this script uses PyInstaller's ready-made bootloader instead.
 REM Requires Python 3.14 installed for the current user (python.org installer, "Install for me only").
@@ -17,7 +17,7 @@ pip install --no-deps -r packaging\build-requirements.txt || goto :failed
 pip check || goto :failed
 ruff check . || goto :failed
 mypy || goto :failed
-python -m pytest -q tests || goto :failed
+python -m pytest -q tests --cov --cov-report=term || goto :failed
 python packaging\make_version_file.py version_info.txt || goto :failed
 pyinstaller --noconfirm packaging\TrainPlanningTools.spec || goto :failed
 REM smoke test: the built exe compares two small CWNs (as the release build does)
@@ -40,15 +40,16 @@ REM smoke test: Section 4 and TPR document comparisons, the Section 4 check, a s
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_rule_docs(os.path.abspath('smoke')); t.write_s4_xml('smoke/s4plan.xml')" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_stationbook as t; t.write_late_xml('smoke/late.xml'); t.write_late_xml('smoke/other.xml', operator='XC')" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_vpt('smoke/v1.vpt', [t.vpt_1h05()]); t.write_vpt('smoke/v2.vpt', [t.vpt_1h05(HYWRDSH_plat='5')])" || goto :failed
-for %%f in (s4cmp tprcmp s4check s4check_vpt swb_merged vpt_cmp) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+for %%f in (s4cmp tprcmp s4check s4check_vpt s4sub swb_merged vpt_cmp) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
 if exist "smoke\s4_new - highlighted*.pdf" del "smoke\s4_new - highlighted*.pdf"
 start /wait "" dist\TrainPlanningTools.exe timetable --s4 smoke\s4_old.pdf --vs-s4 smoke\s4_new.pdf --highlight-pdfs --out smoke --name s4cmp
 start /wait "" dist\TrainPlanningTools.exe timetable --tpr smoke\tpr_old.pdf --vs-tpr smoke\tpr_new.pdf --out smoke --name tprcmp
 start /wait "" dist\TrainPlanningTools.exe timetable --s4-check smoke\s4plan.xml --s4 smoke\s4_old.pdf --out smoke --name s4check
 start /wait "" dist\TrainPlanningTools.exe timetable --s4-check smoke\s4plan.xml --s4 smoke\s4_old.pdf --vpt smoke\v1.vpt --other-vpt smoke\v2.vpt --out smoke --name s4check_vpt
+start /wait "" dist\TrainPlanningTools.exe section4 --xml smoke\s4plan.xml --pdf smoke\s4_old.pdf --vpt smoke\v1.vpt --out smoke --name s4sub
 start /wait "" dist\TrainPlanningTools.exe stationbook --xml smoke\late.xml --station Alpha --merge smoke\other.xml --out smoke --name swb_merged
 start /wait "" dist\TrainPlanningTools.exe timetable --prints smoke\v1.vpt --vs smoke\v2.vpt --out smoke --name vpt_cmp
-for %%f in (s4cmp tprcmp s4check s4check_vpt swb_merged vpt_cmp) do if not exist smoke\%%f.xlsx (
+for %%f in (s4cmp tprcmp s4check s4check_vpt s4sub swb_merged vpt_cmp) do if not exist smoke\%%f.xlsx (
     echo The built exe did not produce smoke\%%f.xlsx.
     goto :failed
 )
@@ -56,8 +57,11 @@ if not exist "smoke\s4_new - highlighted.pdf" (
     echo The built exe did not produce the highlighted Section 4 PDFs.
     goto :failed
 )
+REM the software bill of materials (as attached to releases), checked against the pinned runtime packages
+python packaging\make_sbom.py dist\TrainPlanningTools.cdx.json || goto :failed
+python packaging\check_sbom.py dist\TrainPlanningTools.cdx.json || goto :failed
 echo.
-echo Built: dist\TrainPlanningTools.exe
+echo Built: dist\TrainPlanningTools.exe (SBOM: dist\TrainPlanningTools.cdx.json)
 pause
 exit /b 0
 :failed

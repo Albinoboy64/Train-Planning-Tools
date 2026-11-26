@@ -102,10 +102,20 @@ def _read_pdf(path: str, doc: TPRDoc):
         import pypdfium2 as pdfium
     except ImportError:
         raise TPRError("The PDF reader (pypdfium2) is not available.")
+    from rstools import limits
+    try:
+        limits.check_pdf(path)
+    except OSError as exc:
+        raise TPRError(str(exc))
     try:
         pdf = pdfium.PdfDocument(path)
     except Exception as exc:
         raise TPRError(f"'{os.path.basename(path)}' could not be opened as a PDF ({exc}).")
+    try:
+        limits.check_pages(len(pdf), path)
+    except limits.TooLargeError as exc:
+        pdf.close()
+        raise TPRError(str(exc))
     name = os.path.basename(path)
     try:
         pages = []

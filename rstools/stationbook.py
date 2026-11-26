@@ -24,6 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
+from rstools import safexml
 from rstools.fsutil import output_folder
 
 DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -163,7 +164,7 @@ def read_plan(path: str) -> Plan:
     coupled_depot = ""
     coupled_num = ""
     try:
-        for event, el in ET.iterparse(long_path(path), events=("start", "end")):
+        for event, el in ET.iterparse(safexml.check_file(long_path(path)), events=("start", "end")):
             tag = el.tag.rsplit("}", 1)[-1]
             if event == "start":
                 if tag == "diagramExchange":

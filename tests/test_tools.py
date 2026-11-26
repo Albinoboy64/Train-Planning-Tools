@@ -575,11 +575,78 @@ def test_help_menu_opens_the_error_log(monkeypatch):
         try:
             app._open_error_log()
             assert "No errors have been recorded" in shown[0] and not opened
-            errorlog.write("Traceback: test")
+            errorlog.write('Traceback: test\nValueError: \'London Victoria 05.37\' in C:\\Users\\jsmith\\a b\\x.xlsx')
             app._open_error_log()
-            assert opened == [errorlog.log_path()]
+            win = app._error_log_win
+            box = next(w for w in win.winfo_children() if isinstance(w, tk.Text))
+            text = box.get("1.0", "end")
+            assert "Traceback: test" in text and "jsmith" not in text and "London Victoria" not in text
+            assert "<path>\\x.xlsx" in text and "'<text>'" in text
+            ticks = [w for f in win.winfo_children() for w in f.winfo_children() if w.winfo_class() == "TCheckbutton"]
+            assert len(ticks) == 3
+            for t in ticks:
+                t.invoke()                                  # untick: everything shown as logged
+            text = box.get("1.0", "end")
+            assert "jsmith" in text and "London Victoria" in text
+            win.destroy()
+            assert not opened
         finally:
             app._on_close()
+
+
+def test_error_log_redaction(monkeypatch):
+    """Paths, user and computer names, emails and quoted file text are hidden - each only when asked - and the app's
+    own traceback lines are kept."""
+    from rstools import errorlog as E
+    monkeypatch.setenv("USERNAME", "jsmith")
+    monkeypatch.setenv("COMPUTERNAME", "GTR-PC042")
+    log = ("Traceback (most recent call last):\n"
+           '  File "C:\\Users\\jsmith\\Desktop\\tpt app\\rstools\\stationbook.py", line 166, in read_plan\n'
+           '    raise StationBookError(f"The XML \'{name}\' could not be read")\n'
+           "ValueError: Cell 'London Victoria 05.37 1A01' in C:\\Users\\jsmith\\OneDrive\\Dec26 CWN.xlsx on "
+           "GTR-PC042 for j.smith@example.com\n"
+           "OSError: \\\\server\\share\\plans\\x y.xml and /home/jsmith/plans/a.xml and C:\\Plans\\\n"
+           "PermissionError: [Errno 13] Permission denied: 'C:\\\\Users\\\\jsmith\\\\Downloads\\\\out.xlsx'\n")
+    out = E.redact(log)
+    assert out.splitlines() == [
+        "Traceback (most recent call last):",
+        '  File "<path>\\stationbook.py", line 166, in read_plan',
+        '    raise StationBookError(f"The XML \'{name}\' could not be read")',          # source line kept
+        "ValueError: Cell '<text>' in <path>\\Dec26 CWN.xlsx on <user> for <email>",
+        "OSError: <path>\\x y.xml and <path>/a.xml and <folder>",
+        "PermissionError: [Errno 13] Permission denied: '<path>\\out.xlsx'"]
+    assert E.redact(log, paths=False, user=False, content=False) == log
+    only_paths = E.redact(log, user=False, content=False)
+    assert "jsmith" not in only_paths.split("ValueError")[1].split(" on ")[0] and "GTR-PC042" in only_paths
+    assert "London Victoria" in only_paths and "j.smith@example.com" in only_paths
+    only_user = E.redact(log, paths=False, content=False)
+    assert "jsmith" not in only_user and "GTR-PC042" not in only_user and "OneDrive" in only_user
+    only_content = E.redact(log, paths=False, user=False)
+    assert "London Victoria" not in only_content and "jsmith" in only_content
+
+
+def test_error_log_never_keeps_file_contents_and_export_never_overwrites(tmp_path, monkeypatch):
+    from rstools import errorlog as E
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr("rstools.branding.settings_dir", lambda: str(tmp_path / "appdata"))
+    xml = "<train id='1A01' " + "x" * 5000 + "/>"
+    E.write(f"Traceback (most recent call last):\nParseError: {xml}")
+    logged = E.read()
+    assert "Traceback" in logged and "x" * (E.LINE_LIMIT + 1) not in logged and "characters left out" in logged
+    out = tmp_path / "out"
+    out.mkdir()
+    import datetime
+    existing = out / f"error log {datetime.date.today():%Y-%m-%d}.txt"
+    existing.write_text("keep me")
+    p1 = E.export("first", str(out))
+    p2 = E.export("second", str(out))
+    assert existing.read_text() == "keep me"
+    assert len({str(existing), p1, p2}) == 3 and open(p1).read() == "first" and open(p2).read() == "second"
+    assert sorted(os.listdir(out)) == sorted([existing.name, os.path.basename(p1), os.path.basename(p2)])  # no temp
+    import pytest
+    with pytest.raises(OSError, match="this PC only"):
+        E.export("x", r"\\server\share")
+    assert E.clear() and E.read() == "" and E.clear()
 
 
 def test_batch_pairing_ignores_versions_and_dates_written_with_underscores(tmp_path):

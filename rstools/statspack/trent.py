@@ -46,6 +46,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, cast
 
+from rstools import safexml
 from .days import days_of_code
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -144,7 +145,7 @@ def _paragraph_lines(path: str) -> List[str]:
     except (zipfile.BadZipFile, KeyError, OSError) as exc:
         raise TrentFormatError(f"'{path}' is not a readable Word (.docx) file: {exc}")
     try:
-        root = ET.fromstring(data)
+        root = safexml.fromstring(data, str(path))
     except ET.ParseError as exc:
         raise TrentFormatError(f"'{path}' could not be read - the Word file looks damaged ({exc}).")
     lines = []

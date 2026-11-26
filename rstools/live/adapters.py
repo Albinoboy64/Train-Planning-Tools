@@ -7,7 +7,7 @@ out train by train (or row by row) instead of writing a file.
 from __future__ import annotations
 
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Callable, Dict, List, Optional, Sequence, cast
 
 from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, LiveRow
@@ -534,29 +534,41 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
 
 # --------------------------------------------------------------------------- berthing charts
 def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
-    """Two berthing charts, berth by berth: each berth and column with a difference (as the change report)."""
-    from rstools.berthing.compare import diff
+    """Two berthing charts, berth by berth (rstools.berthing.compare.diff, as the change report). Each berth with a
+    difference is one item; its rows are its cells side by side - [column, older chart, newer chart] - with the
+    changed, added and removed cells marked, and the berth's unchanged cells (state 'same') between them in column
+    order, so a change is seen in context. Berths with no difference are not listed."""
+    from rstools.berthing.compare import ADDED as B_ADDED, CHANGED as B_CHANGED, REMOVED as B_REMOVED, diff, same_cells
     from rstools.berthing.layout import read_chart
-    from rstools.berthing.mapping import load as load_locations
+    from rstools.berthing.mapping import load as load_locations, norm
     if os.path.abspath(old_path) == os.path.abspath(new_path):
         raise ValueError("The two charts selected are the same file.")
     locations = load_locations()
     log(f"Reading {os.path.basename(old_path)} and {os.path.basename(new_path)}")
     old, new = read_chart(old_path, locations), read_chart(new_path, locations)
     changes, _marked = diff(old, new)
+    unchanged = same_cells(old, new)
     by_berth: Dict[tuple, list] = defaultdict(list)
     for c in changes:
         by_berth[(c.sheet, c.berth)].append(c)
-    state_of = {"Changed": CHANGED, "Added": ADDED, "Removed": REMOVED}
+    state_of = {B_CHANGED: CHANGED, B_ADDED: ADDED, B_REMOVED: REMOVED}
     items: List[LiveItem] = []
     # chart order: by sheet, then by siding location (a sheet with several), then by berth
     for (sheet, berth), cs in sorted(by_berth.items(), key=lambda kv: (kv[0][0], kv[1][0].rank, kv[0][1])):
         kinds = {c.kind for c in cs}
         state = state_of[next(iter(kinds))] if len(kinds) == 1 else CHANGED
-        rows = [LiveRow([c.column or "-", c.old, c.new], state_of.get(c.kind, CHANGED)) for c in cs]
+        order: Dict[str, int] = {}
+        for col, head, _text in unchanged.get((norm(sheet), norm(berth)), []):
+            order.setdefault(head, col)
+        rows = [(order.get(c.column, len(order) + i), 1,
+                 LiveRow([c.column or "-", c.old, c.new], state_of.get(c.kind, CHANGED))) for i, c in enumerate(cs)]
+        rows += [(col, 0, LiveRow([head, text, text], SAME))
+                 for col, head, text in unchanged.get((norm(sheet), norm(berth)), [])]
+        counts = Counter(c.kind for c in cs)
+        status = ", ".join(f"{counts[k]} {k.lower()}" for k in (B_CHANGED, B_ADDED, B_REMOVED) if counts[k])
         place = cs[0].section                                   # the location, on a sheet that has several
         items.append(LiveItem(f"{sheet}|{berth}", f"{sheet} - {place}" if place else sheet, berth, state,
-                              f"{len(cs)} difference(s)", rows,
+                              f"{status} cell(s)", [r for _o, _k, r in sorted(rows, key=lambda t: (t[0], t[1]))],
                               [f"{c.column}: {c.kind.lower()} ({c.old or '-'} -> {c.new or '-'})" for c in cs],
                               len(items)))
     return LiveResult(f"{os.path.basename(old_path)}  vs  {os.path.basename(new_path)}",

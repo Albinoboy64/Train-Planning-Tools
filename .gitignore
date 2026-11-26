@@ -22,3 +22,11 @@ version_info.txt
 # Attune VPT / PIF exports (real timetable data)
 *.vpt
 *.pif
+
+# coverage and release-build outputs
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+TrainPlanningTools.cdx.json
+SHA256SUMS.txt

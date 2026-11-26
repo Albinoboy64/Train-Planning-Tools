@@ -179,10 +179,20 @@ def _read_pdf(path: str, st: Statement):
         import pypdfium2 as pdfium
     except ImportError:
         raise Section4Error("The PDF reader (pypdfium2) is not available.")
+    from rstools import limits
+    try:
+        limits.check_pdf(path)
+    except OSError as exc:
+        raise Section4Error(str(exc))
     try:
         pdf = pdfium.PdfDocument(path)
     except Exception as exc:
         raise Section4Error(f"'{os.path.basename(path)}' could not be opened as a PDF ({exc}).")
+    try:
+        limits.check_pages(len(pdf), path)
+    except limits.TooLargeError as exc:
+        pdf.close()
+        raise Section4Error(str(exc))
     route, section, number = "", "", ""
     ends: Tuple[str, ...] = ()
     known: Dict[str, str] = {}             # route number ('1110') -> its title, for tables that start mid-page

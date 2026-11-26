@@ -83,7 +83,9 @@ def _records(path: str):
     top: List[str] = []
     heads: List[List[str]] = []
     legs: Dict[str, List[List[str]]] = defaultdict(list)
+    from rstools import limits
     try:
+        limits.check_size(long_path(path), "VPT_MAX_BYTES", "VPT export")
         with open(long_path(path), encoding="latin-1", newline="") as fh:
             first = fh.readline()
             if not first.startswith("00," + HEADER):
