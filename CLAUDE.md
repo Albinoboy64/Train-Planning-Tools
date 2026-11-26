@@ -41,11 +41,10 @@
 
 Before finishing a bugfix or audit pass:
 
-1. For any writable-folder check, use a uniquely named temporary file and verify that no pre-existing file is opened, truncated, or deleted.
+1. For any writable-folder check, use a uniquely named temporary file, and cover it with a synthetic test that places an unrelated file at the probe path and confirms it is left unchanged.
 2. Review `.gitignore` for repository-wide coverage of real timetable data, especially `*.xml`, `*.xlsx`, `*.xls*`, `*.docx`, and portable data directories.
-3. Verify the temporary-file fix with synthetic tests that place an unrelated pre-existing file at a potential probe path and confirm it remains unchanged.
-4. Test ignore-rule coverage using sample nested XML and Office files, ensuring real planning fixtures stay untracked while synthetic test fixtures remain in `tests/`.
-5. Check that the packaged executable and source build use the same Python target and pinned dependencies.
+3. Test ignore-rule coverage using sample nested XML and Office files, ensuring real planning fixtures stay untracked while synthetic test fixtures remain in `tests/`.
+4. Check that the packaged executable and source build use the same pinned dependencies (`packaging/build-requirements.txt`).
 
 ## Cleanup and bugfix checklist
 
@@ -53,5 +52,5 @@ When asked for a cleanup, audit, or debloat pass:
 
 1. Check for duplicated helpers across `cwn_compare/` and `rstools/`, especially Attune XML parsing, workbook saving, and path helpers.
 2. Remove unused imports, dead parameters, unreachable branches, and stale references left behind by renamed flags or modes.
-3. Verify `pyproject.toml`, `build_windows.bat`, `.github/workflows/build-windows.yml`, `packaging/TrainPlanningTools.spec`, and `README.md` agree on the Python version, bundled data files, and packaging steps.
+3. Verify `pyproject.toml`, `build_windows.bat`, `.github/workflows/build-windows.yml`, `packaging/TrainPlanningTools.spec`, and `README.md` agree on the Python version (checked by `tests/test_release.py`), bundled data files, and packaging steps.
 4. Preserve synthetic test coverage for parsing and output behaviour; real CWN, TRENT, or Attune data must not be committed.
