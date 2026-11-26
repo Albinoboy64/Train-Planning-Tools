@@ -312,8 +312,9 @@ The tab has two sections. Under **1. Timetable Comparison** choose what to compa
 * Each train goes into the section(s) its days run in (SX / SO / SuO), in the direction (OUT / RTN) where the timetable has it (or whose table lists its stations in calling order). If the timetable clearly shows a train in another section - for example an after-midnight train on the next day's sheet, with the same headcode and times - it is compared there rather than reported missing, and a note says so.
 * Output: `[reference] vs [timetable] Consolidated TT Comparison.xlsx`, with the headings naming the sides (e.g. *Print headcode* / *GTR headcode*).
 
-### Two sets of train prints (PDF or Word)
+### Two sets of train prints (PDF or Word) or Attune VPT exports
 
+* **VPT exports** (`.vpt`, Attune's *Voyager plan train export*) can be used on either side, in any mix: **VPT against VPT**, **VPT against Attune *Single Train Report* prints** and **prints against a VPT**. A VPT is a plain text file, so it is read in about a second and exactly (no page layout to read): each train's ID, first and last dates, days run, and every location with its working times (arrival, departure or passing), platform, line and allowances. VPT against VPT compares all of that. Against a print, which lays out lines, dwells and allowances in its own way and has public times and activities that a VPT does not, only the **calls, working times, platforms, days run, train ID and dates** are compared (the report says so). *Passenger times only* against a print leaves out the stops that only the VPT has. The XML is still used wherever unit diagrams are needed (stats packs, unit reports, berthing charts, station books) and for the Section 4 check, which needs the remarks, RAR and MAINT diagrams that are in the XML only.
 * Choose one or more files for each side (hold Ctrl in the file window). Each train is found by its heading line (headcode with a UID, or the word *Train* / *Headcode*); a heading repeated on the next page continues the same train. Page numbers, print dates and repeated column headings are ignored.
 * Attune *Single Train Report* prints are read column by column (working, passing and public times, dwell, activity, platform, line, allowances and every heading field such as *Days Pattern* or *Timing Load*), so a change is named exactly, e.g. *Public departure time changed* or *Platform changed*. Other print layouts are read from their text.
 * Trains are paired by headcode, UID and days (then train ID and days, headcode, days and first time), and compared location by location, so an added or removed call is reported once instead of shifting every line. Reported: trains added / removed, arrival / departure / passing times changed, added or removed, other call details (platform, line, path, activities) and heading details.
@@ -392,6 +393,9 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.31.0** - Attune VPT exports
+* **Train print comparison and Live View** accept Attune **VPT** exports: VPT against VPT, VPT against Attune train prints, and prints against a VPT. Drop `.vpt` files on the Timing Tools tab to start a comparison; command line `timetable --prints OLD.vpt --vs NEW.vpt`. See [Two sets of train prints](#two-sets-of-train-prints-pdf-or-word-or-attune-vpt-exports).
 
 **3.30.0** - Section 4 / TPR clean-up, wash and CET reports, Live View checks
 * **Fix**: "Invalid character found in sheet title". Tab names are now cleaned (no `\ / ? * [ ] :`), kept to 31 characters and never repeated, in every workbook the app writes.

@@ -23,6 +23,7 @@ Command-line use:
                                      --capacity-to "London Victoria" --no-standing
     TrainPlanningTools.exe timetable --gtr GTR.xlsx --nr NR.xlsx [--format xlsx|pdf|docx]
     TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...] [--passenger-only]
+    TrainPlanningTools.exe timetable --prints OLD.vpt --vs NEW.vpt          (Attune VPT exports, or a VPT with prints)
     TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
     TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
@@ -371,7 +372,8 @@ def timetable_cli(argv):
     ap = argparse.ArgumentParser(prog="TrainPlanningTools timetable", description="Timing Tools")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--gtr", help="GTR timetable check workbook (compared with --nr)")
-    g.add_argument("--prints", nargs="+", help="original train print(s), PDF or Word (compared with --vs)")
+    g.add_argument("--prints", nargs="+", help="original train print(s), PDF or Word, or Attune VPT export(s) "
+                                               "(compared with --vs)")
     g.add_argument("--lists", help="original Attune train list export (compared with --vs)")
     g.add_argument("--base-prints", nargs="+", help="Attune Single Train Report print(s) as the reference "
                                                    "(checked against --check)")

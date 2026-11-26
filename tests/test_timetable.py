@@ -1039,3 +1039,155 @@ def test_changes_highlighted_in_copies_of_the_pdfs():
                       if v.endswith(".pdf")}                    # the sources are untouched
     res = run("s4docs", [f["s4_old"]], [f["s4_new"]], d)
     assert res.extra == []
+
+
+# ------------------------------------------------------------------ Attune VPT (Voyager plan train export)
+def write_vpt(path, trains):
+    """A synthetic VPT. Each train: dict(id, start, end, bits, points=[dict(tip, arr, dep, plat, line, allow, stop)])
+    with times in seconds; an origin has no arr, a destination no dep, a pass has stop=False."""
+    out = ["00,VoyagerPlanTrainExport,2,20261126152819,AA,20270516,20271211,"]
+    for n, t in enumerate(trains, start=1):
+        pts = t["points"]
+        h = [""] * 86
+        h[0], h[1], h[2], h[6], h[8], h[9] = "01", f"{t['id']:<8}", t["start"], str(n), pts[0]["tip"], pts[-1]["tip"]
+        h[11], h[12], h[13], h[25], h[34], h[46], h[47] = "375", t["end"], str(t["bits"]), "66.3345", "XX", "EMU", "100"
+        out.append(",".join(h))
+        for i, (a, b) in enumerate(zip(pts, pts[1:]), start=1):
+            start = a["dep"] if a.get("dep") is not None else a["arr"]
+            end = b["arr"] if b.get("arr") is not None else b["dep"]
+            dwell = (b["dep"] - b["arr"]) if b.get("dep") is not None and b.get("arr") is not None else 0
+            al = b.get("allow", (0, 0, 0, 0))
+            row = ["04", str(n), str(i), a["tip"], b["tip"], "L", "P", "0", "Y", str(end), "0", str(start), "0",
+                   "N", "N", "0", "0", "0", str(dwell), a.get("plat", ""), "", b.get("line", ""),
+                   *map(str, al), "S" if a.get("stop", True) else "P", "20260720"]
+            out.append(",".join(row))
+        last = pts[-1]
+        out.append(",".join(["04", str(n), str(len(pts)), last["tip"], last["tip"], "L", "P", "0", "Y", "0", "0",
+                             str(last["arr"]), "0", "N", "N", "0", "0", "0", "0", last.get("plat", ""), "", "",
+                             "0", "0", "0", "0", "S"]))
+    with open(path, "w", encoding="latin-1", newline="") as fh:
+        fh.write("\r\n".join(out) + "\r\n")
+
+
+def _h(h, m, s=0):
+    return h * 3600 + m * 60 + s
+
+
+def vpt_1h05(**over):
+    """The synthetic Attune print's 1H05BS as a VPT train (Brighton to London Victoria, Monday to Friday)."""
+    pts = [dict(tip="BTN", dep=_h(5, 37), plat="3"),
+           dict(tip="KEYMERJ", arr=_h(5, 41), dep=_h(5, 41), stop=False),
+           dict(tip="HYWRDSH", arr=_h(5, 52, 30), dep=_h(5, 53, 30), plat="4", line="UML", allow=(0, 0, 60, 0)),
+           dict(tip="ECROYDN", arr=_h(6, 18, 30), dep=_h(6, 20), plat="1"),
+           dict(tip="VICTRIC", arr=_h(6, 37), plat="18")]
+    for k, v in over.items():
+        tip, key = k.split("_", 1)
+        next(p for p in pts if p["tip"] == tip.upper())[key] = v
+    return dict(id="1H05BS", start="20270517", end="20271210", bits=62, points=pts)
+
+
+def _print_1h05(path):
+    import copy
+    trains = copy.deepcopy(ATTUNE[:1])
+    trains[0]["rows"][0] = ("BTN", "Brighton", "", "05.37", "", "05.37", "", "TB", "3")     # no arrival at the origin
+    trains[0]["rows"][4] = ("VICTRIC", "London Victoria", "06.37", "", "06.37", "", "", "TF", "18")   # nor departure
+    write_attune_pdf(path, trains)
+
+
+def test_vpt_reader():
+    from rstools.timetable.prints import read_print
+    from rstools.timetable.vpt import is_vpt
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "a.vpt")
+        write_vpt(p, [vpt_1h05()])
+        assert is_vpt(p) and not is_vpt(os.path.join(d, "nothing.vpt"))
+        (t,) = read_print(p)
+        assert (t.ident, t.headcode, t.days, t.kind) == ("1H05BS", "1H05", "SX", "vpt")
+        assert t.info["From"] == "17/05/2027" and t.info["Until"] == "10/12/2027" and t.info["Power Type"] == "EMU"
+        by = {c.tiploc: c for c in t.calls}
+        assert [c.tiploc for c in t.calls] == ["BTN", "KEYMERJ", "HYWRDSH", "ECROYDN", "VICTRIC"]
+        assert by["BTN"].times == {"wtt_dep": "05.37"} and by["BTN"].fields == {"plat": "3"}
+        assert by["KEYMERJ"].times == {"pass": "05/41"}
+        hh = by["HYWRDSH"]
+        assert hh.times == {"wtt_arr": "05a52½", "wtt_dep": "05p53½"}
+        assert hh.fields["plat"] == "4" and hh.fields["line"] == "UML" and hh.fields["prf"] == "1"
+        assert by["VICTRIC"].times == {"wtt_arr": "06.37"} and by["VICTRIC"].fields["plat"] == "18"
+        bad = os.path.join(d, "bad.vpt")
+        with open(bad, "w") as fh:
+            fh.write("not a vpt\n")
+        try:
+            read_print(bad)
+        except Exception as exc:
+            assert "not an Attune Voyager" in str(exc)
+        else:
+            raise AssertionError("a file that is not a VPT was read")
+
+
+def test_vpt_against_vpt():
+    from rstools.timetable.engine import run
+    from rstools.timetable.prints import change_kind
+    with tempfile.TemporaryDirectory() as d:
+        a, b = os.path.join(d, "a.vpt"), os.path.join(d, "b.vpt")
+        other = dict(id="1H09BS", start="20270517", end="20271210", bits=62, points=[
+            dict(tip="BTN", dep=_h(9, 0), plat="1"), dict(tip="VICTRIC", arr=_h(10, 30), plat="2")])
+        write_vpt(a, [vpt_1h05(), other])
+        write_vpt(b, [vpt_1h05(HYWRDSH_dep=_h(5, 54, 30), HYWRDSH_plat="5", ECROYDN_allow=(0, 30, 0, 0))])
+        from rstools.timetable.engine import compare_files
+        cmp = compare_files("prints", [a], [b])
+        assert len(cmp.pairs) == 1 and len(cmp.removed) == 1 and not cmp.added
+        kinds = {(c.location, c.change) for c in cmp.changes}
+        assert ("Haywards Heath", "Working departure time changed") in kinds
+        assert ("Haywards Heath", "Platform changed") in kinds
+        assert ("East Croydon", "Pathing allowance changed") in kinds
+        assert {change_kind(c) for c in cmp.changes} == {"Timing", "Platform/line", "Dwell/allowances"}
+        same = compare_files("prints", [a], [a])
+        assert not same.changes and len(same.pairs) == 2
+        res = run("prints", [a], [b], d, "vpt_vs_vpt")
+        assert os.path.getsize(res.path) > 1000
+
+
+def test_vpt_against_print_and_print_against_vpt():
+    from rstools.timetable.engine import compare_files
+    with tempfile.TemporaryDirectory() as d:
+        pdf, a, b = os.path.join(d, "p.pdf"), os.path.join(d, "a.vpt"), os.path.join(d, "b.vpt")
+        _print_1h05(pdf)
+        write_vpt(a, [vpt_1h05()])
+        write_vpt(b, [vpt_1h05(HYWRDSH_dep=_h(5, 54, 30), HYWRDSH_plat="5")])
+        for first, second in (([a], [pdf]), ([pdf], [a])):
+            cmp = compare_files("prints", first, second)
+            assert len(cmp.pairs) == 1 and not cmp.changes, [(c.location, c.change) for c in cmp.changes]
+            assert any("VPT export has no public times" in w for w in cmp.warnings)
+        for first, second in (([b], [pdf]), ([pdf], [b])):
+            cmp = compare_files("prints", first, second)
+            got = {(c.location, c.change) for c in cmp.changes}
+            assert ("Haywards Heath", "Working departure time changed") in got or \
+                ("Haywards Heath", "Departure time changed") in got, got
+            assert ("Haywards Heath", "Platform changed") in got and len(cmp.pairs) == 1
+        # days and train ID are compared too; fields laid out differently (allowances, lines) are not
+        c = vpt_1h05()
+        c["bits"] = 64                                                     # Saturdays only now
+        write_vpt(b, [c])
+        cmp = compare_files("prints", [pdf], [b])
+        assert [x.change for x in cmp.changes] == ["Days run changed"], [(x.location, x.change) for x in cmp.changes]
+        # passenger times only: a stop only the VPT has (an operational stop) is not reported
+        extra = vpt_1h05()
+        extra["points"].insert(2, dict(tip="BALCMTJ", arr=_h(5, 47), dep=_h(5, 48), plat="2"))
+        write_vpt(b, [extra])
+        assert compare_files("prints", [pdf], [b], passenger_only=True).changes == []
+        assert any(x.change == "Location added" for x in compare_files("prints", [pdf], [b]).changes)
+
+
+def test_live_vpt_against_vpt_and_print():
+    from rstools.live.adapters import compute
+    with tempfile.TemporaryDirectory() as d:
+        pdf, a, b = os.path.join(d, "p.pdf"), os.path.join(d, "a.vpt"), os.path.join(d, "b.vpt")
+        _print_1h05(pdf)
+        write_vpt(a, [vpt_1h05()])
+        write_vpt(b, [vpt_1h05(HYWRDSH_dep=_h(5, 54, 30))])
+        res = compute("prints", {"a": [a], "b": [b]})
+        (item,) = res.items
+        assert item.status == "Timing change" and item.state == "changed"
+        res = compute("prints", {"a": [a], "b": [pdf]})
+        assert [i.status for i in res.items] == ["No change"]
+        res = compute("prints", {"a": [pdf], "b": [b]})
+        assert [i.status for i in res.items] == ["Timing change"]

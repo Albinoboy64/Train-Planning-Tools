@@ -24,7 +24,7 @@ import os
 import re
 import zipfile
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -58,6 +58,7 @@ class Call:
     times: Dict[str, str]       # 'arr' / 'dep' / 'pass' / 'time' -> HHMM (½ kept)
     details: str                # the rest of the line (platform, line, activities...)
     fields: Dict[str, str] = field(default_factory=dict)    # named columns, when the layout is known
+    tiploc: str = ""            # the location code, where the source gives it (Attune prints, VPT)
 
 
 @dataclass
@@ -72,6 +73,23 @@ class PrintTrain:
     ident: str = ""             # full train ID when the print gives one (e.g. 1H05BS)
     info: Dict[str, str] = field(default_factory=dict)      # named heading fields, when the layout is known
     skipped: List[str] = field(default_factory=list)         # Attune location lines that could not be read
+    kind: str = ""              # 'vpt' for a Voyager plan train export (not a train print)
+    lacks: frozenset = frozenset()      # time columns this kind of file never has (so they are not compared)
+    dayset: Optional[frozenset] = None  # the weekdays (0 = Monday) when the file gives them exactly
+
+    @property
+    def day_key(self):
+        """The days as a set of weekdays, so 'SX' and 'MTWThF' are the same days; the text if it cannot be read."""
+        if self.dayset is not None:
+            return self.dayset
+        from rstools.statspack.days import days_of_code
+        found = days_of_code(self.days)
+        return frozenset(found) if found else self.days
+
+    @property
+    def first_key(self) -> str:
+        """The first time without its marker ('05a52½' and '05.52½' are the same time)."""
+        return plain_time(self.first_time)
 
     @property
     def first_time(self) -> str:
@@ -91,6 +109,15 @@ class PrintTrain:
 
     def label(self) -> str:
         return " ".join(x for x in (self.ident or self.headcode, self.uid) if x) or "(no headcode)"
+
+
+_PLAIN = re.compile(r"^(\d\d)[./apAP ]?(\d\d)(½)?$")
+
+
+def plain_time(text: str) -> str:
+    """A time as HHMM (with its half): '05a52½' -> '0552½'; anything else as it is."""
+    m = _PLAIN.match((text or "").strip())
+    return f"{m.group(1)}{m.group(2)}{m.group(3) or ''}" if m else (text or "")
 
 
 # ----------------------------------------------------------------------- reading
@@ -333,6 +360,9 @@ def _parallel(reader, path: str, count: int, workers: int) -> Optional[List[List
 
 
 def read_print(path: str) -> List[PrintTrain]:
+    if os.path.splitext(path)[1].lower() == ".vpt":
+        from .vpt import read_vpt
+        return read_vpt(path)
     pages = read_pages(path)
     from .attune_print import is_attune_report, parse_attune
     if is_attune_report(pages):
@@ -346,7 +376,8 @@ def read_pages(path: str) -> List[List[str]]:
         return _pdf_lines(path)
     if ext in (".docx", ".docm"):
         return _docx_lines(path)
-    raise PrintError(f"'{os.path.basename(path)}': train prints must be PDF (.pdf) or Word (.docx) files.")
+    raise PrintError(f"'{os.path.basename(path)}': train prints must be PDF (.pdf), Word (.docx) or Attune "
+                     "Voyager plan train export (.vpt) files.")
 
 
 def from_attune(t) -> "PrintTrain":
@@ -356,7 +387,7 @@ def from_attune(t) -> "PrintTrain":
     for r in t.rows:
         times = {k: v for k, v in r.values.items() if k in TIME_COLS or k == "pass"}
         rest = {k: v for k, v in r.values.items() if k not in times}
-        calls.append(Call(r.name, _loc_key(r.name), times, " ".join(rest.values()), rest))
+        calls.append(Call(r.name, _loc_key(r.name), times, " ".join(rest.values()), rest, r.tiploc))
     info = dict(t.fields)
     info.update({"Train category": t.category, "Operator": t.toc_name})
     return PrintTrain(t.headcode, t.uid, t.days, [], calls, t.source, t.page, ident=t.train_id, info=info,
@@ -495,14 +526,54 @@ def passenger_calls(t: Optional["PrintTrain"], public: bool) -> List["Call"]:
     return [c for c in t.calls if is_passenger_call(c, public)] if t is not None else []
 
 
+# a VPT and a train print name and lay out these differently, so only these are compared between the two kinds
+CROSS_INFO = ("TrainID", "From", "Until")
+CROSS_LACKS = frozenset({"activity", "line", "dwell", "eng", "pth", "prf", "adj"})
+_DETAIL_KEYS = ("plat", "line", "activity", "dwell", ("eng", "pth", "prf", "adj"))
+
+
+def _same_time(ta: str, tb: str, cross: bool) -> bool:
+    """Equal times; between a VPT and a print also when only the marker differs ('05a52½' / '05.52½')."""
+    return ta == tb or (cross and plain_time(ta) == plain_time(tb))
+
+
+def _ignored(a: Optional["PrintTrain"], b: Optional["PrintTrain"]) -> frozenset:
+    """The time columns and fields not compared for this pair: what a VPT never has, and, between a VPT and a print,
+    the fields the two lay out differently."""
+    if a is None or b is None:
+        return frozenset()
+    out = set(a.lacks) | set(b.lacks)
+    if a.kind != b.kind:
+        out |= CROSS_LACKS
+    return frozenset(out)
+
+
+def _calls_for(a: Optional["PrintTrain"], b: Optional["PrintTrain"], passenger_only: bool):
+    """The calls compared on each side. Passenger times only: a call with a public time (or, for a VPT, which has
+    none, any stop); against a print, a VPT's stops that the print does not show to passengers are left out."""
+    calls_a, calls_b = (a.calls if a else []), (b.calls if b else [])
+    if not passenger_only:
+        return calls_a, calls_b
+    public = has_public(a, b)
+    calls_a = passenger_calls(a, public and not (a and a.kind))
+    calls_b = passenger_calls(b, public and not (b and b.kind))
+    if a is not None and b is not None and a.kind != b.kind:
+        keys_a, keys_b = {c.key for c in calls_a}, {c.key for c in calls_b}
+        if a.kind:
+            calls_a = [c for c in calls_a if c.key in keys_b]
+        else:
+            calls_b = [c for c in calls_b if c.key in keys_a]
+    return calls_a, calls_b
+
+
 def _pair(orig: List[PrintTrain], upd: List[PrintTrain]):
     """One-to-one pairs: headcode + UID, then headcode + days + first time, then headcode + first time,
     then a headcode that appears once on each side."""
     pairs, left, right = [], list(orig), list(upd)
-    rules = (("Headcode, UID and days", lambda t: (t.headcode, t.uid, t.days) if t.uid else None),
-             ("Train ID and days", lambda t: (t.ident, t.days) if t.ident else None),
-             ("Headcode, days and first time", lambda t: (t.headcode, t.days, t.first_time)),
-             ("Headcode and first time", lambda t: (t.headcode, t.first_time)),
+    rules = (("Headcode, UID and days", lambda t: (t.headcode, t.uid, t.day_key) if t.uid else None),
+             ("Train ID and days", lambda t: (t.ident, t.day_key) if t.ident else None),
+             ("Headcode, days and first time", lambda t: (t.headcode, t.day_key, t.first_key)),
+             ("Headcode and first time", lambda t: (t.headcode, t.first_key)),
              ("Headcode (only one on each side)", lambda t: t.headcode))
     for how, key in rules:
         index: Dict[object, List[PrintTrain]] = {}
@@ -582,17 +653,22 @@ def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False, he
     are left out (one print may not show the intermediate timing points). `header` / `timing`: whether the train's
     header details (days, IDs, class...) and the times are compared."""
     out: List[PrintChange] = []
-    calls_a, calls_b = a.calls, b.calls
-    if passenger_only:
-        public = has_public(a, b)
-        calls_a, calls_b = passenger_calls(a, public), passenger_calls(b, public)
+    calls_a, calls_b = _calls_for(a, b, passenger_only)
+    skip, cross = _ignored(a, b), a.kind != b.kind
     label = a.label() if a.label() == b.label() else f"{a.label()} / {b.label()}"
     days = a.days if a.days == b.days else f"{a.days} / {b.days}".strip(" /")
     for key in dict.fromkeys(list(a.info) + list(b.info)) if header else ():
         va, vb = a.info.get(key, ""), b.info.get(key, "")
-        if va != vb:
+        if cross and key not in CROSS_INFO:
+            continue                                    # a VPT and a print name and format these differently
+        if key == "Days Pattern":
+            same = a.day_key == b.day_key
+        else:
+            same = va == vb
+        if not same:
             out.append(PrintChange(label, days, "(train details)", f"{key} changed", va or "-", vb or "-"))
-    if header and a.days != b.days and "Days Pattern" not in a.info and "Days Pattern" not in b.info:
+    if header and a.day_key != b.day_key and (cross or ("Days Pattern" not in a.info
+                                                          and "Days Pattern" not in b.info)):
         out.append(PrintChange(label, days, "(train details)", "Days run changed", a.days or "-", b.days or "-"))
     ha, hb = [h for h in a.heading if h not in b.heading], [h for h in b.heading if h not in a.heading]
     if header and (ha or hb):
@@ -603,10 +679,10 @@ def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False, he
         if op == "equal":
             for ca, cb in zip(calls_a[i1:i2], calls_b[j1:j2]):
                 for role in dict.fromkeys(list(ca.times) + list(cb.times)):
-                    if passenger_only and role == "pass":
+                    if (passenger_only and role == "pass") or role in skip:
                         continue
                     ta, tb = ca.times.get(role, ""), cb.times.get(role, "")
-                    if ta != tb and timing:
+                    if not _same_time(ta, tb, cross) and timing:
                         name = _TIME_NAMES.get(role.rstrip("0123456789"), "Time")
                         what = (f"{name} time changed" if ta and tb else f"{name} time added" if tb
                                 else f"{name} time removed")
@@ -614,10 +690,10 @@ def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False, he
                 if ca.fields or cb.fields:
                     for key in dict.fromkeys(list(ca.fields) + list(cb.fields)):
                         fa, fb = ca.fields.get(key, ""), cb.fields.get(key, "")
-                        if fa != fb:
+                        if fa != fb and key not in skip:
                             out.append(PrintChange(label, days, ca.loc, f"{_FIELD_NAMES.get(key, key)} changed",
                                                    fa or "-", fb or "-"))
-                elif ca.details != cb.details:
+                elif ca.details != cb.details and not cross:
                     out.append(PrintChange(label, days, ca.loc, "Call details changed (platform, line, activity...)",
                                            ca.details or "-", cb.details or "-"))
             continue
@@ -662,6 +738,7 @@ def _call_details(c: Optional[Call]) -> List[str]:
 def train_details(a: Optional[PrintTrain], b: Optional[PrintTrain]) -> List[Tuple[str, str, str]]:
     """(detail, original, updated) for the top of a side-by-side train: days run, IDs, dates, class..."""
     x, y = cast(PrintTrain, a or b), cast(PrintTrain, b or a)     # at least one side is a train
+    partial = a is not None and b is not None and a.kind != b.kind      # a VPT against a print
     rows = [("Days run", a.days if a else "", b.days if b else ""),
             ("Train", (a.ident or a.headcode) if a else "", (b.ident or b.headcode) if b else ""),
             ("UID", a.uid if a else "", b.uid if b else "")]
@@ -669,6 +746,8 @@ def train_details(a: Optional[PrintTrain], b: Optional[PrintTrain]) -> List[Tupl
     keys += [k for k in dict.fromkeys(list(x.info) + list(y.info)) if k not in keys]
     seen = set()
     for k in keys:
+        if partial and k not in CROSS_INFO:
+            continue
         if k.casefold() in seen:                          # 'Train Category' and 'Train category'
             continue
         seen.add(k.casefold())
@@ -680,6 +759,8 @@ def train_details(a: Optional[PrintTrain], b: Optional[PrintTrain]) -> List[Tupl
         for i in range(max(len(ha), len(hb))):
             rows.append((f"Heading {i + 1}" if i else "Heading", ha[i] if i < len(ha) else "",
                          hb[i] if i < len(hb) else ""))
+    if partial:                                          # only what both have: the rest is not a difference
+        return [r for r in rows if r[1] and r[2]]
     return [r for r in rows if r[1] or r[2]]
 
 
@@ -690,8 +771,10 @@ def _role_keys(ca: Optional[Call], cb: Optional[Call]) -> List[str]:
     return keys or [""]
 
 
-def _location_rows(ca: Optional[Call], cb: Optional[Call]) -> List[Tuple[List[str], str]]:
-    """The rows of one location: one per time (Arr / Dep / Pass), details on the first."""
+def _location_rows(ca: Optional[Call], cb: Optional[Call], skip: frozenset = frozenset(),
+                   cross: bool = False) -> List[Tuple[List[str], str]]:
+    """The rows of one location: one per time (Arr / Dep / Pass), details on the first. `skip`: columns shown but
+    not compared; `cross`: a VPT against a print."""
     out = []
     da, db = _call_details(ca), _call_details(cb)
     names = ("Platform", "Line", "Activity", "Dwell", "Allowances")
@@ -701,21 +784,29 @@ def _location_rows(ca: Optional[Call], cb: Optional[Call]) -> List[Tuple[List[st
         pub = _PUBLIC_OF.get(role, "")
         pa = ca.times.get(pub, "") if ca and pub else ""
         pb = cb.times.get(pub, "") if cb and pub else ""
-        details = [_both(x, y) for x, y in zip(da, db)] if n == 0 else [""] * 5
+        details = [_both(x, y) if not _skipped(key, skip) else (x or y)
+                   for key, x, y in zip(_DETAIL_KEYS, da, db)] if n == 0 else [""] * 5
+        pub_skipped = pub in skip
         if ca is None or cb is None:
             state, result = ("added", "Location added") if ca is None else ("removed", "Location removed")
         else:
             diffs = []
-            if ta != tb:
+            if not _same_time(ta, tb, cross):
                 diffs.append("Time added" if not ta else "Time removed" if not tb else "Time changed")
-            if pa != pb:
+            if pa != pb and not pub_skipped:
                 diffs.append("Public time changed")
             if n == 0:
-                diffs += [f"{name} changed" for name, x, y in zip(names, da, db) if x != y]
+                diffs += [f"{name} changed" for name, key, x, y in zip(names, _DETAIL_KEYS, da, db)
+                          if x != y and not _skipped(key, skip)]
             state, result = ("changed", ", ".join(diffs)) if diffs else ("same", "Match")
         loc = cast(Call, ca or cb).loc if n == 0 else ""
-        out.append(([loc, _ROLE_SHOWN.get(role, role), ta, tb, _both(pa, pb)] + details + [result], state))
+        out.append(([loc, _ROLE_SHOWN.get(role, role), ta, tb, (pa or pb) if pub_skipped else _both(pa, pb)]
+                    + details + [result], state))
     return out
+
+
+def _skipped(key, skip: frozenset) -> bool:
+    return any(k in skip for k in key) if isinstance(key, tuple) else key in skip
 
 
 def side_by_side(a: Optional[PrintTrain], b: Optional[PrintTrain],
@@ -725,20 +816,19 @@ def side_by_side(a: Optional[PrintTrain], b: Optional[PrintTrain],
     line, activity codes, dwell, allowances) and the train's details (days run, IDs, dates...) on top.
     Returns [(cells, state)], state 'same' / 'changed' / 'added' / 'removed' / 'muted' (train details)."""
     rows: List[Tuple[List[str], str]] = []
+    skip, cross = _ignored(a, b), a is not None and b is not None and a.kind != b.kind
     for name, va, vb in train_details(a, b):
-        state = "muted" if va == vb or a is None or b is None else "changed"
+        same = va == vb or (name == "Days run" and a is not None and b is not None and a.day_key == b.day_key)
+        state = "muted" if same or a is None or b is None else "changed"
         rows.append(([name, "", va, vb, "", "", "", "", "", "",
                       "" if state == "muted" else "Changed"], state))
-    calls_a, calls_b = (a.calls if a else []), (b.calls if b else [])
-    if passenger_only:
-        public = has_public(a, b)
-        calls_a, calls_b = passenger_calls(a, public), passenger_calls(b, public)
+    calls_a, calls_b = _calls_for(a, b, passenger_only)
     sm = difflib.SequenceMatcher(None, [c.key for c in calls_a], [c.key for c in calls_b], autojunk=False)
     calls: List[Tuple[List[str], str]] = []
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == "equal":
             for ca, cb in zip(calls_a[i1:i2], calls_b[j1:j2]):
-                calls += _location_rows(ca, cb)
+                calls += _location_rows(ca, cb, skip, cross)
             continue
         for ca in calls_a[i1:i2]:
             calls += _location_rows(ca, None)
@@ -764,8 +854,22 @@ def _without_passes(rows: List[Tuple[List[str], str]]) -> List[Tuple[List[str], 
     return out
 
 
+def _rekeyed(trains: List[PrintTrain], by_code: bool) -> List[PrintTrain]:
+    """Copies of the trains whose calls are keyed by location code (or, where a code is missing, by name), so a VPT
+    and a print find each other's calls; the originals (which may be cached) are left as they are."""
+    out = []
+    for t in trains:
+        calls = [replace(c, key=c.tiploc.casefold() if by_code else _loc_key(c.loc)) for c in t.calls]
+        out.append(replace(t, calls=calls))
+    return out
+
+
 def compare_prints(original: List[PrintTrain], updated: List[PrintTrain], warnings: Iterable[str] = (),
                    passenger_only: bool = False):
+    if {bool(t.kind) for t in original} != {bool(t.kind) for t in updated} and original and updated:
+        every = original + updated                      # a VPT on one side and prints on the other
+        by_code = all(c.tiploc for t in every for c in t.calls)
+        original, updated = _rekeyed(original, by_code), _rekeyed(updated, by_code)
     pairs, added, removed = _pair(original, updated)
     pairs.sort(key=lambda p: (p[0].source, p[0].page, p[0].first_time, p[0].headcode))
     changes, counted = [], []

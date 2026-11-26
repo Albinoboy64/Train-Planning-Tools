@@ -107,6 +107,9 @@ jobs:
           if (!(Test-Path smoke\print_tt.xlsx)) { throw "exe did not produce a print-against-timetable comparison" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--passenger-only','--out','smoke','--name','prints_pax' -Wait -PassThru
           if (!(Test-Path smoke\prints_pax.xlsx)) { throw "exe did not produce a passenger-times-only print comparison" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_timetable as t; t.write_vpt('smoke/v1.vpt',[t.vpt_1h05()]); t.write_vpt('smoke/v2.vpt',[t.vpt_1h05(HYWRDSH_plat='5')])"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\v1.vpt','--vs','smoke\v2.vpt','--out','smoke','--name','vpt_cmp' -Wait -PassThru
+          if (!(Test-Path smoke\vpt_cmp.xlsx)) { throw "exe did not compare two VPT exports" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_timetable as t; t.write_rule_docs(os.path.abspath('smoke')); t.write_s4_xml('smoke/s4plan.xml')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--highlight-pdfs','--out','smoke','--name','s4cmp' -Wait -PassThru
           if (!(Test-Path smoke\s4cmp.xlsx)) { throw "exe did not compare two sets of Section 4 documents" }

@@ -25,6 +25,7 @@ from .model import ADDED, CHANGED, DIFF_STATES, ISSUE, PAIRED, REMOVED, SAME, vi
 
 TITLE = f"{APP_NAME} - Live View"
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
+_PV = _PR + (".vpt",)                                   # train prints, or Attune VPT exports
 _CWN = (".xlsx", ".xlsm", ".xls", ".xlsb")
 FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, label, file types, several?
     "cwn": [("a", "Original CWN:", _CWN, False), ("b", "Updated CWN:", _CWN, False)],
@@ -36,7 +37,7 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
     "timetables": [("a", "GTR timetable:", _XL, False), ("b", "Network Rail timetable:", _XL, False)],
     "print_tt": [("a", "Train print(s) - reference:", _PR, True), ("b", "Timetable to check:", _XL, False)],
     "list_tt": [("a", "Attune train list - reference:", _LI, False), ("b", "Timetable to check:", _XL, False)],
-    "prints": [("a", "Original train print(s):", _PR, True), ("b", "Updated train print(s):", _PR, True)],
+    "prints": [("a", "Original train print(s) or VPT:", _PV, True), ("b", "Updated train print(s) or VPT:", _PV, True)],
     "lists": [("a", "Original Attune train list:", _LI, False), ("b", "Updated Attune train list:", _LI, False)],
     "s4docs": [("a", "Original Section 4 PDF(s):", (".pdf",), True),
                ("b", "Updated Section 4 PDF(s):", (".pdf",), True)],

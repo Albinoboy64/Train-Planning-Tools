@@ -21,7 +21,7 @@ MODES = {
     "timetables": "Timing Tools: GTR timetable against Network Rail",
     "print_tt": "Timing Tools: train prints against a timetable",
     "list_tt": "Timing Tools: Attune train list against a timetable",
-    "prints": "Timing Tools: two sets of train prints",
+    "prints": "Timing Tools: two sets of train prints or VPT exports",
     "lists": "Timing Tools: two Attune train lists",
     "s4check": "Timing Tools: Section 4 check (Attune XML)",
     "s4docs": "Timing Tools: two sets of Section 4 documents",

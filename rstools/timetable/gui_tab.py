@@ -23,7 +23,7 @@ MODE_TEXT = {
     "timetables": ("GTR timetable against the Network Rail timetable", "Compare timetables"),
     "print_tt": ("Train prints against a timetable (Attune Single Train Report)", "Check timetable"),
     "list_tt": ("Attune train list against a timetable", "Check timetable"),
-    "prints": ("Two sets of train prints (PDF or Word)", "Compare train prints"),
+    "prints": ("Two sets of train prints (PDF or Word) or Attune VPT exports", "Compare train prints"),
     "lists": ("Two Attune train list exports (Excel)", "Compare train lists"),
     "s4docs": ("Two sets of Section 4 documents (PDF)", "Compare Section 4"),
     "tprs": ("Two sets of Timetable Planning Rules (PDF)", "Compare TPRs"),
@@ -32,17 +32,20 @@ SIDES = {
     "timetables": ("GTR timetable:", "Network Rail timetable:"),
     "print_tt": ("Train print(s) - reference:", "Timetable to check:"),
     "list_tt": ("Attune train list - reference:", "Timetable to check:"),
-    "prints": ("Original train print(s):", "Updated train print(s):"),
+    "prints": ("Original train print(s) or VPT:", "Updated train print(s) or VPT:"),
     "lists": ("Original Attune train list:", "Updated Attune train list:"),
     "s4docs": ("Original Section 4 PDF(s):", "Updated Section 4 PDF(s):"),
     "tprs": ("Original TPR PDF(s):", "Updated TPR PDF(s):"),
 }
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
-_FT = {_XL: [("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
+_PV = _PR + (".vpt",)                                   # two sets of train prints: or Attune VPT exports
+_FT = {_PV: [("Train prints and VPT exports", "*.pdf *.docx *.vpt"), ("PDF", "*.pdf"), ("Word", "*.docx"),
+             ("Attune VPT export", "*.vpt"), ("All files", "*.*")],
+       _XL: [("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
        _PR: [("Train prints", "*.pdf *.docx"), ("PDF", "*.pdf"), ("Word", "*.docx"), ("All files", "*.*")],
        _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")],
        (".pdf",): [("PDF", "*.pdf"), ("All files", "*.*")]}
-EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL), "prints": (_PR, _PR),
+EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL), "prints": (_PV, _PV),
         "lists": (_LI, _LI), "s4docs": ((".pdf",), (".pdf",)), "tprs": ((".pdf",), (".pdf",))}
 MULTI = {"print_tt": (True, False), "prints": (True, True), "s4docs": (True, True),     # boxes that take several
          "tprs": (True, True)}                                                          # files
@@ -351,13 +354,25 @@ class TimetableTab(ttk.Frame):
     def place_files(self, paths, key=None):
         """Put dropped files in the right boxes, switching the comparison type when the files say so."""
         prints = [p for p in paths if p.lower().endswith(_PR)]
+        vpts = [p for p in paths if p.lower().endswith(".vpt")]
         sheets = [p for p in paths if p.lower().endswith(_LI)]
-        if not prints and not sheets:
-            messagebox.showwarning(TITLE, "Drop Excel timetables or train lists (.xlsx), or train prints (.pdf / "
-                                          ".docx).")
+        if not prints and not sheets and not vpts:
+            messagebox.showwarning(TITLE, "Drop Excel timetables or train lists (.xlsx), train prints (.pdf / "
+                                          ".docx) or Attune VPT exports (.vpt).")
             return
         self._pick_section("compare")
         mode = self.mode.get()
+        if vpts:                                        # VPT exports are compared as train prints
+            self._set_mode("prints")
+            files = sorted(vpts + prints, key=os.path.getmtime)         # older file(s) are the original
+            if len(files) >= 2:
+                half = len(files) // 2
+                self.vars["a"].set(SEP.join(files[:half]))
+                self.vars["b"].set(SEP.join(files[half:]))
+            else:
+                empty = [k for k in ("a", "b") if not self.vars[k].get().strip()]
+                self.vars[(empty or ["b"])[0]].set(files[0])
+            return
         if key:                                         # dropped on a box that takes these files: they go there
             side = 0 if key == "a" else 1
             fits = [p for p in paths if p.lower().endswith(EXTS[mode][side])]

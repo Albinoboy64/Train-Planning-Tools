@@ -18,3 +18,7 @@ dist/
 TrainPlanningTools-data/
 smoke/
 version_info.txt
+
+# Attune VPT / PIF exports (real timetable data)
+*.vpt
+*.pif

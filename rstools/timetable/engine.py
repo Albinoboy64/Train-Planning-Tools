@@ -285,6 +285,13 @@ def _cmp_prints(first, second, p, lg, passenger_only=False):
     if not orig or not upd:
         raise TimetableRunError("No trains were recognised on one side of the comparison.\n\n"
                                 + "\n".join(warnings))
+    if {bool(t.kind) for t in orig} != {bool(t.kind) for t in upd}:
+        if any(not t.kind and not t.info for t in orig + upd):
+            raise TimetableRunError("A VPT export can be compared with Attune 'Single Train Report' prints, which name "
+                                    "every location and time, but not with other kinds of train print.")
+        warnings.append("A VPT export has no public times or activities, and lays out lines, dwells and allowances "
+                        "differently from a train print, so against a print only the calls, working times, "
+                        "platforms, days, train ID and dates are compared.")
     p(0.5, "Comparing trains...")
     cmp = compare_prints(orig, upd, warnings, passenger_only)
     for w in warnings:
