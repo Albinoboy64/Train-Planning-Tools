@@ -391,6 +391,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.29.0** - location headers and a layout that fits the screen
+* **Berthing chart**: on a sheet with several siding locations (for example Brighton: Platforms / Brighton Wall Siding) each location now starts with a banner row, *Location - <name>*. Charts made earlier (without banners) still open, add rounds and compare as before. Live View names the location in its *Section / tab* column (for example *Brighton - Plat 1*); saved ticks still match.
+* **Layout**: every tab, in every mode, now fits a 1366 x 768 laptop screen when the window fills the screen, with no scrolling. Stock Tools, Stats Pack and Timing Tools each choose what to do from one *Task* drop-down (only that task's options are shown), the logs are shorter, and Live View's lists are lower.
 **3.28.2** - small fixes
 * **Berthing chart**: a unit that arrived before Saturday and leaves after Friday night is now shown leaving once, in the last SAT START column, instead of also in the first one. Column A is now wide enough for the *Other - ...* berth names and the *Unit counts - ...* headings.
 * **CWN files**: an `.xlsb` workbook is checked for an oversized or booby-trapped archive before it is opened, as `.xlsx` files already were.

@@ -57,6 +57,8 @@ class Change:
     kind: str                   # 'Changed', 'Added', 'Removed'
     old: str
     new: str
+    section: str = ""           # the siding location, on a sheet that has several (else '')
+    rank: int = 0               # that location's position on the sheet (chart order)
 
 
 def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
@@ -81,6 +83,16 @@ def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
             for blk in sheet.blocks:
                 names[(norm(sheet.name), norm(getattr(blk, "label", "") or getattr(blk, "title", "")))] = \
                     getattr(blk, "label", "") or getattr(blk, "title", "")
+    # the siding location of each berth, on sheets that have several (the newer chart's wins; renamed sheets match)
+    where: Dict[Tuple[str, str], Tuple[str, int]] = {}
+    for lay in (old, new):
+        for sheet in lay.sheets:
+            if isinstance(sheet, GridSheet) and len(sheet.sections) > 1:
+                sheet_key = norm(sheet.name)
+                sheet_key = rename.get(sheet_key, sheet_key) if lay is old else sheet_key
+                for blk in sheet.blocks:
+                    name = sheet.sections[blk.section] if blk.section < len(sheet.sections) else ""
+                    where[(sheet_key, norm(blk.label))] = (name, blk.section)
     changes: List[Change] = []
     marked: Dict[Key, set] = defaultdict(set)
     heads = {sheet.name: (DAY_COLUMNS if isinstance(sheet, GridSheet) else _depot_heads()) for lay in (old, new)
@@ -115,14 +127,15 @@ def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
         head = heads.get(sheet_name, DAY_COLUMNS)
         column = head[col] if col < len(head) else str(col + 1)
         berth = names.get((sheet_key, berth_key), berth_key)
+        place, rank = where.get((sheet_key, berth_key), ("", 0))
         for i, (r, c) in enumerate(added):
             marked[key].add(r)
             if i < len(removed):
-                changes.append(Change(sheet_name, berth, column, "Changed", removed[i], c.text))
+                changes.append(Change(sheet_name, berth, column, "Changed", removed[i], c.text, place, rank))
             else:
-                changes.append(Change(sheet_name, berth, column, "Added", "", c.text))
+                changes.append(Change(sheet_name, berth, column, "Added", "", c.text, place, rank))
         for t in removed[len(added):]:
-            changes.append(Change(sheet_name, berth, column, "Removed", t, ""))
+            changes.append(Change(sheet_name, berth, column, "Removed", t, "", place, rank))
     return changes, marked
 
 

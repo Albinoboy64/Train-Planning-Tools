@@ -1110,3 +1110,48 @@ def test_idle_window_runs_no_fast_timers(monkeypatch):
             assert app.live_tab._watch_id is None                                  # nothing to watch yet
         finally:
             app.destroy()
+
+
+def test_every_tab_and_mode_fits_a_small_screen(tmp_path, monkeypatch):
+    """On a 1366 x 768 laptop, with the window filling the screen, no tab or mode needs a scrollbar."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("TPT_COMPACT", "1")
+    from cwn_compare import gui
+    from rstools.statspack import gui_tab as sg
+    from rstools.timetable import gui_tab as tg
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        if app.winfo_screenwidth() != 1366 or app.winfo_screenheight() != 768 or app.dpi != 96:
+            pytest.skip("measured on a 1366 x 768 screen at 96 dpi only")
+        app.geometry("1366x696+0+0")
+        app.update()
+        over = []
+
+        def sweep(idx, page, var, redraw, values):
+            app.notebook.select(idx)
+            app.update()
+            for value in values:
+                var.set(value)
+                redraw()
+                app.update()
+                app.update()
+                if page.body.winfo_reqheight() > page.canvas.winfo_height() + 1:
+                    over.append((idx, value, page.body.winfo_reqheight(), page.canvas.winfo_height()))
+
+        stock = app.notebook.nametowidget(app.notebook.tabs()[0])
+        sweep(0, stock, app.mode, app._mode_changed, [m for m, _t in gui.STOCK_TASKS])
+        sweep(1, app.stats_page, app.stats_tab.mode, app.stats_tab._mode_changed, list(sg.MODES))
+        sweep(2, app.tt_page, app.tt_tab.mode, app.tt_tab._mode_changed, list(tg.MODE_TEXT) + [tg.S4])
+        app.notebook.select(3)
+        app.update()
+        if app.live_page.body.winfo_reqheight() > app.live_page.canvas.winfo_height() + 1:
+            over.append((3, "live"))
+        assert not over, over
+    finally:
+        app.destroy()

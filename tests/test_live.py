@@ -287,7 +287,9 @@ def test_live_berthing_and_units(tmp_path, monkeypatch):
     wb["Brighton"]["D2"] = "4 387 0510"
     wb.save(new)
     res = compute("berthing", {"a": [old], "b": [new]})
-    assert len(res.items) == 1 and res.items[0].group == "Brighton" and res.items[0].state in ("changed", "added")
+    assert len(res.items) == 1 and res.items[0].state in ("changed", "added")
+    assert res.items[0].group == "Brighton - Plat 1"                      # the location is named...
+    assert res.items[0].key == "Brighton|Plat 1"                          # ...the key (ticks) is as before
     lines = (ts.diagram("SX", 7, "MO", "700/0", [ts.move("BRGHTN", "", "1", "", "07.00", "1B03SX", "7(1)", 30.0, 30.0),
                                                   ts.act("EBOUSID", "4", "08+00", "WASH")], 30.0, 0.0)
              + ts.diagram("SX", 8, "TO", "700/0", [ts.move("EBOUSID", "", "1", "", "07+00", "5B04SX", "8(1)", 30.0,

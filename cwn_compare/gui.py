@@ -53,6 +53,14 @@ BERTH_MODES = {
 }
 
 
+# every task of the Stock Tools tab, in the order of its Task drop-down: (mode, wording)
+STOCK_TASKS = [("compare", "Compare two CWNs"),
+               ("cumulative", "Add a new round to an earlier comparison CWN"),
+               ("batch", "Compare two folders of CWNs (batch)"),
+               ("reorder", "Put each train's day variants in order (one CWN)"),
+               ("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")
+               ] + [(mode, spec[0]) for mode, spec in BERTH_MODES.items()]
+
 OPENABLE = (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".csv", ".txt", ".log")
 
 
@@ -879,20 +887,22 @@ class App(tk.Tk):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
 
-        # --- CWN comparison: its modes and its two files
-        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. CWN comparison", padding=8)
-        mf.grid(row=0, column=0, sticky="ew")
-        mf.columnconfigure(1, weight=1)
+        # --- the task: one drop-down instead of a stack of radio buttons; only the chosen task's box is shown
         self.mode = tk.StringVar(value="compare")
-        mrow = ttk.Frame(mf)
-        mrow.grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Radiobutton(mrow, text="Compare two CWNs", variable=self.mode, value="compare",
-                        command=self._mode_changed).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(mrow, text="Add a new round to an earlier comparison CWN",
-                        variable=self.mode, value="cumulative",
-                        command=self._mode_changed).grid(row=1, column=0, sticky="w")
-        ttk.Radiobutton(mrow, text="Compare two folders of CWNs (batch)", variable=self.mode, value="batch",
-                        command=self._mode_changed).grid(row=2, column=0, sticky="w")
+        task = ttk.Frame(left)
+        task.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        task.columnconfigure(1, weight=1)
+        ttk.Label(task, text="Task:", font="AppBold").grid(row=0, column=0, padx=(0, 6))
+        self.task_box = ttk.Combobox(task, state="readonly", values=[label for _m, label in STOCK_TASKS])
+        self.task_box.grid(row=0, column=1, sticky="ew")
+        self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
+        self.mode.trace_add("write", lambda *_a: self._task_shown())
+        self._task_shown()
+
+        # --- CWN comparison: its two files
+        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. CWN comparison", padding=8)
+        mf.grid(row=1, column=0, sticky="ew")
+        mf.columnconfigure(1, weight=1)
         self.orig_lbl = ttk.Label(mf, text="Original CWN:")
         self.orig_lbl.grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.orig = tk.StringVar()
@@ -919,14 +929,8 @@ class App(tk.Tk):
 
         # --- utilities: day variants in order (a CWN) and station working books (an Attune XML)
         uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
-        uf.grid(row=1, column=0, sticky="ew", pady=8)
+        uf.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         uf.columnconfigure(1, weight=1)
-        urow = ttk.Frame(uf)
-        urow.grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Radiobutton(urow, text="Put each train's day variants in order (one CWN)", variable=self.mode,
-                        value="reorder", command=self._mode_changed).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(urow, text="Station Working Book (TRACS-RS layout, from an Attune XML)", variable=self.mode,
-                        value="station", command=self._mode_changed).grid(row=1, column=0, sticky="w")
         self.util_lbl = ttk.Label(uf, text="CWN:")
         self.util_lbl.grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.util = tk.StringVar()
@@ -943,7 +947,7 @@ class App(tk.Tk):
 
         # --- output
         of = self.out_frame = ttk.LabelFrame(left, text="2. Output", padding=8)
-        of.grid(row=3, column=0, sticky="ew")
+        of.grid(row=4, column=0, sticky="ew", pady=(6, 0))
         of.columnconfigure(1, weight=1)
         self.out_type = tk.StringVar(value="full")
         type_lbl = ttk.Label(of, text="Output type:")
@@ -1099,7 +1103,7 @@ class App(tk.Tk):
         self.show_old_cbs = []                          # greyed out when the output is 'highlighted only'
         for r, (key, label, has_old, desc) in enumerate(CATEGORIES, start=1):
             lab = ttk.Label(cf, text=label)
-            lab.grid(row=r, column=0, sticky="w", padx=4, pady=1)
+            lab.grid(row=r, column=0, sticky="w", padx=4)
             Tooltip(lab, desc)
             vs = {}
             for ci, what in enumerate(("cwn", "show_old", "report"), start=1):
@@ -1117,11 +1121,11 @@ class App(tk.Tk):
         self.loose_var = tk.BooleanVar(value=True)
         loose = ttk.Checkbutton(cf, text="Ignore differences only in spacing or punctuation",
                                 variable=self.loose_var)
-        loose.grid(row=len(CATEGORIES) + 2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        loose.grid(row=len(CATEGORIES) + 2, column=0, columnspan=4, sticky="w", pady=(3, 0))
         Tooltip(loose, "Destinations, routing and notes that differ only in spaces or punctuation (e.g. "
                         "'(via  Redhill.)' and '(via Redhill)') are not reported.")
         bf = ttk.Frame(cf)
-        bf.grid(row=len(CATEGORIES) + 3, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        bf.grid(row=len(CATEGORIES) + 3, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Button(bf, text="Reset to defaults", command=self._reset_cats).grid(row=0, column=0)
         ttk.Button(bf, text="Highlight only (no old values)", command=self._highlight_only).grid(
             row=0, column=1, padx=6)
@@ -1130,7 +1134,7 @@ class App(tk.Tk):
         rf = self.run_frame = ttk.LabelFrame(right, text="4. Run", padding=8)
         rf.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
         rf.columnconfigure(0, weight=1)
-        rf.rowconfigure(2, weight=1, minsize=90)        # the log stays visible at the smallest size
+        rf.rowconfigure(2, weight=1, minsize=60)        # the log stays visible at the smallest size
         top = ttk.Frame(rf)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
@@ -1145,7 +1149,7 @@ class App(tk.Tk):
         logf.grid(row=2, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
         logf.rowconfigure(0, weight=1)
-        self.log = tk.Text(logf, height=8, wrap="word", font="TkFixedFont", state="disabled")
+        self.log = tk.Text(logf, height=4, wrap="word", font="TkFixedFont", state="disabled")
         self.log.grid(row=0, column=0, sticky="nsew")
         sb = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
         sb.grid(row=0, column=1, sticky="ns")
@@ -1166,13 +1170,8 @@ class App(tk.Tk):
     # ------------------------------------------------------------ berthing charts
     def _build_berthing(self, left):
         bf = self.berth_frame = ttk.LabelFrame(left, text="Berthing charts", padding=8)
-        bf.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        bf.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         bf.columnconfigure(1, weight=1)
-        brow = ttk.Frame(bf)
-        brow.grid(row=0, column=0, columnspan=3, sticky="w")
-        for i, (value, (text, _rows, _run, _intro)) in enumerate(BERTH_MODES.items()):
-            ttk.Radiobutton(brow, text=text, variable=self.mode, value=value,
-                            command=self._mode_changed).grid(row=i, column=0, sticky="w")
         self.berth_vars = {m: [tk.StringVar() for _r in spec[1]] for m, spec in BERTH_MODES.items()}
         self.berth_rows: Dict[str, list] = {}
         for mode, (_t, rows, _r, _i) in BERTH_MODES.items():
@@ -1553,6 +1552,19 @@ class App(tk.Tk):
         for vs in self.cat_vars.values():
             vs["show_old"].set(False)
 
+    def _task_picked(self, _event=None):
+        """A task chosen in the drop-down: the same as picking its radio button used to be."""
+        index = self.task_box.current()
+        if 0 <= index < len(STOCK_TASKS) and STOCK_TASKS[index][0] != self.mode.get():
+            self.mode.set(STOCK_TASKS[index][0])
+            self._mode_changed()
+
+    def _task_shown(self):
+        """The drop-down shows the current mode (it is set from saved settings, drops and presets as well)."""
+        label = dict(STOCK_TASKS).get(self.mode.get(), STOCK_TASKS[0][1])
+        if self.task_box.get() != label:
+            self.task_box.set(label)
+
     def _pick_section(self, section: str):
         """Typing in (or dropping on) a section's box picks that section, keeping its last mode."""
         mode = self.mode.get()
@@ -1587,7 +1599,7 @@ class App(tk.Tk):
         self.util_lbl.configure(text="Attune XML:" if station else "CWN:")
         for frame, on in ((self.cmp_frame, not single), (self.util_frame, reorder or station),
                           (self.berth_frame, berth)):
-            frame.configure(style="TLabelframe" if on else "Off.TLabelframe")
+            (frame.grid if on else frame.grid_remove)()              # only the chosen task's box is shown
         for w in self._compare_only:
             (w.grid_remove if single else w.grid)()
         if mode in ("berth_round", "berth_compare"):         # a round of changes is highlighted in a colour

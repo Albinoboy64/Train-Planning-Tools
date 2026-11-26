@@ -8,8 +8,8 @@ import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .chart import fix_text
-from .layout import (COUNTS_END, COUNTS_HEAD, DAY_COLUMNS, DEPOT_DAYS, SECTION_LINE, Block, CoverRow, DepotSheet,
-                     GridSheet, Layout)
+from .layout import (COUNTS_END, COUNTS_HEAD, DAY_COLUMNS, DEPOT_DAYS, SECTION_HEAD, SECTION_LINE, Block, CoverRow,
+                     DepotSheet, GridSheet, Layout)
 
 FONT = "Arial"
 HEADER_FILL = "FFFF00"
@@ -214,6 +214,11 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
     sections = sorted({b.section for b in sheet.blocks})
     for sec in sections:
         blocks = [b for b in sheet.blocks if b.section == sec]
+        if len(sections) > 1:                           # a sheet with several siding locations: name each one
+            name = sheet.sections[sec] if sec < len(sheet.sections) else ""
+            if name and not blocks[0].label.startswith(OTHER_PREFIX):       # an 'Other - ...' berth is its own name
+                r += 1
+                _location_banner(ws, r, name)
         for blk in blocks:
             short, _long = _short_notes(blk)
             notes, first = _box_notes(blk), _notes_start(blk)
@@ -257,6 +262,21 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
     ws.print_title_rows = f"{hdr}:{hdr}"
     ws.print_area = f"A1:R{max(r, hdr)}"
     _print(ws)
+
+
+def _location_banner(ws, r: int, name: str):
+    """The name of a siding location across the whole sheet (white bold on the location line's blue), above its berths.
+    A chart made by the app is read back with these rows skipped (layout.SECTION_HEAD)."""
+    from openpyxl.styles import Alignment
+    cell = ws.cell(r, 1, f"{SECTION_HEAD} \u2013 {fix_text(name)}")
+    cell.font = _font(11, True, "FFFFFF")
+    cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    for c in range(1, 19):
+        ws.cell(r, c).fill = _fill(SECTION_LINE)
+        ws.cell(r, c).border = _border(left="medium" if c == 1 else "", right="medium" if c == 18 else "",
+                                       bottom="thin")
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=18)
+    ws.row_dimensions[r].height = ROW_HEIGHT * 1.35
 
 
 def _box_note(ws, r: int, text: str, bottom: str = ""):

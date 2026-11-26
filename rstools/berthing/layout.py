@@ -24,6 +24,7 @@ _UNIT = re.compile(r"^\s*L?\s*\(?\s*(?:\d{1,2}\s*\d{3}(?:/\d)?|MAINT)\b", re.I) 
 _COUNT_ROW = re.compile(r"^\*.*\*$")
 _MARKER = re.compile(r"^(start|finish)\s*\d*$", re.I)
 COUNTS_HEAD = "Unit counts"             # the heading of a siding location's counts in a chart made by the app
+SECTION_HEAD = "Location"               # the banner row above each siding location (sheets with several)
 COUNTS_END = "Cars"                     # ... and its last row
 SECTION_LINE = "1F4E79"                 # the line under the last berth of a siding location (app-made charts)
 _DEPOT_TITLE = re.compile(r"^\s*\d{1,2}\s+\d{3}(?:/\d)?\s*$")
@@ -217,6 +218,7 @@ def _read_sheet(ws, locations: Optional[Locations]) -> Optional[Sheet]:
     counting = False
     ended = False                   # the current siding location has ended (its counts or its line were passed)
     names: Dict[int, str] = {}      # section -> its name, where the chart gives one ('Start2  Brighton Wall Siding')
+    heads: Dict[int, str] = {}      # section -> the name on its 'Location – <name>' banner (a chart made by the app)
     section = 0
 
     def end_section(name: str = ""):
@@ -228,6 +230,12 @@ def _read_sheet(ws, locations: Optional[Locations]) -> Optional[Sheet]:
     for r in range(hdr + 1, ws.max_row + 1):
         a, b = _text(ws.cell(r, 1).value), _text(ws.cell(r, 2).value) if col0 > 2 else ""
         data = [ws.cell(r, col0 + i) for i in range(16)]
+        if a.startswith(SECTION_HEAD + " \u2013 ") and not any(_text(c.value) for c in data):
+            # the banner above a siding location: it names the next berths' location and is not a berth or a note
+            if sheet.blocks:
+                ended = True
+            heads[section + 1 if sheet.blocks else 0] = a[len(SECTION_HEAD) + 3:].strip()
+            continue
         if _MARKER.match(a):
             counting = a.lower().startswith("start")        # 'Start1' ... 'Finish1': the old counts
             end_section(b if counting else "")
@@ -276,7 +284,7 @@ def _read_sheet(ws, locations: Optional[Locations]) -> Optional[Sheet]:
         if _section_line(ws.cell(r, 1)):
             end_section()
     _join_labels(sheet, known)
-    sheet.sections = _section_names(sheet, names, section + 1) if sheet.blocks else []
+    sheet.sections = _section_names(sheet, {**names, **heads}, section + 1) if sheet.blocks else []
     for blk in sheet.blocks:                     # trailing empty rows at the end of the sheet are not kept
         used = [o for o in blk.units] + [o for o in blk.notes] + [o for o, _c in blk.data_notes]
         blk.height = max([blk.height if blk is not sheet.blocks[-1] else 1] + [o + 1 for o in used])

@@ -121,11 +121,14 @@ class StatsPackTab(ttk.Frame):
         mf = ttk.LabelFrame(left, text="1. What to do", padding=8)
         mf.grid(row=0, column=0, sticky="ew")
         self.mode = tk.StringVar(value="create")
-        for i, (val, (text, _btn)) in enumerate(MODES.items()):
-            ttk.Radiobutton(mf, text=text, variable=self.mode, value=val, command=self._mode_changed).grid(
-                row=2 * i, column=0, sticky="w")
+        mf.columnconfigure(1, weight=1)
+        ttk.Label(mf, text="Task:").grid(row=0, column=0, sticky="w")
+        self.task_box = ttk.Combobox(mf, state="readonly", values=[text for text, _btn in MODES.values()])
+        self.task_box.grid(row=0, column=1, sticky="ew", padx=4)
+        self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
+        self.mode.trace_add("write", lambda *_a: self._task_shown())
         uf = self.units_frame = ttk.Frame(mf)
-        uf.grid(row=2 * list(MODES).index("units") + 1, column=0, sticky="w", padx=(22, 0), pady=(2, 4))
+        uf.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.unit_vars = {k: tk.BooleanVar(value=True) for k in UNIT_REPORTS}
         for i, (key, text) in enumerate((("washes", "Washes and CETs"), ("depots", "Depot returns / swaps"),
                                          ("captive", "Captive units"), ("fuel", "Fuel check (171s)"))):
@@ -140,11 +143,11 @@ class StatsPackTab(ttk.Frame):
         ttk.Checkbutton(uf, text="Compare two timetables (original and updated XML + TRENT print)",
                         variable=self.two_plans, command=self._mode_changed).grid(row=4, column=0, columnspan=3,
                                                                                   sticky="w", pady=(2, 0))
-        self._build_seats(mf, 2 * list(MODES).index("seats") + 1)
+        self._build_seats(mf, 1)
 
         # 2. files
         ff = ttk.LabelFrame(left, text="2. Files", padding=8)
-        ff.grid(row=1, column=0, sticky="ew", pady=8)
+        ff.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ff.columnconfigure(1, weight=1)
         self.vars = {k: tk.StringVar() for k in ("xml_a", "trent_a", "xml_b", "trent_b", "pack_a", "pack_b")}
         self.file_rows = {}
@@ -269,7 +272,7 @@ class StatsPackTab(ttk.Frame):
         logf.grid(row=2, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
         logf.rowconfigure(0, weight=1)
-        self.log = tk.Text(logf, height=8, wrap="word", font="TkFixedFont", state="disabled",
+        self.log = tk.Text(logf, height=4, wrap="word", font="TkFixedFont", state="disabled",
                            relief="flat", borderwidth=1, highlightthickness=1, highlightcolor="#B0B0B0",
                            highlightbackground="#C8C8C8")
         self.log.grid(row=0, column=0, sticky="nsew")
@@ -348,7 +351,7 @@ class StatsPackTab(ttk.Frame):
         day / week, an optional time window, and comparing two timetables."""
         from .seats import DIRECTIONS, JOURNEY
         sf = self.seats_frame = ttk.Frame(parent)
-        sf.grid(row=row, column=0, sticky="ew", padx=(22, 0), pady=(2, 0))
+        sf.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         sf.columnconfigure(1, weight=1)
         self.seat_kind = tk.StringVar(value="Service group")
         self.seat_group = {"Service group": tk.StringVar(), "Corridor": tk.StringVar()}
@@ -365,7 +368,7 @@ class StatsPackTab(ttk.Frame):
             box.bind("<Key>", lambda e, f=pick: f() if e.char and e.char.isprintable() else None, add="+")
             Suggest(box, lambda b=box: b.cget("values"), pick)
             self.seat_boxes[kind] = box
-        self.seat_group_note = theme.collapse_empty(ttk.Label(sf, text="", style="Small.TLabel", wraplength=400,
+        self.seat_group_note = theme.collapse_empty(ttk.Label(sf, text="", style="Small.TLabel", wraplength=640,
                                                               justify="left"))
         self.seat_group_note.grid(row=1, column=1, sticky="w", padx=(4, 0))
         self.corridor_dir = tk.StringVar(value="both")
@@ -375,7 +378,7 @@ class StatsPackTab(ttk.Frame):
         for i, k in enumerate(("forward", "reverse", "both")):
             rb = ttk.Radiobutton(cdf, text=k, variable=self.corridor_dir, value=k,
                                  command=lambda: (self.seat_kind.set("Corridor"), self._seat_kind_changed()))
-            rb.grid(row=i, column=0, sticky="w")
+            rb.grid(row=0, column=i, sticky="w", padx=(0, 8))
             self.corridor_dir_radios[k] = rb
         self.seat_group["Corridor"].trace_add("write", lambda *_a: self._fill_corridor_dirs())
         ttk.Radiobutton(sf, text="Station to station:", variable=self.seat_kind, value=JOURNEY,
@@ -404,10 +407,11 @@ class StatsPackTab(ttk.Frame):
         ttk.Label(cap, text="Show:").grid(row=0, column=0, padx=(0, 6))
         ttk.Checkbutton(cap, text="Seating capacity", variable=self.seating_var).grid(row=0, column=1, padx=(0, 10))
         ttk.Checkbutton(cap, text="Standing room", variable=self.standing_var).grid(row=0, column=2)
-        ttk.Radiobutton(pf, text="Whole week (each day, week total and daily average)", variable=self.seat_week,
+        ttk.Radiobutton(pf, text="Whole week (days, total, average)", variable=self.seat_week,
                         value=True).grid(row=1, column=0, sticky="w")
         ttk.Radiobutton(pf, text="Each ticked day on its own", variable=self.seat_week, value=False).grid(
-            row=2, column=0, sticky="w")
+            row=1, column=1, sticky="w", padx=(12, 0))
+        cap.grid_configure(columnspan=2)
         wf = ttk.Frame(sf)
         wf.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.seat_window = tk.BooleanVar(value=False)
@@ -438,7 +442,7 @@ class StatsPackTab(ttk.Frame):
                         variable=self.two_plans, command=self._mode_changed).grid(row=8, column=0, columnspan=2,
                                                                                   sticky="w", pady=(4, 0))
         ttk.Button(sf, text="Edit corridors...", command=self.edit_groups).grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(6, 0))
+            row=6, column=1, sticky="e")
         self._stations: list = []
         self._headcode_groups: list = []
         self._load_groups()
@@ -524,6 +528,18 @@ class StatsPackTab(ttk.Frame):
         self.after(2000, self._load_groups)
 
     # ------------------------------------------------------------ helpers
+    def _task_picked(self, _event=None):
+        index = self.task_box.current()
+        modes = list(MODES)
+        if 0 <= index < len(modes) and modes[index] != self.mode.get():
+            self.mode.set(modes[index])
+            self._mode_changed()
+
+    def _task_shown(self):
+        label = MODES.get(self.mode.get(), next(iter(MODES.values())))[0]
+        if self.task_box.get() != label:
+            self.task_box.set(label)
+
     def _mode_changed(self):
         mode = self.mode.get()
         shown = dict(files_for(mode, self.two_plans.get()))

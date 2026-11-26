@@ -156,11 +156,13 @@ class TimetableTab(ttk.Frame):
         mf.grid(row=0, column=0, sticky="ew")
         mf.columnconfigure(1, weight=1)
         self.mode = tk.StringVar(value="timetables")
-        mrow = ttk.Frame(mf)
-        mrow.grid(row=0, column=0, columnspan=4, sticky="w")
-        for i, (key, (text, _btn)) in enumerate(MODE_TEXT.items()):
-            ttk.Radiobutton(mrow, text=text, variable=self.mode, value=key, command=self._mode_changed).grid(
-                row=i, column=0, sticky="w")
+        self.tasks = [(key, text) for key, (text, _btn) in MODE_TEXT.items()] + [
+            (S4, "Section 4 check: trains in Network Rail's standard possession times")]
+        ttk.Label(mf, text="Task:").grid(row=0, column=0, sticky="w")
+        self.task_box = ttk.Combobox(mf, state="readonly", values=[t for _k, t in self.tasks])
+        self.task_box.grid(row=0, column=1, columnspan=3, sticky="ew", padx=4)
+        self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
+        self.mode.trace_add("write", lambda *_a: self._task_shown())
         self.vars = {"a": tk.StringVar(), "b": tk.StringVar()}
         self.rows, self.clear_btns = {}, {}
         for r, key in enumerate(self.vars, start=1):
@@ -193,13 +195,12 @@ class TimetableTab(ttk.Frame):
         Tooltip(self.pax_cb, "For prints where one side does not show the intermediate timing points: passing "
                              "times and calls without a public time are not compared.")
 
+        self._cmp_widgets = [w for w in mf.grid_slaves() if int(w.grid_info()["row"]) >= 1]
+
         # --- utilities: the Section 4 possession check (Attune XML + Network Rail's Section 4 PDFs)
         uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
-        uf.grid(row=1, column=0, sticky="ew", pady=8)
+        uf.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         uf.columnconfigure(1, weight=1)
-        ttk.Radiobutton(uf, text="Section 4 check: trains in Network Rail's standard possession times",
-                        variable=self.mode, value=S4, command=self._mode_changed).grid(row=0, column=0,
-                                                                                   columnspan=4, sticky="w")
         self.s4_vars = {"xml": tk.StringVar(), "pdf": tk.StringVar()}
         self.s4_boxes = {}
         for r, (key, text) in enumerate((("xml", "Attune XML:"), ("pdf", "Section 4 PDF(s):")), start=1):
@@ -228,7 +229,7 @@ class TimetableTab(ttk.Frame):
         self._last_cmp = "timetables"
 
         of = ttk.LabelFrame(left, text="2. Output", padding=8)
-        of.grid(row=2, column=0, sticky="ew")
+        of.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         of.columnconfigure(1, weight=1)
         ttk.Label(of, text="Save to folder:").grid(row=0, column=0, sticky="w")
         self.out_dir = tk.StringVar()
@@ -267,7 +268,7 @@ class TimetableTab(ttk.Frame):
         logf.grid(row=2, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
         logf.rowconfigure(0, weight=1)
-        self.log = tk.Text(logf, height=14, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
+        self.log = tk.Text(logf, height=4, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
                            borderwidth=1, highlightthickness=1, highlightcolor="#B0B0B0",
                            highlightbackground="#C8C8C8")
         self.log.grid(row=0, column=0, sticky="nsew")
@@ -455,8 +456,12 @@ class TimetableTab(ttk.Frame):
     def _mode_changed(self):
         mode = self.mode.get()
         util = mode == S4
-        for frame, on in ((self.cmp_frame, not util), (self.util_frame, util)):
-            frame.configure(style="TLabelframe" if on else "Off.TLabelframe")
+        (self.util_frame.grid if util else self.util_frame.grid_remove)()
+        for w in self._cmp_widgets:
+            (w.grid_remove if util else w.grid)()
+        if not util:
+            (self.pax_cb.grid if self._cmp_mode() == "prints" else self.pax_cb.grid_remove)()
+        self._task_shown()
         if not util:
             self._last_cmp = mode
         cmp = self._cmp_mode()                       # the comparison section keeps its own choice
@@ -474,6 +479,16 @@ class TimetableTab(ttk.Frame):
         if not self.running:
             self.status.configure(text="Ready - press F5 or Ctrl+Enter to run")
         self._update_name_hint()
+
+    def _task_picked(self, _event=None):
+        index = self.task_box.current()
+        if 0 <= index < len(self.tasks):
+            self._set_mode(self.tasks[index][0])
+
+    def _task_shown(self):
+        label = dict(self.tasks).get(self.mode.get(), self.tasks[0][1])
+        if self.task_box.get() != label:
+            self.task_box.set(label)
 
     def _update_name_hint(self):
         mode = self.mode.get()

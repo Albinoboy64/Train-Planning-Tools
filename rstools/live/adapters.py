@@ -507,11 +507,14 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
         by_berth[(c.sheet, c.berth)].append(c)
     state_of = {"Changed": CHANGED, "Added": ADDED, "Removed": REMOVED}
     items: List[LiveItem] = []
-    for (sheet, berth), cs in by_berth.items():
+    # chart order: by sheet, then by siding location (a sheet with several), then by berth
+    for (sheet, berth), cs in sorted(by_berth.items(), key=lambda kv: (kv[0][0], kv[1][0].rank, kv[0][1])):
         kinds = {c.kind for c in cs}
         state = state_of[next(iter(kinds))] if len(kinds) == 1 else CHANGED
         rows = [LiveRow([c.column or "-", c.old, c.new], state_of.get(c.kind, CHANGED)) for c in cs]
-        items.append(LiveItem(f"{sheet}|{berth}", sheet, berth, state, f"{len(cs)} difference(s)", rows,
+        place = cs[0].section                                   # the location, on a sheet that has several
+        items.append(LiveItem(f"{sheet}|{berth}", f"{sheet} - {place}" if place else sheet, berth, state,
+                              f"{len(cs)} difference(s)", rows,
                               [f"{c.column}: {c.kind.lower()} ({c.old or '-'} -> {c.new or '-'})" for c in cs],
                               len(items)))
     return LiveResult(f"{os.path.basename(old_path)}  vs  {os.path.basename(new_path)}",

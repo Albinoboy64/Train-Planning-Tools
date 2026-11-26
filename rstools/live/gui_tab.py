@@ -197,7 +197,7 @@ class LiveTab(ttk.Frame):
         self._search_after = None
         self.search.trace_add("write", lambda *_a: self._search_soon())
         self.listv = ttk.Treeview(left, columns=("ok", "group", "train", "status"), show="headings",
-                                  selectmode="browse")
+                                  selectmode="browse", height=6)
         for col, text in (("ok", TICK), ("group", "Section / tab"), ("train", "Train"), ("status", "Status")):
             self.listv.heading(col, text=text)
             self.listv.column(col, anchor="center" if col == "ok" else "w", stretch=col == "status")
@@ -233,7 +233,7 @@ class LiveTab(ttk.Frame):
         right.rowconfigure(1, weight=1)
         self.head = ttk.Label(right, text="", style="Head.TLabel", wraplength=640, justify="left")
         self.head.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
-        self.detail = ttk.Treeview(right, show="headings", selectmode="browse")
+        self.detail = ttk.Treeview(right, show="headings", selectmode="browse", height=6)
         self.detail.grid(row=1, column=0, sticky="nsew")
         self.detail.bind("<<TreeviewSelect>>", lambda _e: self._row_picked())
         self.detail.bind("<ButtonRelease-1>", self._detail_click, add="+")
@@ -247,12 +247,12 @@ class LiveTab(ttk.Frame):
         hsb = ttk.Scrollbar(right, orient="horizontal", command=self.detail.xview)
         hsb.grid(row=2, column=0, sticky="ew")
         self.detail.configure(yscrollcommand=dsb.set, xscrollcommand=hsb.set)
-        self.notes = tk.Text(right, height=6, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
+        self.notes = tk.Text(right, height=4, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
                              borderwidth=1, highlightthickness=1)
         self.notes.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.legend = ttk.Label(right, text="Yellow: changed   Green: added   Red: removed / missing   Orange: issue   "
-                                            "Grey: not compared\nClick a row to highlight it "
-                                            "and see its full values above.", style="Small.TLabel")
+                                            "Grey: not compared   "
+                                            "(click a row to see its full values)", style="Small.TLabel")
         self.legend.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
         for widget in (self.listv, self.detail):
             widget.bind("<F3>", lambda _e: self.step(1) or "break")

@@ -113,6 +113,11 @@ def make_chart(path, extra_sheet=None, rdh_name="Hove Yard"):
     wb.save(path)
 
 
+def row_of(ws, label, col=1):
+    """The row whose column `col` holds `label` (rows move when a sheet's locations have their banner rows)."""
+    return next(r for r in range(1, ws.max_row + 1) if ws.cell(r, col).value == label)
+
+
 @pytest.fixture
 def data(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
@@ -156,10 +161,11 @@ def test_generate_chart(data):
     wb = openpyxl.load_workbook(r.chart)
     ws = wb["Brighton"]
     assert [c.value for c in ws[1]][:3] == ["Siding", "Capacity", "FRI FINISH"]
-    assert ws["A2"].value == "Plat 1" and ws["B2"].value == 12 or ws["B2"].value == "12"
-    assert ws["I2"].value == "4 387 02+02" and ws["J2"].value == "4 387 0500"            # Mon finish / Tue start
-    assert ws["I2"].font.color.rgb == "FF00B050"                                          # 387/3: green
-    assert ws["A3"].value == "NO ATTACH"                                                  # spelling slip fixed
+    p1 = row_of(ws, "Plat 1")
+    assert ws.cell(p1, 2).value in (12, "12")
+    assert ws.cell(p1, 9).value == "4 387 02+02" and ws.cell(p1, 10).value == "4 387 0500"    # Mon finish / Tue start
+    assert ws.cell(p1, 9).font.color.rgb == "FF00B050"                                    # 387/3: green
+    assert ws.cell(p1 + 1, 1).value == "NO ATTACH"                                        # spelling slip fixed
     assert not any(isinstance(c.value, str) and (c.value.startswith("=") or "COUNTIF" in c.value or
                                                  c.value in ("Start1", "Finish1", "*4 387*"))
                    for row in ws.iter_rows() for c in row)                                 # old counts gone
@@ -182,9 +188,10 @@ def test_stp_chart_marks_stp_trains(data):
     (data / "stp.xml").write_text(xml(stp_trains, stp_diagrams))
     r = engine.generate([str(data / "plan.xml"), str(data / "stp.xml")], str(data / "chart.xlsx"), str(data))
     ws = openpyxl.load_workbook(r.chart)["Brighton"]
-    thu = ws["O2"]                                                                        # Thursday finish
+    p1 = row_of(ws, "Plat 1")
+    thu = ws.cell(p1, 15)                                                                 # Thursday finish
     assert thu.value == "4 387 03+15" and thu.font.b and thu.fill.fgColor.rgb == "FFE4DFEC"
-    assert not ws["M2"].font.b                                                             # Wednesday: LTP
+    assert not ws.cell(p1, 13).font.b                                                      # Wednesday: LTP
     assert "STP" in r.chart
 
 
@@ -194,14 +201,17 @@ def test_add_round_highlights_only_changes(data):
     (data / "plan2.xml").write_text(xml(trains, diagrams))
     # an earlier round's colour on a cell that does not change this time is kept
     wb = openpyxl.load_workbook(first.chart)
-    wb["Brighton"]["J2"].fill = openpyxl.styles.PatternFill("solid", fgColor="FF00B0F0")
+    sheet = wb["Brighton"]
+    sheet.cell(row_of(sheet, "Plat 1"), 10).fill = openpyxl.styles.PatternFill("solid", fgColor="FF00B0F0")
     wb.save(first.chart)
     r = engine.add_round(first.chart, [str(data / "plan.xml")], [str(data / "plan2.xml")], "92D050", str(data),
                          "", "Proof 3")
     ws = openpyxl.load_workbook(r.chart)["Brighton"]
-    assert ws["I2"].value == "4 387 02+10" and ws["I2"].fill.fgColor.rgb == "FF92D050"     # changed: new colour
-    assert ws["J2"].fill.fgColor.rgb == "FF00B0F0"                                          # earlier round kept
-    assert ws["C8"].fill.fill_type is None                                                 # unchanged: no fill
+    p1, p7 = row_of(ws, "Plat 1"), row_of(ws, "Plat 7")
+    assert ws.cell(p1, 9).value == "4 387 02+10"
+    assert ws.cell(p1, 9).fill.fgColor.rgb == "FF92D050"                                    # changed: new colour
+    assert ws.cell(p1, 10).fill.fgColor.rgb == "FF00B0F0"                                   # earlier round kept
+    assert ws.cell(p7, 3).fill.fill_type is None                                           # unchanged: no fill
     rep = openpyxl.load_workbook(r.report)["Changes"]
     rows = [[c.value for c in row] for row in rep.iter_rows(min_row=2) if row[0].value]
     assert rows and all(row[:2] == ["Brighton", "Plat 1"] and row[5] == "4 387 02+10" for row in rows)
@@ -225,7 +235,8 @@ def test_compare_charts(data):
     assert ["Barnham", "(whole sheet)", None, "Removed", "Sheet not in the newer chart", None] in rows
     assert len(rows) == 2                                    # spacing and the renamed sheet are not changes
     ws = openpyxl.load_workbook(r.chart)["Brighton"]
-    assert ws["D2"].fill.fgColor.rgb == "FFFFC000" and ws["C2"].fill.fill_type is None
+    p1 = row_of(ws, "Plat 1")
+    assert ws.cell(p1, 4).fill.fgColor.rgb == "FFFFC000" and ws.cell(p1, 3).fill.fill_type is None
 
 
 def test_canonical_text():
@@ -301,13 +312,17 @@ def test_original_style_formatting_sections_and_counts(data):
     assert _fill(ws.cell(p1, 1)) == _fill(ws.cell(p1, 2)) == SIDING_FILL and ws.cell(p1, 1).font.b
     note = ws.cell(labels["NO ATTACH"], 1)
     assert note.font.b and note.font.color.rgb[-6:] == NOTE_COLOUR and _fill(note) == SIDING_FILL
-    assert ws.cell(p7 - 1, 1).border.bottom.color.rgb[-6:] == SECTION_LINE      # line under the first location
+    assert ws.cell(p7 - 2, 1).border.bottom.color.rgb[-6:] == SECTION_LINE      # line under the first location
+    assert ws.cell(p7 - 1, 1).value == "Location \u2013 Plat 7"
+    assert ws.cell(p1 - 1, 1).value == "Location \u2013 Plat 1"
+    assert _fill(ws.cell(p7 - 1, 1)) == SECTION_LINE and ws.cell(p7 - 1, 1).font.b      # a banner above each location
     other = labels[next(k for k in labels if str(k).startswith("Other -"))]
     in_box = [r for r in range(p7, other) if ws.cell(r, 3).value == "OUT OF USE UNTIL FURTHER NOTICE"]
     assert in_box and any(str(rng).startswith(f"C{in_box[0]}:R") for rng in ws.merged_cells.ranges)
     assert ws.cell(in_box[0], 3).font.b and ws.cell(in_box[0], 3).font.color.rgb[-6:] == NOTE_COLOUR
     assert not any(ws.cell(r, 1).value == "OUT OF USE UNTIL FURTHER NOTICE" for r in range(1, ws.max_row + 1))
-    assert p7 - p1 == other - p7                              # every box on the sheet the same height
+    assert not any(str(v).startswith("Location") and "Other" in str(v) for v in labels)    # 'Other' is its own name
+    assert p7 - 1 - p1 == other - p7                          # every box the same height (a banner lies between)
     assert len({ws.column_dimensions[c].width for c in "CDEFGHIJKLMNOPQR"}) == 1
     assert not any(str(v).startswith("Unit counts") for v in labels)            # counts only when asked for
     ws = openpyxl.load_workbook(counted.chart)["Brighton"]
@@ -324,7 +339,8 @@ def test_original_style_formatting_sections_and_counts(data):
     for path in (plain.chart, counted.chart):                # charts made by the app read back the same
         again = next(s for s in read_chart(path, load()).sheets if s.name == "Brighton")
         assert [(b.label, b.section) for b in again.blocks][:2] == [("Plat 1", 0), ("Plat 7", 1)]
-        assert not any(b.label in ("4 377", "Cars") or b.label.startswith("Unit counts") for b in again.blocks)
+        assert not any(b.label in ("4 377", "Cars") or b.label.startswith(("Unit counts", "Location"))
+                       for b in again.blocks)
     round_ = engine.add_round(counted.chart, [str(data / "plan.xml")], [str(data / "plan.xml")], "92D050",
                               str(data), "round", counts=True)
     assert round_.summary.startswith("0 change")
@@ -470,3 +486,75 @@ def test_chart_column_a_fits_the_counts_heading_and_other_label(tmp_path):
     heading = f"{COUNTS_HEAD} – {name}"
     assert plain_a >= len(other) * 1.15 + 3                    # the 'Other - ' label always fits now
     assert counts_a >= len(heading) * 1.15 + 3 and counts_a >= plain_a
+
+
+# --------------------------------------------------------------------------- a banner above each siding location
+def _banners(ws):
+    return [(r, ws.cell(r, 1).value) for r in range(1, ws.max_row + 1)
+            if str(ws.cell(r, 1).value or "").startswith("Location \u2013 ")]
+
+
+def test_each_location_on_a_multi_location_sheet_has_a_banner(data):
+    r = engine.generate([str(data / "plan.xml")], str(data / "chart.xlsx"), str(data), "banners", "Proof 2")
+    wb = openpyxl.load_workbook(r.chart)
+    brighton = wb["Brighton"]
+    banners = _banners(brighton)
+    assert [text for _r, text in banners] == ["Location \u2013 Plat 1", "Location \u2013 Plat 7"]   # not for 'Other -'
+    first = banners[0][0]
+    assert any(str(rng) == f"A{first}:R{first}" for rng in brighton.merged_cells.ranges)           # across the sheet
+    assert brighton.row_dimensions[first].height > 15 and brighton.cell(first, 1).font.color.rgb[-6:] == "FFFFFF"
+    assert _banners(wb["Hove Yard"]) == []                    # one location: the sheet looks as it did
+    assert wb["Hove Yard"]["A2"].value == "Siding 3"
+
+
+def test_banners_on_the_built_in_layout_read_back_the_same(data):
+    from rstools.berthing import layout as L
+    from rstools.berthing.mapping import load
+    first = engine.generate([str(data / "plan.xml")], "", str(data), "one", "Proof 1")
+    wb = openpyxl.load_workbook(first.chart)
+    three = wb["Three Bridges"]
+    assert [text for _r, text in _banners(three)] == [
+        "Location \u2013 Back Road", "Location \u2013 Up Horsham Sdg", "Location \u2013 Up Siding North",
+        "Location \u2013 Tilgate"]
+    built = {s.name: s for s in L.load_default().sheets}
+    again = {s.name: s for s in L.read_chart(first.chart, load()).sheets}
+    for name in ("Brighton", "Three Bridges"):
+        assert again[name].sections == built[name].sections                   # names survive the round trip
+        assert [(b.label, b.section) for b in again[name].blocks] == [(b.label, b.section) for b in built[name].blocks]
+        assert again[name].lead == built[name].lead                           # a banner is never kept as a note
+    multi = [sh for sh in built.values() if len(getattr(sh, "sections", [])) > 1]
+    assert sum(len(_banners(ws)) for ws in wb.worksheets) == sum(len(sh.sections) for sh in multi) >= 20
+
+
+def test_rounds_and_comparisons_ignore_the_banners(data):
+    first = engine.generate([str(data / "plan.xml")], str(data / "chart.xlsx"), str(data), "r1", "Proof 1")
+    second = engine.add_round(first.chart, [str(data / "plan.xml")], [str(data / "plan.xml")], "92D050", str(data),
+                              "r2")
+    third = engine.add_round(second.chart, [str(data / "plan.xml")], [str(data / "plan.xml")], "92D050", str(data),
+                             "r3", counts=True)
+    sheets = [openpyxl.load_workbook(p.chart)["Brighton"] for p in (first, second, third)]
+    assert [len(_banners(ws)) for ws in sheets] == [2, 2, 2]                 # no banner lost or doubled
+    assert sheets[0].max_row == sheets[1].max_row                             # nothing grew round to round
+    notes = [ws.cell(r, 1).value for ws in sheets[:2] for r in range(1, ws.max_row + 1)]
+    assert "Plat 1" in notes and not any(str(n).startswith("Location") and "NO ATTACH" in str(n) for n in notes)
+    assert second.summary.startswith("0 change") and third.summary.startswith("0 change")
+    cmp = engine.compare_charts(first.chart, second.chart, "FFC000", str(data), "same")
+    assert cmp.summary.startswith("0 difference")
+
+
+def test_changes_name_the_siding_location(data):
+    from rstools.berthing.compare import diff
+    from rstools.berthing.layout import read_chart
+    from rstools.berthing.mapping import load
+    old, new = str(data / "old.xlsx"), str(data / "new.xlsx")
+    make_chart(old)
+    make_chart(new)
+    wb = openpyxl.load_workbook(new)
+    wb["Brighton"]["D2"] = "4 387 0510"                       # Plat 1, the first location
+    wb["Brighton"]["D8"] = "4 377 0600"                       # Plat 7, the second
+    wb["Hove Yard"]["D2"] = "(4 377) 0300"                    # a sheet with one location
+    wb.save(new)
+    changes, _marked = diff(read_chart(old, load()), read_chart(new, load()))
+    got = {(c.sheet, c.berth): (c.section, c.rank) for c in changes}
+    assert got[("Brighton", "Plat 1")] == ("Plat 1", 0) and got[("Brighton", "Plat 7")] == ("Plat 7", 1)
+    assert got[("Hove Yard", "Siding 3")] == ("", 0)
