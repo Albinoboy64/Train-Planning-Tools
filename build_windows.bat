@@ -57,6 +57,61 @@ if not exist "smoke\s4_new - highlighted.pdf" (
     echo The built exe did not produce the highlighted Section 4 PDFs.
     goto :failed
 )
+REM smoke test: every other subcommand and major mode (the same list as the release build in
+REM .github\workflows\build-windows.yml): stats packs, unit and capacity reports, station book, timetable and train print checks,
+REM batch comparison, day variants in order and the berthing chart modes
+python -c "import sys; sys.path.insert(0, 'tests'); import test_statspack as t; t.write_xml('smoke/sp.xml'); t.write_docx('smoke/sp.docx', t.plan_lines())" || goto :failed
+python -c "import sys; sys.path.insert(0, 'tests'); import test_stationbook as t; t.write_xml('smoke/swb.xml')" || goto :failed
+python -c "import sys, os; sys.path.insert(0, 'tests'); import test_timetable as t; t._books(os.path.abspath('smoke'))" || goto :failed
+python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=['Location','Arr','Dep']; write_pdf('smoke/p1.pdf', 'P', [S('Train 1A00  UID C12340  SX', h, [['Brighton','','0500'],['London Bridge','0553','']])]); write_docx('smoke/p2.docx', 'P', [S('Train 1A00  UID C12340  SX', h, [['Brighton','','0502'],['London Bridge','0555','']])])" || goto :failed
+python -c "import sys; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')" || goto :failed
+python -c "import sys, os; sys.path.insert(0, 'tests'); import test_compare as t; [os.makedirs('smoke/' + d, exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make('smoke/bo/' + n + ' Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make('smoke/bu/' + n + ' Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]" || goto :failed
+python -c "import sys; sys.path.insert(0, 'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')" || goto :failed
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+for %%f in (sp.pdf units.docx berth_cmp.xlsx) do if exist smoke\%%f del smoke\%%f
+if exist "smoke\K_D26 Consolidated TT Comparison.xlsx" del "smoke\K_D26 Consolidated TT Comparison.xlsx"
+if exist "smoke\berth_cmp - Change Report.xlsx" del "smoke\berth_cmp - Change Report.xlsx"
+if exist smoke\bout\*.xlsx del smoke\bout\*.xlsx
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name sp
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name sp --format pdf
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name units --unit-reports washes,cets,depots,captive,fuel --unit-period days --format docx
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name seats --capacity-corridor "Brighton Main Line (East Croydon - Brighton)" --corridor-direction reverse --between 06:00-09:00 --at "East Croydon" --direction both
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --old-xml smoke\sp.xml --old-trent smoke\sp.docx --days MO,TO --out smoke --name units_cmp --unit-reports washes,depots
+start /wait "" dist\TrainPlanningTools.exe stationbook --xml smoke\swb.xml --station Alpha --out smoke --name swb
+start /wait "" dist\TrainPlanningTools.exe timetable --gtr smoke\gtr.xlsx --nr smoke\nr.xlsx --out smoke
+start /wait "" dist\TrainPlanningTools.exe timetable --prints smoke\p1.pdf --vs smoke\p2.docx --out smoke --name prints
+start /wait "" dist\TrainPlanningTools.exe timetable --prints smoke\p1.pdf --vs smoke\p2.docx --passenger-only --out smoke --name prints_pax
+start /wait "" dist\TrainPlanningTools.exe timetable --base-prints smoke\attune.pdf --check smoke\tt_check.xlsx --out smoke --name print_tt
+start /wait "" dist\TrainPlanningTools.exe --original-folder smoke\bo --updated smoke\bu --out smoke\bout
+start /wait "" dist\TrainPlanningTools.exe reorder smoke\multi.xlsx --out smoke --name reordered
+start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\berth.xml --counts --issue Smoke --out smoke --name berth_default
+start /wait "" dist\TrainPlanningTools.exe berthing --compare smoke\berth_layout.xlsx smoke\berth.xlsx --out smoke --name berth_cmp
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp) do if not exist smoke\%%f.xlsx (
+    echo The built exe did not produce smoke\%%f.xlsx.
+    goto :failed
+)
+for %%f in (sp.pdf units.docx) do if not exist smoke\%%f (
+    echo The built exe did not produce smoke\%%f.
+    goto :failed
+)
+if not exist "smoke\K_D26 Consolidated TT Comparison.xlsx" (
+    echo The built exe did not produce the timetable comparison.
+    goto :failed
+)
+if not exist "smoke\berth_cmp - Change Report.xlsx" (
+    echo The built exe did not compare two berthing charts.
+    goto :failed
+)
+python -c "import glob; n = [p for p in glob.glob('smoke/bout/*Proof*.xlsx') if 'Change Report' not in p]; raise SystemExit(0 if len(n) == 2 else 1)" || (
+    echo The built exe batch comparison did not produce two CWNs.
+    goto :failed
+)
+REM selftest: reads an Attune print with PDFium, finds the built-in Section 4 rules and berthing layout, opens a window with drag and drop
+start /wait "" dist\TrainPlanningTools.exe selftest smoke\attune.pdf
+if errorlevel 1 (
+    echo The built exe could not read an Attune print, find its built-in rules or berthing layout, or open a window with drag and drop.
+    goto :failed
+)
 REM the software bill of materials (as attached to releases), checked against the pinned runtime packages
 python packaging\make_sbom.py dist\TrainPlanningTools.cdx.json || goto :failed
 python packaging\check_sbom.py dist\TrainPlanningTools.cdx.json || goto :failed
