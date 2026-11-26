@@ -144,11 +144,19 @@ _SEAT_COLS = ("First Class Seated Capacity", "Standard Class Seated Capacity", "
 _OLD_PLACEHOLDERS = {"379/0": ("0", "0", "0", "0")}
 # single values earlier versions shipped wrongly: replaced only while the user's copy still holds them
 _OLD_VALUES = {("171/8", "Unit Length (metres)"): "94.48"}
+# classes earlier versions shipped but are no longer wanted: dropped while the user's row is still exactly
+# as shipped, kept if the user edited it
+_RETIRED = {"701/5": dict(zip(COLUMNS, ("701/5", "", "Unknown", "5", "0", "275", "360", "635", "27", "0", "")))}
+
+
+def _is_retired(row: Dict[str, str], hdr: List[str]) -> bool:
+    shipped = _RETIRED.get(row.get("Class Name", ""))
+    return shipped is not None and all(str(row.get(c, "")).strip() == v for c, v in shipped.items() if c in hdr)
 
 
 def _upgrade(path: str):
     """Add new classes and columns from the built-in table; fill cells the user left blank or
-    'Unknown'. Values the user entered are never changed."""
+    'Unknown'; drop retired classes the user never edited. Values the user entered are never changed."""
     _dh, default = _read_csv(DEFAULT_CSV)
     if not os.path.exists(path):
         _write(path, default)
@@ -156,8 +164,10 @@ def _upgrade(path: str):
     hdr, user = _read_csv(path)
     if not hdr:
         return                                  # unreadable - leave it for the user to fix
+    kept = [r for r in user if not _is_retired(r, hdr)]
+    changed = len(kept) != len(user) or any(c not in hdr for c in COLUMNS)
+    user = kept
     by_name = {r.get("Class Name", ""): r for r in user}
-    changed = any(c not in hdr for c in COLUMNS)
     for d in default:
         u = by_name.get(d["Class Name"])
         if u is None:

@@ -693,6 +693,24 @@ def test_379_seats_replace_old_placeholders_only(monkeypatch):
         assert (got["379/0"], got["717/0"], got["171/8"], got["377/4"]) == ("80.77", "121.7", "70.86", "81.0")
 
 
+def test_retired_701_5_removed_unless_edited():
+    """701/5 is no longer shipped; an unedited copy of the old row is dropped, a user-edited one is kept."""
+    import csv
+    from rstools.statspack import fleet as F
+    assert F.FleetTable._read(F.DEFAULT_CSV).get("701/5") is None
+    shipped = dict(F._RETIRED["701/5"])
+    for units, expect_kept in (("27", False), ("30", True)):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "fleet.csv")
+            _h, rows = F._read_csv(F.DEFAULT_CSV)
+            rows.append(dict(shipped, **{"Units Available": units}))
+            F._write(path, rows)
+            F._upgrade(path)
+            got = {r["Class Name"] for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
+            assert ("701/5" in got) is expect_kept
+            assert {r["Class Name"] for r in rows if r["Class Name"] != "701/5"} <= got
+
+
 def test_vl11_vl05_and_merged_layouts():
     """VehicleLayout11 / 05 (short names) are read like VL29, names become TIPLOCs, and a VL23 print's next-day
     links fill in a VL29 print of the same diagrams."""
