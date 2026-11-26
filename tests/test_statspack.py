@@ -376,6 +376,30 @@ def test_unit_reports():
             assert path.endswith("." + fmt) and os.path.getsize(path) > 1000
 
 
+def test_no_inference_at_lovers_walk_stewarts_lane_selhurst():
+    """A unit stabling at Lovers Walk, Stewarts Lane or Selhurst ends its cycle there (never inferred onwards);
+    elsewhere a matching next-day start is still inferred."""
+    from rstools.statspack.units import Depots, ends_cycle, follow_units
+    lines = []
+    for n, loc in ((1, "STWTTMD"), (3, "SLHRSTD"), (5, "LOVRSWS"), (7, "EBOUSID")):
+        lines += diagram("SX", n, "MO", "700/0", [
+            move("BRGHTN", "", "1", "", "07.00", f"1B0{n}SX", f"{n}(1)", 30.0, 30.0),
+            act(loc, "4", "08+00", "STABLD")], 30.0, 0.0)
+        lines += diagram("SX", n + 1, "TO", "700/0", [
+            move(loc, "", "1", "", "07+00", f"5B0{n}SX", f"{n + 1}(1)", 30.0, 30.0),
+            act("BRGHTN", "4", "08+00", "STABLD")], 0.0, 30.0)
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "u.docx")
+        write_docx(p, lines)
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        depots = Depots.load({}, os.path.join(d, "none.csv"))
+        units, _per_day, _w = follow_units(plan.trent, None, [0, 1], depots)
+        chains = {u.diagrams[0].key: [x.key for x in u.diagrams] for u in units}
+        assert chains["SX1"] == ["SX1"] and chains["SX3"] == ["SX3"] and chains["SX5"] == ["SX5"], chains
+        assert chains["SX7"] == ["SX7", "SX8"], chains
+    assert ends_cycle("STWTBS", None) and not ends_cycle("SELHRST", None)       # the station is not the depot
+
+
 def test_operators():
     from rstools.statspack.model import operator_of
     assert [operator_of(d) for d in ("BI", "SU", "SL", "HE", "TB")] == ["SNGX"] * 3 + ["TLGN"] * 2

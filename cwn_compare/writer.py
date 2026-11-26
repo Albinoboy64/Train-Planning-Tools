@@ -397,13 +397,16 @@ def _fix_hyperlinks(wb, row_maps: "Dict[str, Dict[int, Optional[int]]] | Dict[st
             cell.hyperlink = nl
 
 
-def remove_hyperlinks(wb):
+def remove_hyperlinks(wb, where=None):
     """Drop the tab-to-tab headcode links (tens of thousands of them make Excel slow to open).
-    The link styling (underline and link colour) goes too, so the text reads as normal text."""
+    The link styling (underline and link colour) goes too, so the text reads as normal text.
+    `where(sheet_title, row, column)`, if given, limits this to the cells it returns True for."""
     plain = {}
     for ws in wb.worksheets:
         for cell in ws._cells.values():
             if cell.hyperlink is None:
+                continue
+            if where is not None and not where(ws.title, cell.row, cell.column):
                 continue
             cell.hyperlink = None
             style = getattr(cell, "_style", None)
@@ -415,7 +418,8 @@ def remove_hyperlinks(wb):
                 plain[font_id] = _font_with(font, u=None, color=None) if font.u else None
             if plain[font_id] is not None:
                 cell.font = plain[font_id]
-        ws._hyperlinks = []
+        if where is None:
+            ws._hyperlinks = []
 
 
 def tidy_workbook(wb):
