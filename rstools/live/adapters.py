@@ -557,11 +557,7 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
     for (sheet, berth), cs in sorted(by_berth.items(), key=lambda kv: (kv[0][0], kv[1][0].rank, kv[0][1])):
         kinds = {c.kind for c in cs}
         state = state_of[next(iter(kinds))] if len(kinds) == 1 else CHANGED
-        order: Dict[str, int] = {}
-        for col, head, _text in unchanged.get((norm(sheet), norm(berth)), []):
-            order.setdefault(head, col)
-        rows = [(order.get(c.column, len(order) + i), 1,
-                 LiveRow([c.column or "-", c.old, c.new], state_of.get(c.kind, CHANGED))) for i, c in enumerate(cs)]
+        rows = [(c.col, 1, LiveRow([c.column or "-", c.old, c.new], state_of.get(c.kind, CHANGED))) for c in cs]
         rows += [(col, 0, LiveRow([head, text, text], SAME))
                  for col, head, text in unchanged.get((norm(sheet), norm(berth)), [])]
         counts = Counter(c.kind for c in cs)

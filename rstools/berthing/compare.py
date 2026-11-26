@@ -63,7 +63,8 @@ class Change:
     kind: one of KINDS - CHANGED (a cell's unit or time differs: old -> new), ADDED (only in the newer chart:
     old is '') or REMOVED (only in the older chart: new is '');
     old / new: the cell text as written in each chart ('' where there is none);
-    section / rank: the siding location and its position on a sheet that has several ('' / 0 otherwise)."""
+    section / rank: the siding location and its position on a sheet that has several ('' / 0 otherwise);
+    col: the column's position on the sheet (0 first; -1 for a whole sheet), to put cells in chart order."""
     sheet: str
     berth: str
     column: str
@@ -72,6 +73,7 @@ class Change:
     new: str
     section: str = ""
     rank: int = 0
+    col: int = -1
 
 
 def same_cells(old: Layout, new: Layout) -> Dict[Tuple[str, str], List[Tuple[int, str, str]]]:
@@ -165,11 +167,11 @@ def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
         for i, (r, c) in enumerate(added):
             marked[key].add(r)
             if i < len(removed):
-                changes.append(Change(sheet_name, berth, column, CHANGED, removed[i], c.text, place, rank))
+                changes.append(Change(sheet_name, berth, column, CHANGED, removed[i], c.text, place, rank, col))
             else:
-                changes.append(Change(sheet_name, berth, column, ADDED, "", c.text, place, rank))
+                changes.append(Change(sheet_name, berth, column, ADDED, "", c.text, place, rank, col))
         for t in removed[len(added):]:
-            changes.append(Change(sheet_name, berth, column, REMOVED, t, "", place, rank))
+            changes.append(Change(sheet_name, berth, column, REMOVED, t, "", place, rank, col))
     return changes, marked
 
 

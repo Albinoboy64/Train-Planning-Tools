@@ -485,3 +485,24 @@ def test_live_view_pops_out_and_comes_back(tmp_path, monkeypatch):
         assert not win.out
     finally:
         app.destroy()
+
+
+def test_live_berthing_rows_stay_in_chart_column_order(tmp_path, monkeypatch):
+    """An added cell goes in its own column's place, between the unchanged cells either side of it."""
+    import openpyxl
+    import test_berthing as tb
+    from rstools.live.adapters import compute
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    old, new = str(tmp_path / "old.xlsx"), str(tmp_path / "new.xlsx")
+    tb.make_chart(old)
+    tb.make_chart(new)
+    for path, extra in ((old, {}), (new, {"L2": "4 387 0700"})):
+        wb = openpyxl.load_workbook(path)
+        wb["Brighton"]["H2"] = "4 387 0900"
+        for ref, text in extra.items():
+            wb["Brighton"][ref] = text
+        wb.save(path)
+    rows = compute("berthing", {"a": [old], "b": [new]}).items[0].rows
+    heads = [r.cells[0] for r in rows]
+    assert heads == ["FRI FINISH", "MON START", "WED START"], heads
+    assert [r.state for r in rows] == ["same", "same", "added"]

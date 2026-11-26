@@ -423,7 +423,6 @@ def timetable_cli(argv):
     if a.passenger_only and not a.prints:
         ap.error("--passenger-only is used with --prints")
     if a.s4_check:
-        _check_vpts(ap, a)
         _section4_cli(a)
         return
     if a.s4_compare:
@@ -498,6 +497,10 @@ def _section4_cli(a):
         missing = [p for p in a.s4 if not os.path.isfile(p)]
         if missing:
             raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
+        from rstools.timetable.vpt import is_vpt
+        bad = [p for p in ([a.vpt] if a.vpt else []) + list(a.other_vpt) if not (os.path.isfile(p) and is_vpt(p))]
+        if bad:
+            raise Section4Error("These are not Attune VPT exports (.vpt):\n" + "\n".join(bad))
         path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print,
                                           vpt=a.vpt or "", others=a.other_vpt)
     except (Section4Error, TimetableRunError) as exc:

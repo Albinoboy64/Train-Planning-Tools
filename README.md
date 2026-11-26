@@ -418,6 +418,7 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 * **Live View in its own window**: *Pop out* (Ctrl+Shift+P) moves it to a window of its own (another monitor, full screen with F11, always on top), keeping everything in it; *Bring back* returns it. The window's place is remembered.
 * **File limits and XML guards**: files far larger than any real one, and XML with a DOCTYPE / ENTITY declaration, are refused in plain words; truncated XML and bad characters are reported by every reader. The limits are kept in one place and can be raised in `limits.json`.
 * **Help > Error log...**: preview the log with file paths, user / computer names and quoted file text hidden (each can be shown), then copy or export it. File contents are never kept in the log.
+* A Live View comparison of two berthing charts that you ticked as confirmed in 3.32 or earlier shows its berths as *Changed since confirmed* once (the rows now list each cell), so tick them again.
 * **Releases** now carry a CycloneDX SBOM (`TrainPlanningTools.cdx.json`), `SHA256SUMS.txt` and, where supported, a build provenance attestation. CI runs lint, type-check, tests with coverage and a dependency audit as separate jobs before the build, and CodeQL code scanning.
 
 **3.32.0** - VPTs in the Section 4 check and station book, clearer task lists

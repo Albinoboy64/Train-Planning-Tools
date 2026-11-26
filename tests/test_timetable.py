@@ -1308,3 +1308,22 @@ def test_section4_subcommand_runs_and_matches_timetable_s4_check(tmp_path):
     assert sheets(os.path.join(d, "sub.xlsx")) == sheets(os.path.join(d, "old.xlsx"))
     code, out = _s4_cli(["--xml", xml, "--pdf", f["s4_old"], "--out", d, "--name", "sub", "--format", "docx"])
     assert code == 0 and os.path.isfile(os.path.join(d, "sub.docx")), out
+
+
+def test_timetable_s4_check_keeps_its_exit_code_for_a_bad_vpt(tmp_path):
+    """`timetable --s4-check` reports a file that is not a VPT with ERROR and exit code 1, as before the section4
+    subcommand was added (which reports it up front, exit code 2)."""
+    import contextlib
+    import io
+    import TrainPlanningTools as cli
+    xml = str(tmp_path / "plan.xml")
+    write_s4_xml(xml)
+    notvpt = tmp_path / "x.vpt"
+    notvpt.write_text("not a vpt")
+    out, code = io.StringIO(), None
+    with contextlib.redirect_stdout(out):
+        try:
+            cli.timetable_cli(["--s4-check", xml, "--vpt", str(notvpt), "--out", str(tmp_path)])
+        except SystemExit as exc:
+            code = exc.code
+    assert code == 1 and "ERROR:" in out.getvalue() and "not Attune VPT exports" in out.getvalue()
