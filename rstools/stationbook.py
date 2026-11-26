@@ -84,6 +84,7 @@ class Train:
     calls: List[Call] = field(default_factory=list)
     valid_from: str = ""        # 'yyyy-mm-dd', from the XML
     valid_until: str = ""
+    rar: str = ""               # how the XML marks it 'runs as required' ('' if it does not)
 
     @property
     def passenger(self) -> bool:
@@ -167,7 +168,8 @@ def read_plan(path: str) -> Plan:
                         plan = "D"
                     cur_train, legs = Train(el.get("id", ""), _days(el.get("daysRun", "")), plan,
                                             valid_from=el.get("validFrom", ""),
-                                            valid_until=el.get("validUntil", "")), []
+                                            valid_until=el.get("validUntil", ""),
+                                            rar=runs_as_required(el.attrib)), []
                 elif tag == "unitDiagram":
                     cur_diag = Diagram("", "", _days(el.get("daysrun", "")), plan=el.get("type", ""))
                     cur_diag.key = el.get("id", "").strip()          # depot added when its <depot> is read
@@ -227,6 +229,27 @@ def read_plan(path: str) -> Plan:
     if not trains:
         raise StationBookError("The XML contains no trains.")
     return Plan(path, meta.get("startdate", ""), locations, dict(trains), diagrams, meta.get("enddate", ""))
+
+
+_RAR_NAMES = ("runsasrequired", "asrequired", "rar", "runasrequired", "asreq")
+_RAR_CHAR_NAMES = ("operatingcharacteristics", "operatingchars", "opchars", "characteristics", "opchar")
+_RAR_STATUS_NAMES = ("status", "trainstatus", "timingstatus")
+_TRUE = ("true", "y", "yes", "1", "q")
+
+
+def runs_as_required(attrib: Dict[str, str]) -> str:
+    """How a <train>'s attributes mark it 'runs as required' (e.g. 'runsAsRequired=true',
+    'operatingCharacteristics=Q'), or '' if they do not."""
+    for name, value in attrib.items():
+        key = name.rsplit("}", 1)[-1].lower().replace("_", "").replace("-", "")
+        v = (value or "").strip()
+        if key in _RAR_NAMES and v.lower() in _TRUE:
+            return f"{name}={v}"
+        if key in _RAR_CHAR_NAMES and "Q" in v.upper().replace(" ", ""):
+            return f"{name}={v}"
+        if key in _RAR_STATUS_NAMES and v.upper() in ("Q", "RAR", "RUNS AS REQUIRED"):
+            return f"{name}={v}"
+    return ""
 
 
 def _calls(legs: List[dict]) -> List[Call]:

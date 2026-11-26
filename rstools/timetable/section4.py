@@ -17,7 +17,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 DAY_CODES = {"m": 0, "mo": 0, "mon": 0, "t": 1, "tu": 1, "tue": 1, "tues": 1, "w": 2, "we": 2, "wed": 2,
              "th": 3, "thu": 3, "thur": 3, "thurs": 3, "f": 4, "fr": 4, "fri": 4, "s": 5, "sa": 5, "sat": 5,
@@ -384,6 +384,13 @@ class Clash:
     at_a: str                   # time at each end
     at_b: str
     direction: str
+    remark: str = ""            # what the remarks mean for this train ('' when there are none)
+    outcome: str = ""           # s4remarks.STANDS / CHECK / EXEMPT
+    every_line: Optional[bool] = None   # the remarks leave some lines open (else the Blocked text decides)
+
+    @property
+    def all_lines(self) -> bool:
+        return self.possession.every_line if self.every_line is None else self.every_line
 
 
 @dataclass
@@ -394,6 +401,24 @@ class CheckResult:
     trains: int
     periods: List[Period]
     warnings: List[str]
+    exempt: List[Clash] = field(default_factory=list)          # clashes the remarks lift
+    skipped: List[Tuple[str, str]] = field(default_factory=list)   # (train, why it was not checked)
+
+
+def maint_trains(plan) -> Set[str]:
+    """Trains worked by a MAINT (maintenance) unit diagram."""
+    return {m.train for d in getattr(plan, "diagrams", []) if (d.fleet or "").upper() == "MAINT"
+            for m in d.moves if m.train}
+
+
+def skip_reason(t, maint: Set[str]) -> str:
+    """Why a train is left out of the check ('' if it is checked): runs as required and not a passenger train,
+    or worked by a MAINT diagram."""
+    if t.id in maint:
+        return "On a MAINT diagram"
+    if getattr(t, "rar", "") and not t.passenger:
+        return f"Runs as required, not a passenger train ({t.rar})"
+    return ""
 
 
 def _alternatives(name: str) -> List[str]:
@@ -444,8 +469,14 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
     used_keys = {(p.name, p.start) for p in used}
     # each train version: the times it reaches each place, by day
     versions = []
+    maint = maint_trains(plan)
+    skipped: Dict[str, str] = {}
     for vs in plan.trains.values():
         for t in vs:
+            why = skip_reason(t, maint)
+            if why:
+                skipped[t.id] = why
+                continue
             times: Dict[str, List[Tuple[int, int]]] = {}
             for n, c in enumerate(t.calls):
                 tm = c.dep if c.dep is not None else c.arr
@@ -453,6 +484,7 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
                     times.setdefault(c.loc, []).append((n, tm // 60))
             versions.append((t, times))
     clashes: List[Clash] = []
+    found: List[Tuple[int, Any, int]] = []
     not_found: Dict[str, List[str]] = {}
     checked = 0
     for p in statement.possessions:
@@ -486,19 +518,68 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
                         if not _valid_in(t, per, start, end):
                             continue
                         clashes.append(Clash(p, per, w, t.id, day, _when(day, ta), _when(day, tb), direction))
+                        found.append((len(clashes) - 1, t, lo))
     # one row per train, day, possession and period (a train in two windows of the same night once)
     seen, unique = set(), []
-    for c in clashes:
+    for i, c in enumerate(clashes):
         key = (id(c.possession), c.period.name, c.train, c.day)
         if key not in seen:
             seen.add(key)
-            unique.append(c)
-    trains = len({c.train for c in unique})
+            unique.append(i)
+    info = {i: (t, lo) for i, t, lo in found}
+    kept, exempt = _apply_remarks([clashes[i] for i in unique], [info[i] for i in unique], tips, versions)
+    trains = len({c.train for c in kept})
     warnings = []
     if not_found:
         warnings.append(f"{len(not_found)} place(s) in the Section 4 tables are not in the XML (see 'Not "
                         "Checked'), so those sections were not checked - most are lines GTR does not run on.")
-    return CheckResult(unique, not_found, checked, trains, used, warnings)
+    if skipped:
+        warnings.append(f"{len(skipped)} train(s) were not checked (runs as required and not passenger, or on a "
+                        "MAINT diagram) - see 'Skipped'.")
+    return CheckResult(kept, not_found, checked, trains, used, warnings, exempt, sorted(skipped.items()))
+
+
+def _apply_remarks(clashes: List[Clash], info, tips, versions) -> Tuple[List[Clash], List[Clash]]:
+    """Each clash's possession remarks applied to its train: (clashes that stand, clashes the remarks lift)."""
+    from . import s4remarks as R
+    rules: Dict[int, R.Remarks] = {}
+    kept: List[Clash] = []
+    exempt: List[Clash] = []
+    by_head: Dict[str, List[Tuple[Any, Dict[str, List[Tuple[int, int]]]]]] = {}
+    for t, times in versions:
+        by_head.setdefault(t.id[:4].upper(), []).append((t, times))
+    for c, (t, lo) in zip(clashes, info):
+        p = c.possession
+        if id(p) not in rules:
+            rules[id(p)] = R.parse_remarks(p.remarks)
+        r = rules[id(p)]
+        if not r.text:
+            kept.append(c)
+            continue
+        end_tips = set().union(*(tips(e) for e in p.ends))
+
+        def other_time(hc: str, end_tips=end_tips, day=c.day) -> Optional[int]:
+            best = None
+            for ot, otimes in by_head.get(hc[:4].upper(), []):
+                if day not in ot.days:
+                    continue
+                for tip in end_tips:
+                    for _n, tm in otimes.get(tip, []):
+                        best = tm if best is None else min(best, tm)
+            return best
+        view = R.TrainView(t.id, [x.loc for x in t.calls], _date(t.valid_from), _date(t.valid_until), lo,
+                           other_time)
+        v = R.apply(r, view, tips)
+        c.remark, c.outcome, c.every_line = v.text, v.outcome, v.every_line
+        (exempt if v.outcome == R.EXEMPT else kept).append(c)
+    return kept, exempt
+
+
+def _date(s: str) -> Optional[date]:
+    try:
+        return datetime.strptime((s or "")[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _plan_dates(plan) -> Tuple[Optional[date], Optional[date]]:
@@ -537,40 +618,59 @@ def _when(day: int, minutes: int) -> str:
 
 
 # --------------------------------------------------------------------------- output
+_CLASH_HEAD = ["Clash", "Line of route", "Section", "Between", "Period", "Night", "Possession", "Available",
+               "Blocked", "Train", "Train runs", "First place", "Time there", "Second place", "Time there",
+               "Direction", "Remarks", "Remarks for this train"]
+_CLASH_WIDTHS = [20, 28, 9, 34, 16, 10, 24, 14, 30, 9, 8, 22, 10, 22, 10, 9, 40, 50]
+
+
+def clash_row(c: Clash) -> list:
+    p = c.possession
+    return ["Every line blocked" if c.all_lines else "Some lines: check the line used", p.route, p.number,
+            p.section, c.period.name, p.night, c.window.text, p.available, p.blocked or "-", c.train,
+            DAY_SHORT[c.day], p.ends[0], c.at_a, p.ends[-1], c.at_b, c.direction or "-", p.remarks or "-",
+            c.remark or "-"]
+
+
+def _clash_order(c: Clash):
+    return (not c.all_lines, c.possession.route, _num_key(c.possession.number), c.period.start, c.day, c.at_a)
+
+
 def build_workbook(result: CheckResult, statement: Statement, xml: str):
+    from .s4remarks import CHECK
     from .xlstyle import add_sheet, new_workbook
     wb = new_workbook()
     by_section: Dict[str, int] = {}
     for c in result.clashes:
         by_section[f"{c.possession.number} {c.possession.section}"] = by_section.get(
             f"{c.possession.number} {c.possession.section}", 0) + 1
-    every = sum(1 for c in result.clashes if c.possession.every_line)
+    every = sum(1 for c in result.clashes if c.all_lines)
+    to_check = sum(1 for c in result.clashes if c.outcome == CHECK)
     summary = [["Trains in a Section 4 possession window", result.trains],
                ["Clashes (train, day, section and period)", len(result.clashes)],
                ["...where every line of the section is blocked", every],
                ["...where only some lines are blocked (check the line the train uses)", len(result.clashes) - every],
+               ["...whose remarks need checking by hand", to_check],
+               ["Clashes lifted by the remarks (see 'Exempt')", len(result.exempt)],
+               ["Trains not checked (see 'Skipped')", len(result.skipped)],
                ["Sections with clashes", len(by_section)],
                ["Possession rows checked", result.checked],
                ["Possession rows read", len(statement.possessions)],
                ["Places not in the XML (sections not checked)", len(result.not_found)]]
     add_sheet(wb, "Summary", ["Figure", "Count"], summary, [62, 12], center=[2],
-              fills={2: "bad" if every else "ok"})
+              fills={2: "bad" if every else "ok", 4: "review" if to_check else "ok"})
     rows: List[list] = []
     fills: Dict[int, str] = {}
-    for c in sorted(result.clashes, key=lambda c: (not c.possession.every_line, c.possession.route,
-                                                    _num_key(c.possession.number), c.period.start, c.day, c.at_a)):
-        p = c.possession
-        if p.every_line:
+    for c in sorted(result.clashes, key=_clash_order):
+        if c.all_lines:
             fills[len(rows)] = "bad"
-        rows.append(["Every line blocked" if p.every_line else "Some lines: check the line used", p.route,
-                     p.number, p.section, c.period.name, p.night, c.window.text, p.available, p.blocked or "-",
-                     c.train,
-                     DAY_SHORT[c.day], p.ends[0], c.at_a, p.ends[-1], c.at_b, c.direction or "-", p.remarks or "-"])
-    add_sheet(wb, "Clashes", ["Clash", "Line of route", "Section", "Between", "Period", "Night", "Possession",
-                              "Available", "Blocked", "Train", "Train runs", "First place", "Time there",
-                              "Second place", "Time there", "Direction", "Remarks"], rows,
-              [20, 28, 9, 34, 16, 10, 24, 14, 30, 9, 8, 22, 10, 22, 10, 9, 40], fills=fills,
-              center=[3, 10, 11, 13, 15, 16])
+        elif c.outcome == CHECK:
+            fills[len(rows)] = "review"
+        rows.append(clash_row(c))
+    add_sheet(wb, "Clashes", _CLASH_HEAD, rows, _CLASH_WIDTHS, fills=fills, center=[3, 10, 11, 13, 15, 16])
+    ex = [clash_row(c) for c in sorted(result.exempt, key=_clash_order)]
+    add_sheet(wb, "Exempt", _CLASH_HEAD, ex, _CLASH_WIDTHS, center=[3, 10, 11, 13, 15, 16])
+    add_sheet(wb, "Skipped", ["Train", "Why it was not checked"], [list(x) for x in result.skipped], [12, 80])
     sec_rows = [[k, v] for k, v in sorted(by_section.items(), key=lambda kv: (-kv[1], kv[0]))]
     add_sheet(wb, "By Section", ["Section", "Clashes"], sec_rows, [60, 10], center=[2])
     nf = [[k, len(v), "; ".join(v[:6]) + (" ..." if len(v) > 6 else "")] for k, v in
@@ -584,7 +684,15 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                       "the possession applies to, at a time inside the possession window. Where only the Down "
                       "or Up line is blocked, trains are taken as Down when they reach the first-named place "
                       "first. The XML has no line codes, so a train on a line left open (e.g. the fast lines "
-                      "when the slow lines are blocked) is still listed: check the Blocked column."]]
+                      "when the slow lines are blocked) is still listed: check the Blocked column."],
+              ["Remarks", "Each possession's remarks are applied to the train: excepted train types (e.g. ECS, "
+                          "passenger, freight), named trains or headcodes, 'after / until passage of' a train, "
+                          "access to a depot via a route (the train must go to or from the depot and pass the "
+                          "route), dates, and lines left open. A lifted clash is on 'Exempt' with the reason; a "
+                          "remark that needs checking by hand (weeks, other possessions, unknown wording) keeps "
+                          "the clash and says so."],
+              ["Not checked", "Trains that run as required (unless they are passenger trains) and trains worked "
+                              "by a MAINT diagram (see 'Skipped')."]]
     add_sheet(wb, "What Was Compared", ["Item", "Detail"], audit, [26, 110])
     return wb
 

@@ -26,6 +26,7 @@ Command-line use:
     TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
     TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
+    TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]
 """
 import argparse
 import os
@@ -350,13 +351,21 @@ def timetable_cli(argv):
     g.add_argument("--base-prints", nargs="+", help="Attune Single Train Report print(s) as the reference "
                                                    "(checked against --check)")
     g.add_argument("--base-list", help="Attune train list as the reference (checked against --check)")
+    g.add_argument("--s4-check", metavar="XML", help="Section 4 check: the Attune XML to check against the Section 4 "
+                                                     "PDF(s) in --s4 (or the rule set in use)")
     ap.add_argument("--check", help="timetable workbook (GTR or Network Rail layout) to check")
     ap.add_argument("--nr", help="Network Rail timetable workbook (the reference)")
     ap.add_argument("--vs", nargs="+", help="updated train print(s) or train list")
+    ap.add_argument("--s4", nargs="+", default=[], help="Section 4 PDF(s) for --s4-check")
     ap.add_argument("--name", default="", help="output name (default chosen from the inputs)")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
     a = _local_out(ap, ap.parse_args(argv))
+    if a.s4 and not a.s4_check:
+        ap.error("--s4 is only used with --s4-check")
+    if a.s4_check:
+        _section4_cli(a)
+        return
     if a.gtr:
         mode, first, second = "timetables", [a.gtr], [a.nr] if a.nr else []
     elif a.base_prints or a.base_list:
@@ -377,6 +386,26 @@ def timetable_cli(argv):
     for line in res.lines:
         print(line)
     print("Saved:", res.path)
+
+
+def _section4_cli(a):
+    from rstools.timetable.engine import TimetableRunError
+    from rstools.timetable.section4 import Section4Error, run_check
+    try:
+        if not os.path.isfile(a.s4_check):
+            raise Section4Error(f"This file could not be found:\n{a.s4_check}")
+        missing = [p for p in a.s4 if not os.path.isfile(p)]
+        if missing:
+            raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
+        path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print)
+    except (Section4Error, TimetableRunError) as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+    for w in st.warnings + res.warnings:
+        print("WARNING:", w)
+    print(f"{res.trains} train(s) in a possession window; {len(res.clashes)} clash(es), {len(res.exempt)} lifted "
+          f"by the remarks, {len(res.skipped)} train(s) not checked")
+    print("Saved:", path)
 
 
 def berthing_cli(argv):

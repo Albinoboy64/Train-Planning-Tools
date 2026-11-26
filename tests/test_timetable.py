@@ -586,7 +586,74 @@ def test_section4_windows_sections_and_check():
     assert both.every_line and not down.every_line and down.direction == "Down"
     assert {c.day for c in res.clashes if c.train == "1A01XX" and c.possession.number == "100.1"} == {1, 2, 3, 4}
     wb = S4.build_workbook(res, S4.Statement([both, down, gone], ["eas.pdf"]), x)
-    assert wb.sheetnames == ["Summary", "Clashes", "By Section", "Not Checked", "What Was Compared"]
+    assert wb.sheetnames == ["Summary", "Clashes", "Exempt", "Skipped", "By Section", "Not Checked",
+                             "What Was Compared"]
+
+
+def test_section4_remarks_parsed():
+    from rstools.timetable import s4remarks as R
+    r = R.parse_remarks("Except ECS. 1A23 excepted.")
+    assert r.except_types == {"ecs"} and r.except_trains == ["1A23"] and r.understood
+    assert R.parse_remarks("Freight only").only_types == {"freight"}
+    assert R.parse_remarks("Possession starts after passage of 5E10").after_train == "5E10"
+    dep = R.parse_remarks("Access to Selhurst Depot via Norwood Jn maintained.")
+    assert dep.depot_access == [("Selhurst", "Norwood Jn")], dep.depot_access
+    assert R.parse_remarks("Fast lines open").lines_open == ["Fast lines"]
+    assert R.parse_remarks("Not 24/12").not_dates == [(24, 12, None)]
+    assert R.parse_remarks("Not when 110.4 is taken").other_possession
+    assert not R.parse_remarks("Something unusual").understood
+    assert R._headcode_hits("5EXX", "5E12AB") and not R._headcode_hits("5EXX", "1E12AB")
+
+
+def test_section4_remarks_rar_and_maint():
+    """The check applies remarks (excepted types and headcodes, after passage of, depot access, unknown wording)
+    and leaves out RAR non-passenger trains and trains on MAINT diagrams."""
+    from datetime import date
+    from rstools import stationbook as SB
+    from rstools.timetable import section4 as S4
+    d = tempfile.mkdtemp()
+    x = os.path.join(d, "plan.xml")
+
+    def tr(tid, a, t1, b, t2, extra="", via=""):
+        legs = (f'<leg origin="{a}" dep="{t1}" dest="{b}" arr="{t2}"/>' if not via else
+                f'<leg origin="{a}" dep="{t1}" dest="{via}" arr="{t1}" arrStopType="P"/>'
+                f'<leg origin="{via}" dep="{t1}" dest="{b}" arr="{t2}"/>')
+        return (f'<train id="{tid}" daysRun="NNNYNNNNN" planType="L" validFrom="2026-12-13" '
+                f'validUntil="2027-05-15" {extra}>{legs}</train>')
+    with open(x, "w", encoding="utf-8") as fh:
+        fh.write('<diagramExchange xmlns="http://www.tracsis.com/TTVP_Interface" version="1.0" plantype="L" '
+                 'startdate="2026-12-13" enddate="2027-05-15"><trainList>'
+                 + tr("1A01XX", "AAA", "02:00:00", "BBB", "02:10:00")
+                 + tr("5A02XX", "AAA", "02:00:00", "BBB", "02:10:00")                        # ECS: excepted
+                 + tr("2A23XX", "AAA", "02:00:00", "BBB", "02:10:00")                        # named: excepted
+                 + tr("5A04XX", "AAA", "02:00:00", "BBB", "02:10:00", 'runsAsRequired="true"')   # RAR ECS
+                 + tr("1A05XX", "AAA", "02:00:00", "BBB", "02:10:00", 'runsAsRequired="true"')   # RAR passenger
+                 + tr("5A06XX", "AAA", "02:00:00", "BBB", "02:10:00")                        # MAINT diagram
+                 + tr("5D07XX", "AAA", "02:00:00", "DEP", "02:20:00", via="BBB")             # to the depot via BBB
+                 + '</trainList><locationList><location tiploc="AAA" longDesc="Alpha"/>'
+                 '<location tiploc="BBB" longDesc="Beta Jn"/><location tiploc="DEP" longDesc="Delta Depot"/>'
+                 '</locationList><diagramList><unitDiagram id="9" daysrun="NNNYNNNNN"><depot id="MA"/>'
+                 '<res id="MAINT"/><journey origin="AAA" dest="BBB" dep="02:00:00" arr="02:10:00">'
+                 '<activity trainid="5A06XX"/></journey></unitDiagram></diagramList></diagramExchange>')
+    plan = SB.read_plan(x)
+    per = S4.Period("Periods A and B", date(2026, 12, 13), date(2027, 2, 14))
+
+    def poss(num, remarks):
+        return S4.Possession("XX100 TEST", "Alpha and Beta Jn", num, ("Alpha", "Beta Jn"), "MID WEEK", [per],
+                             S4.parse_windows("0140 M-F to 0350 M-F"), "BLOCKED", remarks, "t")
+    res = S4.check(plan, S4.Statement([poss("1.1", "Except ECS. 2A23 excepted."),
+                                       poss("1.2", "Something unusual"),
+                                       poss("1.3", "Access to Delta Depot via Beta Jn maintained.")]))
+    kept = {(c.possession.number, c.train) for c in res.clashes}
+    lifted = {(c.possession.number, c.train) for c in res.exempt}
+    assert ("1.1", "1A01XX") in kept and ("1.1", "5A02XX") in lifted and ("1.1", "2A23XX") in lifted
+    assert ("1.1", "1A05XX") in kept                                     # RAR but passenger: checked
+    assert not any(t in ("5A04XX", "5A06XX") for _n, t in kept | lifted)
+    assert dict(res.skipped)["5A06XX"] == "On a MAINT diagram" and "Runs as required" in dict(res.skipped)["5A04XX"]
+    assert all(c.outcome == "check" and c.remark.startswith("Check remark") for c in res.clashes
+               if c.possession.number == "1.2")
+    assert ("1.3", "5D07XX") in lifted and ("1.3", "1A01XX") in kept
+    assert SB.runs_as_required({"operatingCharacteristics": "BQ"}) and not SB.runs_as_required({"status": "P"})
 
 
 def test_rules_sets_reminder_and_timetables(monkeypatch):

@@ -656,13 +656,16 @@ class TimetableTab(ttk.Frame):
             path, res, st, start = run_check(xml, pdfs, out_dir, name, fmt,
                                       progress=lambda f, m: self.q.put(("prog", f, m)),
                                       log=lambda m: self.q.put(("log", m, None)))
-            every = sum(1 for c in res.clashes if c.possession.every_line)
+            every = sum(1 for c in res.clashes if c.all_lines)
             lines = [f"{len(st.possessions)} possession row(s) read; {res.checked} checked against the XML "
                      f"(periods: {', '.join(p.name for p in res.periods) or 'none'})."]
             lines += [f"WARNING: {w}" for w in st.warnings + res.warnings]
             summary = (f"{res.trains} train(s) run in a Section 4 possession window: {every} clash(es) where every "
                        f"line is blocked, {len(res.clashes) - every} where only some lines are (check the line "
                        "used)." if res.clashes else "No train runs in a Section 4 possession window.")
+            if res.exempt or res.skipped:
+                summary += (f" {len(res.exempt)} clash(es) lifted by the remarks; {len(res.skipped)} train(s) "
+                            "not checked (runs as required / MAINT).")
             self.q.put(("s4done", path, lines, summary, len(st.warnings + res.warnings), start))
         except (Section4Error, TimetableRunError) as exc:
             self.q.put(("error", str(exc)))
