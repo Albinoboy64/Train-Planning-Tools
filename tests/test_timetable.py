@@ -873,3 +873,13 @@ def test_tpr_documents_compared():
     doc = read_tpr([two])
     assert len(doc.tables) == 1 and sorted(r[0] for r in doc.tables[0].rows) == ["Alpha", "Beta Jn", "Gamma"]
     assert not any("Page" in p for _s, p, _n in doc.paragraphs)
+
+
+def write_s4_xml(path):
+    """A one-train Attune XML running over the synthetic Section 4 section 100.1 (Windows build smoke test)."""
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write('<diagramExchange xmlns="http://www.tracsis.com/TTVP_Interface" version="1.0" plantype="L" '
+                 'startdate="2026-12-13" enddate="2027-05-15"><trainList><train id="1A01XX" daysRun="NNNYYYYNN" '
+                 'planType="L"><leg origin="AAA" dep="02:00:00" dest="BBB" arr="02:10:00"/></train></trainList>'
+                 '<locationList><location tiploc="AAA" longDesc="Alpha"/><location tiploc="BBB" longDesc="Beta Jn"/>'
+                 '</locationList></diagramExchange>')

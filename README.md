@@ -126,6 +126,7 @@ A multi-day CWN often lists the day variants of the same train (for example 1A23
 * **A comparison CWN made by this app can be put in order too.** Its highlights, struck-through previous values and change notes move with their rows; variants merge only if their changes are shown exactly the same way, so no highlighted change is hidden. The comparison data inside it is kept, so it can still have rounds added (a new round is laid out like its updated CWN, so put that in order again afterwards).
 * Put the variants in order before comparing if you want the comparison CWN to follow the same order.
 * The ▾ marker is ignored when a tidied CWN is read again (compared, or put in order again).
+* **Diagram numbers (DIAG, AM and PM cells) are not links** in the copy: clicking one stays on the cell, so its each-day values (the ▾ box) can be read. Tab links on headcodes are kept and follow their rows.
 
 ### Station Working Book (TRACS-RS layout)
 
@@ -133,9 +134,10 @@ Choose **Station Working Book (TRACS-RS layout, from an Attune XML)** under *Uti
 * **Platforms**, e.g. `10-15` for the London Bridge low level book, or `1, 2, 4A`.
 * **Operator** and **Timetable** for the page header and file name, e.g. *GTR(TLGN)* and *Dec23* (the timetable is filled in from the XML), and **Services** for the header, e.g. *Thameslink and Great Northern services only*.
 * **Sheet name**, e.g. *London Bridge LL* (default: the station and the operator in brackets, e.g. *London Kings Cross (TLGN)*), and which **sheets**: SX, SO, Su.
+* **Other operators' XML** (optional): one or more Attune XMLs from other operators. Their trains calling at the station are merged into the book, each marked with its operator under the stock (e.g. `[XC]`); a train or diagram ID the book already has is renamed *ID/OPERATOR*. The XMLs must cover the same dates. Command line: `--merge-xml OTHER.xml [...]`.
 * **Several stations** at once: pick a station (and any platforms) and press **Add to list**, or type them separated by `;` with platforms in brackets, e.g. `London Kings Cross; London Bridge [10-15]; Cambridge`. Each station gets its own book (named after the station), made on several CPU cores at once; a station that cannot be found is reported and the others are still made. Command line: `--station "London Kings Cross; Cambridge"`.
 
-The book has the TRACS-RS layout: one row per train leaving the station, in departure order (trips after midnight at the end of the day, as in TRACS-RS), with Calibri 13, the blue heading row repeated on each page, row heights fitted to the text, the page header and *page/pages* footer:
+The book has the TRACS-RS layout: one row per train leaving the station, in departure order **by stock day** (as in the CWN): each day starts with the first train of that day's unit diagrams, and a train worked after midnight by the previous day's diagram is at the end of that previous day, not the start of the next. Trains with no unit diagram stay on the day they run. It uses Calibri 13, the blue heading row repeated on each page, row heights fitted to the text, the page header and *page/pages* footer:
 
 | Column | What it shows |
 |---|---|
@@ -149,7 +151,7 @@ Passenger trains (classes 1, 2 and 9) show public times as `HH MM`; other trains
 
 **The best input data.** One **Attune diagram XML export of the timetable, including the unit diagrams for every day the book covers** (Monday to Sunday for SX, SO and Su sheets). It holds everything the book needs: every train's times, public times, platforms and stops, and the unit diagrams - which units work each train (front to rear), the train each unit arrives on, where trains attach and divide, and where units stable. Export it from the same plan as the book, with **all operators' trains** you want shown (e.g. EMR at Bedford). The app warns if a day's unit diagrams are missing (the stock and inward workings are blank on those days). Seats and coach counts (for *the front 5 coaches*) come from the fleet data. Locations are named as in the XML; TRACS-RS uses its own location names (e.g. *Selhurst TRSMD* where Attune has *Selhurst T&R.S.M.D*, and sometimes a TIPLOC such as *STWTBS*), so names can differ slightly from older books.
 
-Command line: `stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15] [--operator "GTR(TLGN)"] [--timetable Dec23] [--services "..."] [--label "..."] [--sheets SX,SO,Su]`.
+Command line: `stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15] [--operator "GTR(TLGN)"] [--timetable Dec23] [--services "..."] [--label "..."] [--sheets SX,SO,Su] [--merge-xml OTHER.xml ...]`.
 
 ### Berthing charts
 
@@ -236,6 +238,8 @@ Choose **Unit reports** under *1. What to do*, tick the reports you want, the da
 
 How units are followed: each diagram's WASH / CET / FUEL lines and start and end locations come from the TRENT print; the **next-day working** of each diagram comes from the note at the end of its unit diagram in the Attune XML (e.g. `BI20 04+29ThO (F)`). For **exact** results the XML must contain the unit diagrams for **every day** you tick. For a day the XML doesn't cover, or a diagram that ends `Stabld`, the unit is matched to a diagram on the same fleet starting where it stabled (same place, then the same depot, then the same station area); those links are shown as `>?` and counted under *Linked by* as *inferred*, and the *Notes* tab says which days were inferred.
 
+**Lovers Walk, Stewarts Lane and Selhurst end a unit's cycle.** Those depots do whatever the units need, so a unit stabling there could form anything the next day: no next-day working is inferred from them, and the unit's cycle ends there (shown as the end of its chain). A next-day working the XML or TRENT print states is still followed.
+
 Which locations are depots: any location named *T&RSMD*, *TMD*, *EMUD*, *Depot*, *Shed* or *Traincare*, grouped by depot (so every road at Selhurst counts as Selhurst), plus the depot list in **Options > Edit depot list**: add a TIPLOC with its depot name, or leave the depot blank to mark a location as not a depot.
 
 ### Output formats
@@ -312,6 +316,7 @@ The tab has two sections. Under **1. Timetable comparison** choose what to compa
 * Choose one or more files for each side (hold Ctrl in the file window). Each train is found by its heading line (headcode with a UID, or the word *Train* / *Headcode*); a heading repeated on the next page continues the same train. Page numbers, print dates and repeated column headings are ignored.
 * Attune *Single Train Report* prints are read column by column (working, passing and public times, dwell, activity, platform, line, allowances and every heading field such as *Days Pattern* or *Timing Load*), so a change is named exactly, e.g. *Public departure time changed* or *Platform changed*. Other print layouts are read from their text.
 * Trains are paired by headcode, UID and days (then train ID and days, headcode, days and first time), and compared location by location, so an added or removed call is reported once instead of shifting every line. Reported: trains added / removed, arrival / departure / passing times changed, added or removed, other call details (platform, line, path, activities) and heading details.
+* **Passenger times only** (tickbox; command line `--passenger-only`): passing times and calls without a public time (timing points, working-only stops) are left out, for prints where one side does not show the intermediate timing points. The report's *Notes* say so.
 * **Side by side, like the timetable comparison**: in the *Live View* and on the report's **Side by Side** sheet, each train is laid out a row per location and time (*Arr* / *Dep* / *Pass*) with both prints' times next to each other, then the print's own details for that call: public times, platform, line, activity codes, dwell and allowances (a value that differs shows as `old → new`). The train's **days run**, train ID, UID, dates, class, power type, timing load and other heading details are at the top. The report's sheet lists every train that changed, was added or was removed.
 * **Speed**: Attune *Single Train Report* PDFs are read with PDFium, about ten times quicker than before (thousands of trains in well under a minute), with big files spread over several CPU cores. PDFium places every value by its position on the page, so narrow columns such as the allowances are read exactly; other PDFs are read as before. Scanned (image-only) PDFs cannot be read - save the print from the planning system as PDF or Word.
 
@@ -320,11 +325,31 @@ The tab has two sections. Under **1. Timetable comparison** choose what to compa
 * The heading row is found automatically (extra title rows and column order don't matter). Trains are paired by UID, days, STP and start date when there is a UID column, otherwise by headcode, days and origin departure time. Without a UID, a retimed train is still paired (and its new time reported as a change) when it is the only train left on each side with its headcode, days and origin; where two or more are left, they are listed as added and removed rather than guessed. An LTP row and its STP twin with the same key keep to their own stage.
 * Every column present in both lists is compared; times compare as HHMM (`05:10`, `0510` and an Excel time are equal) and numbers as numbers. Output: *Summary*, *Changes by Train*, *Trains Added*, *Trains Removed* and *What Was Compared* (which columns were compared and how trains were paired).
 
+### Two sets of Section 4 documents (PDF)
+
+* Choose the original and the updated Network Rail **Section 4** PDFs (several on each side for several routes). Each possession row is paired by **section number and night** and compared: the **section and its end locations**, the **periods and their dates**, the **possession windows** (times and days), **what is blocked**, and the **remarks / notes**. The obvious header differences - page headings, the line of route title, version and publication details, page numbers - are not compared.
+* Output: *Summary*, *Changes* (each changed item, what changed, original and updated), *Added*, *Removed* and *What Was Compared*. Command line: `timetable --s4 OLD.pdf [...] --vs-s4 NEW.pdf [...]`.
+
+### Two sets of Timetable Planning Rules (PDF)
+
+* Choose the original and the updated **TPR** PDFs. **Every table** is read from its drawn grid (sectional running times, headways, junction margins, dwells, platform rules...) - a table carried on to the next page stays one table - and every **paragraph and note** between them.
+* Tables are paired by section heading and title (section numbers left out, so a renumbered section still pairs), rows by their first column, and each cell is compared under its column heading. Paragraphs are compared section by section, sentence by sentence, so an edited note shows as changed. Running headers, footers and page numbers are not compared.
+* Output as for Section 4. Command line: `timetable --tpr OLD.pdf [...] --vs-tpr NEW.pdf [...]`.
+
 ### Section 4 check
 
 * **Inputs:** the Attune XML of the timetable, and Network Rail's Engineering Access Statement **Section 4 (Standard Possession Opportunities)** PDFs for the routes it runs on (e.g. *2027 EAS V4 S4 - KS*, *- EC*, *- EMR*). Add several PDFs to the box, or drop them with the XML on the Utilities section. Or leave the PDF box blank to check the **rule set in use**: the app has the **2027 EAS v4** Section 4 rules for Kent & Sussex, Anglia, East Coast, East Midlands and Wessex built in (13/12/2026 to 11/12/2027), so nothing needs adding. When Network Rail publishes newer Section 4 PDFs, add them once as a rule set in *Options > Rules and reference data*; that set is then used instead (the built-in set can be chosen again there). The latest rules are on [Network Rail's operational rules page](https://www.networkrail.co.uk/industry-and-commercial/information-for-operators/operational-rules/).
 * The PDFs' tables are read from their drawn cells: each section (e.g. *Shepherds Lane Jn and Herne Hill 110.3*), each night (*WEEK END*, *SUN/MON*, *MID WEEK*), each period's windows (e.g. *0140 T-F to 0350 T-F* is 01:40-03:50 on Tuesday to Friday mornings) and what is blocked.
 * A train **clashes** when it calls at or passes both ends of a section at a time inside a window, on a day and in a period the possession applies to (only periods the XML's dates cover). Places are matched to the XML by name (Network Rail's and Attune's spellings, e.g. *Victoria Eastern* / *London Victoria*); sections whose places are not in the XML are listed under *Not Checked*.
+* **Remarks are checked for each train.** The REMARKS column can except some trains or limit the possession, so it is applied to each clash:
+  * **excepted train types** (e.g. *Except ECS*, *Not applicable to passenger trains*, *Freight only*), from the train's class (1, 2, 9 passenger; 0, 3, 5 empty; 4, 6, 7, 8 freight);
+  * **named trains** (*1A23 excepted*, *Possession to be given up for the passage of 1A09*, *6D10 to be permitted to pass*, *after passage of 5E10*);
+  * **depot access** (*Access to Selhurst Depot via Norwood Jn*): the train's routing and destination are checked - it must run to or from that depot and pass the route named;
+  * **dates and weeks** (*Not 24/12*, *Only 01/06 to 30/06*, *Weeks 12-20*), **lines left open** (*Fast lines open*, *Trains to be timed over the Slow lines*), **routes to be kept** and **other possessions** (*Not when ... is taken*).
+  
+  A clash the remarks lift goes on the **Exempt** sheet with the reason; a remark that needs checking by hand (weeks, another possession, wording the app does not recognise) keeps the clash, shaded, and says what to check (*Remarks for this train*).
+* **Trains not checked** (listed on *Skipped*): trains that **run as required** (the XML's runs-as-required marking) unless they are passenger trains, and every train worked by a **MAINT** diagram.
+* Command line: `timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]` (no PDFs: the rule set in use).
 * The XML has no running lines, so each clash says **Every line blocked** or **Some lines: check the line used**. Where only the Down (or Up) line is blocked, a train is taken as Down when it reaches the first-named place first, and trains the other way are left out. Midweek possessions available only some weeks show it (e.g. *8 weeks a year*).
 
 ## Saved settings, notifications and help
@@ -335,7 +360,7 @@ The tab has two sections. Under **1. Timetable comparison** choose what to compa
 
 ## Live View
 
-The **Live View** tab shows any comparison in the app inside the window: CWNs, stats pack plans or files, GTR vs Network Rail timetables, train prints or an Attune list against a timetable, and two sets of train prints or Attune lists.
+The **Live View** tab shows any comparison in the app inside the window: CWNs, stats pack plans or files, GTR vs Network Rail timetables, train prints or an Attune list against a timetable, two sets of train prints or Attune lists, **two sets of Section 4 documents or TPRs**, the **Section 4 check** (watching the XML as you correct it), **two berthing charts** and the **unit reports of two plans**.
 
 1. Choose what to compare and the files (or drag them onto the tab), then press **Compare** (F5).
 2. Every train (or stats row) is listed on the left. *Show* filters it (differences only, all, changed, issues, added, removed / missing, unchanged, or updated by the last refresh) and *Find* searches it.
@@ -343,6 +368,9 @@ The **Live View** tab shows any comparison in the app inside the window: CWNs, s
    * **Click a row** on the right to highlight it right across, original and updated side by side, with its full values (including any too long for the column) shown in the box underneath.
    * Train prints: the train's details (days run, IDs, dates, class, power type...) sit under a **▼ Train details** heading at the top. Click it (or press Enter on it) to fold them away or show them again; the app remembers your choice. Folded, the heading still turns yellow and says how many details differ.
 4. With **Refresh when a file is saved** ticked, the files are watched. Save either one (e.g. after correcting a time in Excel) and the comparison re-runs, usually within a second or two. Only the saved file is read again. The selected train stays selected, and trains changed by the save are marked `*` in bold, with *Show: Updated by the last refresh* listing just those.
+
+5. **Passenger times only** (CWNs, timetables and train prints): hides passing times and times shown in one file only, for comparing timetables where one does not show the intermediate timing points.
+6. **Confirm each train as you check it**: click the ✔ column (or press Space, or **✔ Confirm**). *Show: Not yet confirmed / Confirmed* lists what is left, and the count under the list shows your progress. Ticks are **saved automatically** for each pair of files and come back when the same files are compared again; **Save progress...** / **Load progress...** keep them in a file of your own (e.g. to carry on tomorrow or hand over), with the files and options. If a refresh changes a train after it was confirmed, its tick comes off and it is listed under *Changed since confirmed* (marked !).
 
 **Export...** saves the trains currently listed (with the filter and search applied) to Excel, PDF or Word: an *About* sheet, a *Trains* sheet (each train's result and differences in words) and a *Differences* sheet (each differing call or field, coloured as on screen).
 
@@ -357,6 +385,16 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.28.0** - Section 4 and TPR comparisons, Section 4 remarks, stock-day station books, Live View checking
+* **New: compare two sets of Section 4 documents** and **two sets of Timetable Planning Rules** (Timing Tools, Live View and command line): times, dates, locations and notes / every table row and paragraph; headers are not compared.
+* **Section 4 check reads the remarks**: excepted train types, named trains, depot access (routing and destination checked), dates, weeks and lines; lifted clashes on a new *Exempt* sheet, remarks to check by hand flagged. Runs-as-required trains (unless passenger) and trains on MAINT diagrams are left out (*Skipped*). New command line: `timetable --s4-check`.
+* **Unit reports**: no next-day working is inferred from Lovers Walk, Stewarts Lane or Selhurst; the unit's cycle ends there.
+* **Station books follow the stock day** (each day starts with its diagrams' first train) and can **merge other operators' Attune XMLs**.
+* **Live View**: *Passenger times only*; **confirm each train** with ticks that are saved automatically and can be saved / loaded; new comparisons (Section 4 and TPR documents, Section 4 check, berthing charts, unit reports); CWNs now ignore spacing as the report does and show Start/Call/Pass changes.
+* **Train prints**: *Passenger times only* for the report too (`--passenger-only`).
+* **Put days in order**: clicking a diagram number no longer jumps to another tab.
+* **Stats pack**: class 701/5 removed from the built-in fleet data (and from your fleet table if you had not changed it).
 
 **3.27.7** - neater berthing chart notes, no MAINT
 * **Long notes stay inside their berth's box.** A long note about a berth (e.g. "If No 2 Carriage Siding has more than 4 car berthed access to No 3 Siding is blocked", "OUT OF USE UNTIL FURTHER NOTICE") is now written across the day columns of that berth's own box, in red bold on pale yellow, instead of on full-width rows between two siding locations. The boxes on a sheet stay the same height, grown only as far as the longest set of notes needs.
@@ -851,6 +889,11 @@ TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.docx ...] --vs NEW.pdf [
 TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
 TrainPlanningTools.exe timetable --base-prints PRINT.pdf [PRINT2.pdf ...] --check TIMETABLE.xlsx
 TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
+TrainPlanningTools.exe timetable --prints OLD.pdf --vs NEW.pdf --passenger-only
+TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...]       (two sets of Section 4 documents)
+TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...]   (two sets of TPRs)
+TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]           (Section 4 check)
+TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" --merge-xml OTHER_OPERATOR.xml
 ```
 
 ## For developers
