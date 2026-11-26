@@ -31,8 +31,8 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
     from openpyxl.utils import get_column_letter
     from openpyxl.worksheet.properties import PageSetupProperties
 
-    from rstools.fsutil import clean_cell
-    ws = wb.create_sheet(title[:31])
+    from rstools.fsutil import clean_cell, sheet_title
+    ws = wb.create_sheet(sheet_title(title, wb.sheetnames))
     thin = Side(style="thin", color="FFBFBFBF")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     head_font, head_fill = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF"), PatternFill(

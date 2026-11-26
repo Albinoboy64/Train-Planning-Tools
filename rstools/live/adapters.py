@@ -14,27 +14,30 @@ from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, L
 
 MODES = {
     "cwn": "Stock Tools: two CWNs",
-    "sp_plans": "Stats Pack: two plans (XML + TRENT print each)",
+    "berthing": "Stock Tools: two berthing charts",
     "sp_packs": "Stats Pack: two stats pack files",
-    "timetables": "Timetable: GTR timetable against Network Rail",
-    "print_tt": "Timetable: train prints against a timetable",
-    "list_tt": "Timetable: Attune train list against a timetable",
-    "prints": "Timetable: two sets of train prints",
-    "lists": "Timetable: two Attune train lists",
+    "sp_plans": "Stats Pack: two plans (XML + TRENT print each)",
+    "units": "Stats Pack: unit reports, two plans",
+    "timetables": "Timing Tools: GTR timetable against Network Rail",
+    "print_tt": "Timing Tools: train prints against a timetable",
+    "list_tt": "Timing Tools: Attune train list against a timetable",
+    "prints": "Timing Tools: two sets of train prints",
+    "lists": "Timing Tools: two Attune train lists",
+    "s4check": "Timing Tools: Section 4 check (Attune XML)",
     "s4docs": "Timing Tools: two sets of Section 4 documents",
     "tprs": "Timing Tools: two sets of Timetable Planning Rules",
-    "s4check": "Timing Tools: Section 4 check (Attune XML)",
-    "berthing": "Stock Tools: two berthing charts",
-    "units": "Stats Pack: unit reports, two plans",
 }
+MODES = dict(sorted(MODES.items(), key=lambda kv: kv[1].casefold()))        # the Compare list, A-Z
 Log = Callable[[str], None]
 
 
 def compute(mode: str, files: Dict[str, List[str]], days: Optional[Sequence[int]] = None,
-            log: Log = lambda m: None, passenger_only: bool = False, loose: bool = True) -> LiveResult:
+            log: Log = lambda m: None, passenger_only: bool = False, loose: bool = True,
+            header: bool = True, timing: bool = True) -> LiveResult:
     """files: box key -> paths (see the Live tab's FILES). passenger_only: leave out passing times and times shown
     in one file only (intermediate timing points). loose: CWN text compared ignoring spacing and punctuation, as
-    the Stock Tools option 'Ignore spacing' (on by default)."""
+    the Stock Tools option 'Ignore spacing' (on by default). header / timing: whether train header differences and
+    timing differences are checked (train prints and timetables)."""
     if mode == "cwn":
         return cwn(files["a"][0], files["b"][0], days, log, passenger_only, loose)
     if mode == "sp_packs":
@@ -51,12 +54,12 @@ def compute(mode: str, files: Dict[str, List[str]], days: Optional[Sequence[int]
     from rstools.timetable.engine import compare_files
     cmp = compare_files(mode, files["a"], files["b"], log=log, passenger_only=passenger_only)
     if mode == "prints":
-        return prints(cmp)
+        return prints(cmp, header, timing)
     if mode == "lists":
         return lists(cmp)
     if mode in ("s4docs", "tprs"):
         return documents(cmp)
-    return timetables(cmp, passenger_only)
+    return timetables(cmp, passenger_only, header, timing)
 
 
 def _same(a: str, b: str) -> bool:
@@ -199,8 +202,8 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
 
 
 # --------------------------------------------------------------------------- timetables (all three kinds)
-def timetables(cmp, passenger_only: bool = False) -> LiveResult:
-    from rstools.timetable.compare import ISSUE_TIME
+def timetables(cmp, passenger_only: bool = False, header: bool = True, timing: bool = True) -> LiveResult:
+    from rstools.timetable.compare import ISSUE_MISSING, ISSUE_TIME
     B, O = cmp.base_label, cmp.other_label
     items: List[LiveItem] = []
     for res in cmp.sections:
@@ -234,12 +237,15 @@ def timetables(cmp, passenger_only: bool = False) -> LiveResult:
                 if (e.loc, e.role) not in seen:
                     rows.append(LiveRow([e.name, "Arr" if e.role == "arr" else "Dep", "", e.time,
                                          f"{O} only (not compared)"], "muted"))
+            checked = [i for i in m.issues if timing or i.summary != ISSUE_TIME]
             if g is None:
                 state, status = REMOVED, f"Missing from {O}"
-            elif m.issues:
-                state, status = ISSUE, f"{len(m.issues)} issue(s)"
-            elif g.headcode != n.headcode:
-                state, status = CHANGED, f"Headcode differs ({O} {g.headcode})"
+            elif checked:
+                kinds = list(dict.fromkeys("Timing" if i.summary == ISSUE_TIME else "Missing time" if
+                                           i.summary == ISSUE_MISSING else "Time shown wrongly" for i in checked))
+                state, status = ISSUE, ", ".join(kinds) + " difference"
+            elif header and g.headcode != n.headcode:
+                state, status = CHANGED, f"TID difference ({O} {g.headcode})"
             else:
                 state, status = SAME, "Matches"
             notes = [f"{i.location} {i.role}: {i.summary} ({B} {i.nr_time}, {O} {i.gtr_time or '-'})"
@@ -263,28 +269,42 @@ def timetables(cmp, passenger_only: bool = False) -> LiveResult:
     notes = list(cmp.warnings)
     if passenger_only:
         notes.append("Passenger times only: times shown in one file only (not compared) are left out.")
+    if not header or not timing:
+        notes.append("Not checked: " + " and ".join(w for w, on in (("header differences (TID)", header),
+                                                                  ("timing differences", timing)) if not on) + ".")
     return LiveResult(f"{B} against {O}", ["Location", "Arr/Dep", B, O, "Result"], items, notes)
 
 
 # --------------------------------------------------------------------------- train prints
-def prints(cmp) -> LiveResult:
+def prints(cmp, header: bool = True, timing: bool = True) -> LiveResult:
     """Each pair of trains laid out like the timetable comparison (a row per location and time, both
     prints side by side) with the prints' own details: public times, platform, line, activity codes,
     dwell and allowances; the train's days run, IDs and dates at the top."""
-    from rstools.timetable.prints import SIDE_COLUMNS, _compare_pair, side_by_side, train_details
+    from rstools.timetable.prints import SIDE_COLUMNS, _compare_pair, kinds_text, side_by_side, train_details
 
     pax = getattr(cmp, "passenger_only", False)
 
+    def shown(i: int, n: int, cells, state: str) -> str:
+        """The row's state: a difference in a part that is not being checked is only greyed."""
+        if state != "changed":
+            return state
+        if i < n:
+            return state if header else "muted"
+        parts = [p.strip() for p in str(cells[-1]).split(",") if p.strip()]
+        if not timing and parts and all(p.startswith(("Time", "Public time")) for p in parts):
+            return "muted"
+        return state
+
     def live_rows(a, b):
         n = len(train_details(a, b))                    # the train-detail rows come first
-        return [LiveRow(cells, state, "details" if i < n else "") for i, (cells, state) in
+        return [LiveRow(cells, shown(i, n, cells, state), "details" if i < n else "") for i, (cells, state) in
                 enumerate(side_by_side(a, b, pax))]
     items: List[LiveItem] = []
     for a, b, how, _n in cmp.pairs:
         rows = live_rows(a, b)
-        changes = _compare_pair(a, b, pax)
+        changes = _compare_pair(a, b, pax, header, timing)
         items.append(LiveItem(f"pair|{a.label()}|{a.days}|{a.first_time}", a.source, f"{a.label()} {a.days}".strip(),
-                              CHANGED if changes else SAME, f"{len(changes)} change(s)" if changes else "No change",
+                              CHANGED if changes else SAME, kinds_text(changes),
                               rows, [f"{c.location}: {c.change} ({c.original} -> {c.updated})" for c in changes]
                               + [f"Paired by {how}"], len(items)))
     for t, state, word in [(t, REMOVED, "Removed") for t in cmp.removed] + [(t, ADDED, "Added") for t in cmp.added]:
@@ -295,6 +315,10 @@ def prints(cmp) -> LiveResult:
     notes = list(cmp.warnings)
     if pax:
         notes.append("Passenger times only: passing times and calls without a public time are left out.")
+    if not header or not timing:
+        notes.append("Not checked: " + " and ".join(w for w, on in (("header differences", header),
+                                                                  ("timing differences", timing)) if not on)
+                     + " (shown in grey).")
     return LiveResult("Train prints", list(SIDE_COLUMNS), items, notes)
 
 
@@ -420,18 +444,19 @@ def documents(cmp) -> LiveResult:
     items: List[LiveItem] = []
     for it in cmp.items:
         state = state_of.get(it.status, SAME)
+        real = {f[0] for f in it.changes}
         rows = []
         for name, old, new in it.fields:
             if not old and not new:
                 continue
-            rs = ADDED if state == ADDED else REMOVED if state == REMOVED else (CHANGED if old != new else SAME)
+            rs = ADDED if state == ADDED else REMOVED if state == REMOVED else (CHANGED if name in real else SAME)
             rows.append(LiveRow([name, old, new], rs))
         if it.where:
             rows.append(LiveRow(["Pages", it.where, ""], "muted"))
         diff = [n for n, o, u in it.changes]
         status = {ADDED: "Added", REMOVED: "Removed", SAME: "No change"}.get(state, ", ".join(diff) + " changed")
-        items.append(LiveItem(it.key, it.group, it.label, state, status, rows,
-                              [f"{n}: {o or '-'} -> {u or '-'}" for n, o, u in it.changes], len(items)))
+        items.append(LiveItem(it.key, f"{it.book} - {it.group}" if it.book else it.group, it.label, state, status,
+                              rows, [f"{n}: {o or '-'} -> {u or '-'}" for n, o, u in it.changes], len(items)))
     return LiveResult(f"{cmp.kind}: original vs updated", ["Field", "Original", "Updated"], items,
                       list(cmp.warnings))
 
@@ -535,7 +560,7 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
     if not days:
         raise ValueError("The two TRENT prints have no diagram days in common.")
     opts = PackOptions(days=days, operators=set(OPERATORS), fleets=None)
-    which = ["washes", "depots", "captive", "fuel"]
+    which = ["washes", "cets", "depots", "captive", "fuel"]
     log("Following units in both plans...")
     old_reps, w_old = _unit_report_list(old, opts, which, True)
     new_reps, w_new = _unit_report_list(new, opts, which, True)
@@ -545,7 +570,9 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
         if rep.name == "Notes":
             continue
         base = by_old.get(rep.name)
-        nkeys = min(SPEC.get(rep.name, (1, False))[0], len(rep.headers))
+        nkeys = SPEC.get(rep.name, (1, False))[0] + (1 if rep.name.endswith("by Fleet") and rep.headers[:1] == ["Day"]
+                                                      else 0)
+        nkeys = min(nkeys, len(rep.headers))
         a, b = _keyed(base.rows if base else [], nkeys), _keyed(rep.rows, nkeys)
         for k in list(b) + [k for k in a if k not in b]:
             ra, rb = a.get(k), b.get(k)

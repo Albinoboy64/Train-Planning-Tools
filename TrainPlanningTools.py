@@ -27,8 +27,8 @@ Command-line use:
     TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]
-    TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...]
-    TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...]
+    TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...] [--highlight-pdfs]
+    TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...] [--highlight-pdfs]
 """
 import argparse
 import os
@@ -242,9 +242,13 @@ def statspack_cli(argv):
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx",
                     help="save outputs as Excel (default), PDF or Word")
     ap.add_argument("--unit-reports", default="",
-                    help="instead of a stats pack: unit reports, any of washes,depots,captive,fuel")
+                    help="instead of a stats pack: unit reports, any of washes,cets,depots,captive,fuel")
     ap.add_argument("--per-day", action="store_true",
-                    help="unit and capacity reports: each day on its own (default: whole week)")
+                    help="unit and capacity reports: each day on its own (default: whole week); same as "
+                         "--unit-period days")
+    ap.add_argument("--unit-period", choices=["week", "days", "timetable"], default="",
+                    help="unit reports: follow units through the week (default), show each day separately, or "
+                         "give only the fleet totals for the entire timetable")
     ap.add_argument("--capacity-group", "--seats-group", dest="seats_group", default="",
                     help="capacity report for a headcode group, e.g. 1F")
     ap.add_argument("--capacity-corridor", "--seats-corridor", dest="seats_corridor", default="",
@@ -265,6 +269,10 @@ def statspack_cli(argv):
     from rstools.statspack.compare import CompareOptions
     cmp = CompareOptions(summary=not a.no_summary, changed_tabs_only=a.changed_tabs_only,
                          changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
+    if a.unit_period and not a.unit_reports:
+        ap.error("--unit-period is used with --unit-reports")
+    if a.unit_period and a.per_day:
+        ap.error("use --unit-period days instead of --per-day, not both")
     try:
         window = _capacity_window(a)          # checked before the (slow) timetable is read
         from cwn_compare import __version__ as version
@@ -306,7 +314,8 @@ def statspack_cli(argv):
             bad = [w for w in which if w not in UNIT_REPORTS]
             if bad:
                 raise StatsPackError(f"Unknown unit report {bad[0]!r}; use {','.join(UNIT_REPORTS)}")
-            paths, warnings = unit_reports(new, o, which, not a.per_day, old=old)
+            paths, warnings = unit_reports(new, o, which, a.unit_period or ("days" if a.per_day else "week"),
+                                           old=old)
         elif a.old_xml or a.old_trent:
             old = load_plan(PlanInputs(a.old_xml, a.old_trent), print)
             o.days = [d for d in o.days if d in old.trent.days()]
@@ -377,6 +386,8 @@ def timetable_cli(argv):
                                                         "compared with --vs-s4")
     ap.add_argument("--vs-s4", nargs="+", default=[], help="updated Section 4 PDF(s), compared with --s4")
     ap.add_argument("--vs-tpr", nargs="+", default=[], help="updated TPR PDF(s), compared with --tpr")
+    ap.add_argument("--highlight-pdfs", action="store_true",
+                    help="with --s4 / --vs-s4 or --tpr / --vs-tpr: also save the PDFs with the changes highlighted")
     ap.add_argument("--passenger-only", action="store_true",
                     help="train prints: leave out passing times and calls without a public time (for prints where "
                          "one side does not show the intermediate timing points)")
@@ -396,6 +407,8 @@ def timetable_cli(argv):
         ap.error("--vs-tpr is used with --tpr")
     if a.s4 and not (a.s4_check or a.s4_compare):
         ap.error("--s4 is used with --s4-check or --vs-s4")
+    if a.highlight_pdfs and not (a.s4_compare or a.tpr):
+        ap.error("--highlight-pdfs is used with --s4 / --vs-s4 or --tpr / --vs-tpr")
     if a.passenger_only and not a.prints:
         ap.error("--passenger-only is used with --prints")
     if a.s4_check:
@@ -418,7 +431,8 @@ def timetable_cli(argv):
     from rstools.fsutil import output_folder
     out = output_folder(a.out)
     try:
-        res = run(mode, first, second, out, a.name, a.format, log=print, passenger_only=a.passenger_only)
+        res = run(mode, first, second, out, a.name, a.format, log=print, passenger_only=a.passenger_only,
+                  highlight_pdfs=a.highlight_pdfs)
     except Exception as exc:                 # readable messages from the readers and the engine
         print("ERROR:", exc)
         sys.exit(1)

@@ -152,12 +152,13 @@ class TimetableTab(ttk.Frame):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
 
-        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. Timetable comparison", padding=8)
+        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. Timetable Comparison", padding=8)
         mf.grid(row=0, column=0, sticky="ew")
         mf.columnconfigure(1, weight=1)
         self.mode = tk.StringVar(value="timetables")
-        self.tasks = [(key, text) for key, (text, _btn) in MODE_TEXT.items()] + [
-            (S4, "Section 4 check: trains in Network Rail's standard possession times")]
+        self.tasks = sorted([(key, text) for key, (text, _btn) in MODE_TEXT.items()] + [
+            (S4, "Section 4 check: trains in Network Rail's standard possession times")],
+            key=lambda t: t[1].casefold())
         ttk.Label(mf, text="Task:").grid(row=0, column=0, sticky="w")
         self.task_box = ttk.Combobox(mf, state="readonly", values=[t for _k, t in self.tasks])
         self.task_box.grid(row=0, column=1, columnspan=3, sticky="ew", padx=4)
@@ -192,6 +193,11 @@ class TimetableTab(ttk.Frame):
         self.pax_cb = ttk.Checkbutton(mf, text="Passenger times only (leave out passing and working-only times)",
                                       variable=self.pax_var)
         self.pax_cb.grid(row=6, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.hl_var = tk.BooleanVar(value=False)
+        self.hl_cb = ttk.Checkbutton(mf, text="Also save the PDFs with the changes highlighted", variable=self.hl_var)
+        self.hl_cb.grid(row=7, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        Tooltip(self.hl_cb, "Saves a copy of the updated PDFs (changes yellow, additions green) and of the original "
+                            "PDFs (removals red) beside the report. Each highlight has a note saying what changed.")
         Tooltip(self.pax_cb, "For prints where one side does not show the intermediate timing points: passing "
                              "times and calls without a public time are not compared.")
 
@@ -461,6 +467,7 @@ class TimetableTab(ttk.Frame):
             (w.grid_remove if util else w.grid)()
         if not util:
             (self.pax_cb.grid if self._cmp_mode() == "prints" else self.pax_cb.grid_remove)()
+            (self.hl_cb.grid if self._cmp_mode() in ("s4docs", "tprs") else self.hl_cb.grid_remove)()
         self._task_shown()
         if not util:
             self._last_cmp = mode
@@ -475,6 +482,7 @@ class TimetableTab(ttk.Frame):
                 self.vars[key].set("")
         self.note.configure(text=NOTES[cmp])
         (self.pax_cb.grid if cmp == "prints" else self.pax_cb.grid_remove)()
+        (self.hl_cb.grid if cmp in ("s4docs", "tprs") else self.hl_cb.grid_remove)()
         self.run_btn.configure(text="Check Section 4" if util else MODE_TEXT[cmp][1])
         if not self.running:
             self.status.configure(text="Ready - press F5 or Ctrl+Enter to run")
@@ -651,7 +659,9 @@ class TimetableTab(ttk.Frame):
         self._started = time.monotonic()
         self.app.set_busy(True)
         threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get(),
-                                                  mode == "prints" and self.pax_var.get()), daemon=True).start()
+                                                  mode == "prints" and self.pax_var.get(),
+                                                  mode in ("s4docs", "tprs") and self.hl_var.get()),
+                         daemon=True).start()
         self.app.pump.kick()
 
     def _run_section4(self):
@@ -718,11 +728,11 @@ class TimetableTab(ttk.Frame):
         except Exception as exc:
             self.q.put(("error", errorlog.describe(exc)))
 
-    def _work(self, mode, first, second, out_dir, name, fmt, passenger_only=False):
+    def _work(self, mode, first, second, out_dir, name, fmt, passenger_only=False, highlight=False):
         try:
             res = run(mode, first, second, out_dir, name, fmt, progress=lambda f, m: self.q.put(("prog", f, m)),
                       log=lambda m: self.q.put(("log", m, "warn" if m.startswith("WARNING") else None)),
-                      passenger_only=passenger_only)
+                      passenger_only=passenger_only, highlight_pdfs=highlight)
             self.q.put(("done", res))
         except TimetableRunError as exc:
             self.q.put(("error", str(exc)))
@@ -755,7 +765,7 @@ class TimetableTab(ttk.Frame):
                     res = item[1]
                     self._finish(True)
                     self.progress.finish()
-                    self.outputs = [res.path]
+                    self.outputs = [res.path] + list(res.extra)
                     for line in res.lines:
                         self._append(line)
                     summary = (f"{res.differences} difference(s) found." if res.differences

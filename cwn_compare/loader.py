@@ -10,6 +10,8 @@ import datetime as _dt
 import os
 from typing import TYPE_CHECKING
 
+from rstools.fsutil import sheet_title
+
 if TYPE_CHECKING:                      # openpyxl itself is imported only when a file is read
     import openpyxl
 
@@ -114,7 +116,7 @@ def _load_xls(path: str) -> "openpyxl.Workbook":
         return "FF%02X%02X%02X" % c
 
     for sh in book.sheets():
-        ws = wb.create_sheet(sh.name[:31])
+        ws = wb.create_sheet(sheet_title(sh.name, wb.sheetnames))
         for r in range(sh.nrows):
             for c in range(sh.ncols):
                 cell = sh.cell(r, c)
@@ -170,7 +172,7 @@ def _load_xlsb(path: str) -> "openpyxl.Workbook":
     wb.remove(wb.active)
     with open_workbook(path) as book:
         for name in book.sheets:
-            ws = wb.create_sheet(name[:31])
+            ws = wb.create_sheet(sheet_title(name, wb.sheetnames))
             with book.get_sheet(name) as sh:
                 for row in sh.rows():
                     for c in row:

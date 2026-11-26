@@ -13,7 +13,7 @@ import re
 from collections import Counter, defaultdict
 from typing import Dict, List, Optional, Sequence, Tuple, cast
 
-from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, norm
+from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, books_of, content_key, norm
 from .tpr import Table, TPRDoc
 
 
@@ -54,7 +54,7 @@ def _sentences(text: str) -> List[str]:
 def compare_tprs(a: TPRDoc, b: TPRDoc) -> DocComparison:
     cmp = DocComparison("TPR", list(a.files), list(b.files), warnings=list(a.warnings) + list(b.warnings))
     _compare_tables(a.tables, b.tables, cmp)
-    _compare_text(a.paragraphs, b.paragraphs, cmp)
+    _compare_text(_with_refs(a), _with_refs(b), cmp)
     cmp.compared = ["Every table row: tables paired by section heading and table title, rows by their first "
                     "column, and each cell compared under its column heading (times, locations, values, notes).",
                     "Every paragraph and note outside the tables, section by section, sentence by sentence.",
@@ -71,6 +71,12 @@ def compare_tprs(a: TPRDoc, b: TPRDoc) -> DocComparison:
     return cmp
 
 
+def _with_refs(doc: TPRDoc) -> List[Tuple]:
+    """The paragraphs with where each sits in its PDF."""
+    refs = list(doc.para_refs) + [[]] * (len(doc.paragraphs) - len(doc.para_refs))
+    return [(*p, r) for p, r in zip(doc.paragraphs, refs)]
+
+
 def _by_id(tables: Sequence[Table]) -> Dict[str, List[Table]]:
     out: Dict[str, List[Table]] = defaultdict(list)
     for t in tables:
@@ -83,8 +89,8 @@ def _align(x: Table, y: Table):
     Runs of identical rows stay together; in a block that changed, rows with the same first cell are paired first
     and the rest in order, so one edited, inserted or deleted row never shifts the pairing of the others (first
     cells repeat a lot in real tables, so they cannot be keys)."""
-    ra = [tuple(norm(c) for c in r) for r in x.rows]
-    rb = [tuple(norm(c) for c in r) for r in y.rows]
+    ra = [tuple(content_key(c) for c in r) for r in x.rows]
+    rb = [tuple(content_key(c) for c in r) for r in y.rows]
     out: List[Tuple[Optional[int], Optional[int]]] = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ra, rb, autojunk=False).get_opcodes():
         if op == "equal":
@@ -144,46 +150,53 @@ def _compare_tables(left: Sequence[Table], right: Sequence[Table], cmp: DocCompa
                 seen[label] += 1
                 where = " / ".join(f"p{','.join(map(str, t.pages))}" for t in (x, y) if t is not None)
                 item = DocItem(f"T|{tid}|{n}|{label.lower()}|{seen[label]}", group, label,
-                               fields=[(c, va.get(c, ""), vb.get(c, "")) for c in names], where=where)
+                               fields=[(c, va.get(c, ""), vb.get(c, "")) for c in names], where=where,
+                               book=books_of(x.source if x else "", y.source if y else ""),
+                               refs_a=[x.refs[i]] if x is not None and i is not None and i < len(x.refs) else [],
+                               refs_b=[y.refs[j]] if y is not None and j is not None and j < len(y.refs) else [])
                 item.status = ADDED if i is None else REMOVED if j is None else CHANGED if item.changes else SAME
                 cmp.items.append(item)
 
 
-def _compare_text(left: Sequence[Tuple[str, str, int]], right: Sequence[Tuple[str, str, int]], cmp: DocComparison):
+def _compare_text(left: Sequence[Tuple], right: Sequence[Tuple], cmp: DocComparison):
+    book = books_of(*cmp.first, *cmp.second) if len(cmp.first) + len(cmp.second) <= 2 else ""
     def by_section(paras):
-        out: Dict[str, Tuple[str, List[Tuple[str, int]]]] = {}
-        for sec, text, page in paras:
+        out: Dict[str, Tuple[str, List[Tuple[str, int, list]]]] = {}
+        for sec, text, page, *rest in paras:
             key = _plain_heading(sec)
             head, sents = out.setdefault(key, (norm(sec), []))
-            sents += [(s, page) for s in _sentences(text)]
+            sents += [(s, page, rest[0] if rest else []) for s in _sentences(text)]
         return out
     sa, sb = by_section(left), by_section(right)
     for key in dict.fromkeys(list(sa) + list(sb)):
         head = (sa.get(key) or sb.get(key) or ("", []))[0] or "Text before the first heading"
-        xa: List[Tuple[str, int]] = (sa.get(key) or ("", []))[1]
-        xb: List[Tuple[str, int]] = (sb.get(key) or ("", []))[1]
-        ta, tb = [s for s, _p in xa], [s for s, _p in xb]
+        xa: List[Tuple[str, int, list]] = (sa.get(key) or ("", []))[1]
+        xb: List[Tuple[str, int, list]] = (sb.get(key) or ("", []))[1]
+        ta, tb = [x[0] for x in xa], [x[0] for x in xb]
         n = 0
-        for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ta, tb, autojunk=False).get_opcodes():
+        ka, kb = [content_key(s) for s in ta], [content_key(s) for s in tb]
+        for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ka, kb, autojunk=False).get_opcodes():
             if op == "equal":
                 for i, j in zip(range(i1, i2), range(j1, j2)):
                     n += 1
                     cmp.items.append(DocItem(f"P|{key}|{n}", head, _short(ta[i]), SAME, [("Text", ta[i], tb[j])],
-                                             f"p{xa[i][1]} / p{xb[j][1]}"))
+                                             f"p{xa[i][1]} / p{xb[j][1]}", book=book, refs_a=xa[i][2], refs_b=xb[j][2]))
                 continue
             pairs = list(zip(range(i1, i2), range(j1, j2))) if op == "replace" else []
             for i, j in pairs:
                 n += 1
-                cmp.items.append(DocItem(f"P|{key}|{n}", head, _short(ta[i]), CHANGED, [("Text", ta[i], tb[j])],
-                                         f"p{xa[i][1]} / p{xb[j][1]}"))
+                item = DocItem(f"P|{key}|{n}", head, _short(ta[i]), CHANGED, [("Text", ta[i], tb[j])],
+                               f"p{xa[i][1]} / p{xb[j][1]}", book=book, refs_a=xa[i][2], refs_b=xb[j][2])
+                item.status = CHANGED if item.changes else SAME
+                cmp.items.append(item)
             for i in range(i1 + len(pairs), i2):
                 n += 1
                 cmp.items.append(DocItem(f"P|{key}|{n}", head, _short(ta[i]), REMOVED, [("Text", ta[i], "")],
-                                         f"p{xa[i][1]}"))
+                                         f"p{xa[i][1]}", book=book, refs_a=xa[i][2]))
             for j in range(j1 + len(pairs), j2):
                 n += 1
                 cmp.items.append(DocItem(f"P|{key}|{n}", head, _short(tb[j]), ADDED, [("Text", "", tb[j])],
-                                         f"p{xb[j][1]}"))
+                                         f"p{xb[j][1]}", book=book, refs_b=xb[j][2]))
 
 
 def _short(text: str, n: int = 60) -> str:

@@ -866,3 +866,63 @@ def test_unit_followed_through_its_stabling_diagram(monkeypatch):
         units, _per_day, warnings = U.follow_units(plan.trent, plan.attune, [0, 1, 2])
         assert [[x.key for x in u.diagrams] for u in units] == [["BI1", "BI3", "BI2"]], units
         assert not any("another unit already forms" in w for w in warnings), warnings
+
+
+def _washing_week(wash_days_a, wash_days_b):
+    """Two units, each working one diagram a day Monday to Friday and stabling where it starts (no XML, so every
+    link is inferred); `wash_days_*` are the days (0-4) each one is washed."""
+    lines = []
+    for unit, (loc, fleet, washes) in enumerate((("BRGHTN", "700/0", wash_days_a), ("EBOUSID", "377/4", wash_days_b))):
+        for day in range(5):
+            num = 10 * (unit + 1) + day
+            rows = [move(loc, "", "1", "", "07.00", f"1B{num}SX", f"{num}(1)", 30.0, 30.0)]
+            if day in washes:
+                rows.append(act(loc, "4", "07+30", "WASH"))
+            rows.append(act(loc, "4", "08+00", "STABLD"))
+            lines += diagram("SX", num, ("MO", "TO", "WO", "ThO", "FO")[day], fleet, rows, 30.0, 0.0)
+    return lines
+
+
+def test_wash_and_cet_tabs_period_inferred_reasons_and_the_three_day_rule():
+    from rstools.statspack.engine import unit_reports
+    from rstools.statspack.units import Depots, follow_units, over_wash_limit, wash_cet_reports
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "w.docx")
+        write_docx(p, _washing_week([0], [0, 4]))
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        depots = Depots.load({"BRGHTN": "Brighton"}, os.path.join(d, "none.csv"))
+        units, per_day, _w = follow_units(plan.trent, None, [0, 1, 2, 3, 4], depots)
+        by_key = {u.diagrams[0].key: u for u in units}
+        a, b = by_key["SX10"], by_key["SX20"]
+        assert len(a.diagrams) == 5 and a.links == ["inferred"] * 4
+        assert (a.wash_gap, b.wash_gap) == (4, 3)                  # a: Tue-Fri unwashed; b: Tue-Thu
+        assert over_wash_limit(units) == [a]                       # more than 3 days: only the first
+        first = a.inferred[0]
+        assert first["stabled_at"] == "Brighton (BRGHTN)" and first["forms"] == "TO SX11"
+        assert first["match"] == "same location" and "No Attune XML" in first["reason"]
+        reps = {r.name: r for r in wash_cet_reports(units, per_day, "week")}
+        assert set(reps) == {"Washes by Unit", "Washes by Fleet", "CETs by Unit", "CETs by Fleet", "Inferred Links"}
+        rule = {r[0]: r[6] for r in reps["Washes by Unit"].rows}
+        assert rule["MO SX10"].startswith("More than 3") and rule["MO SX20"] == "OK"
+        assert "1 unit(s) do" in reps["Washes by Unit"].note
+        assert len(reps["Inferred Links"].rows) == 8
+        # each day separately: the fleets for every day, with day totals and a total for all the days
+        days = {r.name: r for r in wash_cet_reports(units, per_day, "days")}
+        assert set(days) == {"Washes by Diagram", "Washes by Fleet", "CETs by Diagram", "CETs by Fleet"}
+        rows = days["Washes by Fleet"].rows
+        assert days["Washes by Fleet"].headers[:2] == ["Day", "Fleet"]
+        assert [r[0] for r in rows if r[1] == "Day total"] == ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        assert rows[-1][:3] == ["All days", "Total", 10] and rows[-1][3] == 3        # 3 washes in the week
+        # the entire timetable: only the fleet totals
+        whole = wash_cet_reports(units, per_day, "timetable", ("washes",))
+        assert [r.name for r in whole] == ["Washes by Fleet"] and whole[0].rows[-1][:3] == ["Total", 10, 3]
+        # written: separate tabs, the over-limit units in the notes, A-Z with the notes last
+        path = unit_reports(plan, opts(d, [0, 1, 2, 3, 4]), ["washes", "cets"], "week")[0][0]
+        import openpyxl
+        names = openpyxl.load_workbook(path).sheetnames
+        assert names == sorted(n for n in names if n != "Notes") + ["Notes"], names
+        assert "Washes by Unit" in names and "CETs by Unit" in names and "Inferred Links" in names
+        notes = [c.value for row in openpyxl.load_workbook(path)["Notes"].iter_rows() for c in row if c.value]
+        assert any("more than 3 days without a wash" in str(n) for n in notes), notes
+        path = unit_reports(plan, opts(d, [0, 1, 2, 3, 4]), ["washes"], "timetable")[0][0]
+        assert openpyxl.load_workbook(path).sheetnames == ["Washes by Fleet", "Notes"]

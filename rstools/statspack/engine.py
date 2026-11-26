@@ -353,15 +353,18 @@ def compare_packs(old_path: str, new_path: str, output_dir: str = "", output_nam
 # --------------------------------------------------------------------------- #
 # unit reports: washes / CETs, depot returns / swaps, captive units
 # --------------------------------------------------------------------------- #
-UNIT_REPORTS = {"washes": "Washes and CETs per unit", "depots": "Depot returns and swaps",
+UNIT_REPORTS = {"washes": "Washes", "cets": "CETs", "depots": "Depot returns and swaps",
                 "captive": "Captive diagrams / units", "fuel": "Fuel check (171s, every 48 hours)"}
 
 
-def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str], week: bool,
+def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str], period,
                       progress: Callable[[float, str], None] = lambda f, m: None) -> Tuple[list, List[str]]:
     from .fleet import FleetTable
     from .model import operator_of
-    from .units import Depots, Report, captive_reports, depot_reports, follow_units, fuel_reports, wash_cet_reports
+    from .units import (WASH_LIMIT, Depots, Report, _period, captive_reports, depot_reports, follow_units,
+                        fuel_reports, over_wash_limit, wash_cet_reports)
+    period = _period(period)
+    week = period == "week"
     days = sorted(opts.days)
     names = plan.attune.locations
     depots = Depots.load(names)
@@ -379,8 +382,13 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
         raise StatsPackError("No diagrams match the selected days, operators and fleets.")
     progress(0.6, "Writing the report...")
     reports = []
-    if "washes" in which:
-        reports += wash_cet_reports(units, per_day, week)
+    kinds = tuple(k for k in ("washes", "cets") if k in which)
+    if kinds:
+        reports += wash_cet_reports(units, per_day, period, kinds)
+        late = over_wash_limit(units) if (week and "washes" in kinds) else []
+        if late:
+            warnings.append(f"{len(late)} unit(s) go more than {WASH_LIMIT} days without a wash "
+                            f"(e.g. {', '.join(u.diagrams[0].label for u in late[:6])}): see the Washes by Unit tab.")
     if "depots" in which:
         reports += depot_reports(per_day, depots, names)
     if "captive" in which:
@@ -388,7 +396,9 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
     if "fuel" in which:                              # always across days: a 48-hour rule spans days
         diesel = {r.cls for r in table.rows if (r.power or "").upper().startswith("D") or r.cls.startswith("171")}
         reports += fuel_reports(units, diesel, days)
-    span = "week" if week else ("+".join(DAYS[d] for d in days) if len(days) < 7 else "each day")
+    span = ("week" if week else "whole timetable" if period == "timetable"
+            else "+".join(DAYS[d] for d in days) if len(days) < 7 else "each day")
+    reports.sort(key=lambda r: r.name.lower())              # tabs in A-Z order, the notes last
     reports.append(Report("Notes", f"How this report was made ({span})", ["Note"],
                           [[w] for w in warnings] + [[
                               "Days: " + ", ".join(DAY_NAMES[d] for d in days) + ". Depots: locations named "
@@ -413,11 +423,12 @@ def _save_reports(reports, opts: PackOptions, stem: str) -> str:
     return path
 
 
-def unit_reports(plan: LoadedPlan, opts: PackOptions, which: Sequence[str], week: bool,
+def unit_reports(plan: LoadedPlan, opts: PackOptions, which: Sequence[str], week,
                  progress: Callable[[float, str], None] = lambda f, m: None,
                  old: Optional[LoadedPlan] = None) -> Tuple[List[str], List[str]]:
-    """Write the chosen unit reports (one file). week=True follows each unit through the ticked
-    days with the next-day workings; otherwise each ticked day is reported on its own. With `old`,
+    """Write the chosen unit reports (one file). `week` is the period: 'week' (True) follows each unit through the
+    ticked days with the next-day workings; 'days' (False) reports each ticked day separately; 'timetable' gives
+    the fleet totals for all the ticked days together. With `old`,
     the reports of both timetables are compared (old = original, plan = updated)."""
     if not which:
         raise StatsPackError("Tick at least one unit report.")

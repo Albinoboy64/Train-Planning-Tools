@@ -38,6 +38,7 @@ MODES = {"create": ("Create a stats pack", "Create stats pack"),
          "packs": ("Compare two stats pack files", "Compare stats packs"),
          "units": ("Unit reports: washes and CETs, depot returns / swaps, captive units, fuel", "Create unit report"),
          "seats": ("Capacity report: by headcode group, corridor or station to station", "Create capacity report")}
+TASK_ORDER = sorted(MODES, key=lambda m: MODES[m][0].casefold())          # the Task list, A-Z
 FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
          "plans": [("xml_a", "Original XML:"), ("trent_a", "Original TRENT VL29 print(s):"),
                    ("xml_b", "Updated XML:"), ("trent_b", "Updated TRENT VL29 print(s):")],
@@ -46,6 +47,9 @@ FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):"
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
 NOTE = ("Several VL29 prints can go in one box, e.g. the LTP print and a week's STP print. The XML must be from the "
         "same plan as the TRENT print; unit reports can be made from the TRENT print alone.")
+UNIT_PERIODS = (("week", "Whole week (follows each unit with the next-day workings)"),
+                ("days", "Show each day separately"),
+                ("timetable", "Entire timetable (totals by fleet only)"))
 OPTIONAL = {("units", "xml_a")}         # boxes that may be left blank
 OP_LABEL = {op: f"{op} ({', '.join(deps)})" for op, deps in OPERATOR_DEPOTS.items()}
 OP_LABEL[OTHER] = "Other depots"
@@ -118,30 +122,29 @@ class StatsPackTab(ttk.Frame):
         right.rowconfigure(1, weight=1)
 
         # 1. mode
-        mf = ttk.LabelFrame(left, text="1. What to do", padding=8)
+        mf = ttk.LabelFrame(left, text="1. What to Do", padding=8)
         mf.grid(row=0, column=0, sticky="ew")
         self.mode = tk.StringVar(value="create")
         mf.columnconfigure(1, weight=1)
         ttk.Label(mf, text="Task:").grid(row=0, column=0, sticky="w")
-        self.task_box = ttk.Combobox(mf, state="readonly", values=[text for text, _btn in MODES.values()])
+        self.task_box = ttk.Combobox(mf, state="readonly", values=[MODES[m][0] for m in TASK_ORDER])
         self.task_box.grid(row=0, column=1, sticky="ew", padx=4)
         self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
         self.mode.trace_add("write", lambda *_a: self._task_shown())
         uf = self.units_frame = ttk.Frame(mf)
         uf.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.unit_vars = {k: tk.BooleanVar(value=True) for k in UNIT_REPORTS}
-        for i, (key, text) in enumerate((("washes", "Washes and CETs"), ("depots", "Depot returns / swaps"),
+        for i, (key, text) in enumerate((("washes", "Washes"), ("cets", "CETs"), ("depots", "Depot returns / swaps"),
                                          ("captive", "Captive units"), ("fuel", "Fuel check (171s)"))):
             ttk.Checkbutton(uf, text=text, variable=self.unit_vars[key]).grid(row=i // 2, column=i % 2, sticky="w",
                                                                             padx=(0, 10))
         self.two_plans = tk.BooleanVar(value=False)         # unit / capacity reports: compare two timetables
-        self.unit_week = tk.BooleanVar(value=True)
-        ttk.Radiobutton(uf, text="Whole week (follows each unit with the next-day workings)",
-                        variable=self.unit_week, value=True).grid(row=2, column=0, columnspan=3, sticky="w")
-        ttk.Radiobutton(uf, text="Each ticked day on its own", variable=self.unit_week, value=False).grid(
-            row=3, column=0, columnspan=3, sticky="w")
+        self.unit_period = tk.StringVar(value="week")
+        for r, (value, text) in enumerate(UNIT_PERIODS, start=3):
+            ttk.Radiobutton(uf, text=text, variable=self.unit_period, value=value).grid(
+                row=r, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(uf, text="Compare two timetables (original and updated XML + TRENT print)",
-                        variable=self.two_plans, command=self._mode_changed).grid(row=4, column=0, columnspan=3,
+                        variable=self.two_plans, command=self._mode_changed).grid(row=6, column=0, columnspan=3,
                                                                                   sticky="w", pady=(2, 0))
         self._build_seats(mf, 1)
 
@@ -221,7 +224,7 @@ class StatsPackTab(ttk.Frame):
             row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         # 3. selection
-        sel = self.sel_frame = ttk.LabelFrame(right, text="3. Days, operators and fleets", padding=8)
+        sel = self.sel_frame = ttk.LabelFrame(right, text="3. Days, Operators and Fleets", padding=8)
         sel.grid(row=0, column=0, sticky="nsew")
         sel.columnconfigure(0, weight=1)
         ttk.Label(sel, text="Diagram days:").grid(row=0, column=0, sticky="w")
@@ -530,7 +533,7 @@ class StatsPackTab(ttk.Frame):
     # ------------------------------------------------------------ helpers
     def _task_picked(self, _event=None):
         index = self.task_box.current()
-        modes = list(MODES)
+        modes = TASK_ORDER
         if 0 <= index < len(modes) and modes[index] != self.mode.get():
             self.mode.set(modes[index])
             self._mode_changed()
@@ -858,7 +861,9 @@ class StatsPackTab(ttk.Frame):
         for k, on in (s.get("unit_reports") or {}).items():
             if k in self.unit_vars:
                 self.unit_vars[k].set(bool(on))
-        self.unit_week.set(bool(s.get("unit_week", True)))
+        period = s.get("unit_period")
+        self.unit_period.set(period if period in dict(UNIT_PERIODS)
+                             else "week" if s.get("unit_week", True) else "days")
         self.two_plans.set(bool(s.get("two_plans", False)))
         seats = s.get("seats")
         if isinstance(seats, dict):
@@ -900,7 +905,7 @@ class StatsPackTab(ttk.Frame):
              "fleets": {f: v.get() for f, v in self.fleet_vars.items() if self.fleet_info.get(f, ("", True))[1]},
              "compare": {k: v.get() for k, v in self.cmp_vars.items()},
              "flag_miles": self._flag_threshold(),
-             "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_week": self.unit_week.get(),
+             "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_period": self.unit_period.get(),
              "seats": self._seat_state(), "two_plans": self.two_plans.get(), "fmt": self.fmt_var.get()}
         write_json(_settings_path(), s)
 
@@ -911,7 +916,7 @@ class StatsPackTab(ttk.Frame):
                 "output_name": self.out_name.get(), "days": [d for d, v in enumerate(self.day_vars) if v.get()],
                 "operators": {op: v.get() for op, v in self.op_vars.items()},
                 "compare": {k: v.get() for k, v in self.cmp_vars.items()}, "flag_miles": self._flag_threshold(),
-                "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_week": self.unit_week.get(),
+                "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_period": self.unit_period.get(),
                 "seats": self._seat_state(), "two_plans": self.two_plans.get()}
 
     def _seat_state(self) -> dict:
@@ -1036,7 +1041,7 @@ class StatsPackTab(ttk.Frame):
         self._started = time.monotonic()
         self.app.set_busy(True)
         extra = {"two_plans": self.two_plans.get() and mode in ("units", "seats"), "seats": self._seat_state(),
-                 "which": [k for k, v in self.unit_vars.items() if v.get()], "unit_week": self.unit_week.get()}
+                 "which": [k for k, v in self.unit_vars.items() if v.get()], "unit_period": self.unit_period.get()}
         threading.Thread(target=self._work, args=(mode, files, opts, extra), daemon=True).start()
         self.app.pump.kick()
 
@@ -1082,7 +1087,7 @@ class StatsPackTab(ttk.Frame):
                 warnings += w
             elif mode == "units":
                 which = extra["which"]
-                outs, w = unit_reports(plans[-1], opts, which, extra["unit_week"], progress, old=old)
+                outs, w = unit_reports(plans[-1], opts, which, extra["unit_period"], progress, old=old)
                 warnings += w
                 summary = ("Unit report comparison created: " if old else "Unit report created: ") + "; ".join(
                     UNIT_REPORTS[k] for k in which) + "."

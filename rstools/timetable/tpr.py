@@ -40,6 +40,8 @@ class Table:
     headers: List[str]
     rows: List[List[str]] = field(default_factory=list)
     pages: List[int] = field(default_factory=list)
+    source: str = ""                    # the file it was read from
+    refs: List[Tuple] = field(default_factory=list)     # (path, page index, rect) of each row, as rows
 
 
 @dataclass
@@ -47,6 +49,7 @@ class TPRDoc:
     files: List[str] = field(default_factory=list)
     tables: List[Table] = field(default_factory=list)
     paragraphs: List[Tuple[str, str, int]] = field(default_factory=list)    # (section, text, page)
+    para_refs: List[List[Tuple]] = field(default_factory=list)              # each paragraph's (path, page index, rect)
     warnings: List[str] = field(default_factory=list)
     info: List[Tuple[str, str]] = field(default_factory=list)               # (file, what its header says)
     skipped: List[str] = field(default_factory=list)                        # pages left out, and why
@@ -60,6 +63,8 @@ def read_tpr(paths: Sequence[str], log=lambda m: None) -> TPRDoc:
         before = (len(doc.tables), len(doc.paragraphs))
         _read_pdf(path, doc)
         doc.files.append(path)
+        for t in doc.tables[before[0]:]:
+            t.source = os.path.basename(path)
         tables, paras = len(doc.tables) - before[0], len(doc.paragraphs) - before[1]
         log(f"  {tables} table(s), {paras} paragraph(s)")
         if not tables and not paras:
@@ -77,6 +82,8 @@ class _State:
         self.last_was_heading = False
         self.last: Optional[Table] = None
         self.para: List[str] = []
+        self.para_boxes: Dict[int, List[float]] = {}     # page index -> box of the paragraph's lines on it
+        self.file = ""
         self.para_y = 0.0
         self.above = ""                 # the last text line (a table's title when it is close above one)
         self.above_y = 0.0
@@ -85,7 +92,9 @@ class _State:
 def _flush(doc: TPRDoc, st: _State, page: int):
     if st.para:
         doc.paragraphs.append((st.section, " ".join(st.para), page))
+        doc.para_refs.append([(st.file, pg, tuple(box)) for pg, box in sorted(st.para_boxes.items())])
         st.para.clear()
+        st.para_boxes.clear()
 
 
 def _read_pdf(path: str, doc: TPRDoc):
@@ -113,6 +122,7 @@ def _read_pdf(path: str, doc: TPRDoc):
         if furniture.start:
             doc.skipped.append(f"{name}: pages 1-{furniture.start} (covering commentary)")
         st = _State()
+        st.file = path
         for pno in range(furniture.start, len(pages)):
             _page(doc, st, name, pno, pages[pno], furniture)
         _flush(doc, st, len(pages))
@@ -184,13 +194,19 @@ def _page(doc: TPRDoc, st: _State, name: str, pno: int, data, furniture):
             if st.para and st.para_y - y > 1.7 * max(size, 9):
                 _flush(doc, st, page)
             st.para.append(text)
+            lb = [min(r.x0 for r in val), min(r.y0 for r in val), max(r.x1 for r in val), max(r.y1 for r in val)]
+            old = st.para_boxes.get(pno)
+            st.para_boxes[pno] = lb if old is None else [min(old[0], lb[0]), min(old[1], lb[1]),
+                                                         max(old[2], lb[2]), max(old[3], lb[3])]
             st.para_y, st.above, st.above_y = y, text, y
             continue
         st.last_was_heading = False
         ys, xs = val
-        rows = _grid_rows(content, ys, xs, bars_out)
+        rects: List[Tuple[float, float, float, float]] = []
+        rows = _grid_rows(content, ys, xs, bars_out, rects)
         if not rows:
             continue
+        refs = [(st.file, pno, r) for r in rects]
         headers, rest = rows[0], rows[1:]
         title = st.above if st.above and st.above_y - ys[-1] <= TITLE_GAP and _is_title(st.above) else ""
         if len(headers) == 1 and rest and max(len(r) for r in rest) > 1:
@@ -204,13 +220,15 @@ def _page(doc: TPRDoc, st: _State, name: str, pno: int, data, furniture):
         if (last is not None and last.section == st.section and last.headers == headers
                 and (not title or _CONTINUED.sub("", title) == _CONTINUED.sub("", last.title))):
             last.rows += rest                                       # carried on from the page before
+            last.refs += refs[1:]
             last.pages.append(page)
         elif (last is not None and not title and last.section == st.section and len(headers) == len(last.headers)
               and page - last.pages[-1] <= 1 and _no_header(headers)):
             last.rows += rows                                       # carried on without its heading row
+            last.refs += refs
             last.pages.append(page)
         else:
-            st.last = Table(st.section, title, headers, rest, [page])
+            st.last = Table(st.section, title, headers, rest, [page], refs=refs[1:])
             doc.tables.append(st.last)
         st.above = ""
 
@@ -274,7 +292,8 @@ def _grids(horiz, vert, top: float, bottom: float):
     return grids
 
 
-def _grid_rows(runs: Sequence[Run], ys: List[float], xs: Tuple[float, float], vert) -> List[List[str]]:
+def _grid_rows(runs: Sequence[Run], ys: List[float], xs: Tuple[float, float], vert,
+               rects: Optional[list] = None) -> List[List[str]]:
     """The rows of one table, top first: each band cut at the vertical rules that cross it, its cells' text from the
     text runs inside them."""
     x0, x1 = xs
@@ -289,4 +308,6 @@ def _grid_rows(runs: Sequence[Run], ys: List[float], xs: Tuple[float, float], ve
         cells = [text_of_box(runs, a, lo, b, hi) for a, b in zip(edges, edges[1:])]
         if any(cells):
             out.append(cells)
+            if rects is not None:
+                rects.append((x0, lo, x1, hi))
     return out

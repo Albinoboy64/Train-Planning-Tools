@@ -350,3 +350,32 @@ def test_live_cwn_ignores_spacing_like_the_report():
     by = {i.label: i for i in res.items}
     assert by["1A01BT"].state == "same"
     assert any(r.state == "changed" and r.cells[1:] == ["S", "P"] for r in by["2C02BT"].rows), by["2C02BT"].rows
+
+
+def test_live_prints_status_names_the_kind_of_change_and_header_timing_checks():
+    import copy
+    sys.path.insert(0, os.path.dirname(__file__))
+    from test_timetable import ATTUNE, write_attune_pdf
+    from rstools.live.adapters import compute
+    timing, other = copy.deepcopy(ATTUNE), copy.deepcopy(ATTUNE)
+    timing[0]["rows"][2] = ("HYWRDSH", "Haywards Heath", "05a52½", "05p54½", "05.53", "05.54", "1:00", "T", "4")
+    other[1]["days"] = "SX"                                                     # the header: days run
+    other[0]["rows"][3] = ("ECROYDN", "East Croydon", "06a18½", "06.20", "06.19", "06.20", "1:30", "TW", "1")
+    with tempfile.TemporaryDirectory() as d:
+        a, t, o = (os.path.join(d, f"{n}.pdf") for n in "ato")
+        write_attune_pdf(a)
+        write_attune_pdf(t, timing)
+        write_attune_pdf(o, other)
+        by = lambda res, head: next(i for i in res.items if i.label.startswith(head))          # noqa: E731
+        res = compute("prints", {"a": [a], "b": [t]})
+        assert by(res, "1H05").status == "Timing change" and by(res, "1H05").state == "changed"
+        res = compute("prints", {"a": [a], "b": [t]}, timing=False)                 # timing not checked
+        assert by(res, "1H05").state == "same" and by(res, "1H05").status == "No change"
+        assert any("Not checked: timing" in n for n in res.warnings)
+        grey = [r for r in by(res, "1H05").rows if "Time changed" in r.cells[-1]]
+        assert grey and all(r.state == "muted" for r in grey)                       # still shown, in grey
+        res = compute("prints", {"a": [a], "b": [o]})
+        assert by(res, "1H05").status == "Activity change"
+        assert by(res, "5H07").status == "Days run change"
+        res = compute("prints", {"a": [a], "b": [o]}, header=False)
+        assert by(res, "5H07").state == "same" and by(res, "1H05").status == "Activity change"

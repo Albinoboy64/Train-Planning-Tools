@@ -638,7 +638,7 @@ def write_book(path: str, sheets: List[Tuple[str, List[List[str]]]], header: str
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.worksheet.properties import PageSetupProperties
-    from rstools.fsutil import clean_cell, plain_text
+    from rstools.fsutil import clean_cell, plain_text, sheet_title
     wb = openpyxl.Workbook()
     wb.properties.creator = wb.properties.lastModifiedBy = "Train Planning Tools"
     wb.remove(wb.active)
@@ -649,7 +649,7 @@ def write_book(path: str, sheets: List[Tuple[str, List[List[str]]]], header: str
     left = Alignment(horizontal="left", vertical="top", wrap_text=True)
     head_fill = PatternFill("solid", fgColor="FF99CCFF")
     for title, rows in sheets:
-        ws = wb.create_sheet(title[:31])
+        ws = wb.create_sheet(sheet_title(title, wb.sheetnames))
         for col, w in WIDTHS.items():
             ws.column_dimensions[col].width = w
         for c, text in enumerate(HEADINGS, start=1):

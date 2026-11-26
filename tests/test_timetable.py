@@ -903,13 +903,13 @@ def test_section4_documents_compared():
     res = run("s4docs", [f["s4_old"]], [f["s4_new"]], d)
     wb = openpyxl.load_workbook(res.path)
     assert wb.sheetnames == ["Summary", "Changes", "Added", "Removed", "What Was Compared"]
-    changes = [tuple(c.value for c in r[1:5]) for r in wb["Changes"].iter_rows(min_row=2)]
+    changes = [tuple(c.value for c in r[2:6]) for r in wb["Changes"].iter_rows(min_row=2)]
     assert ("100.1 MID WEEK - Down and Up BLOCKED", "Windows", "0140 Tue to 0350 Tue; 0140 Wed to 0350 Wed; "
             "0140 Thu to 0350 Thu; 0140 Fri to 0350 Fri", "0110 Tue to 0350 Tue; 0110 Wed to 0350 Wed; "
             "0110 Thu to 0350 Thu; 0110 Fri to 0350 Fri") in changes, changes
     assert any(c[1] == "Text" and "Alpha depot" in c[2] and "Delta depot" in c[3] for c in changes), changes
-    added = [r[1].value for r in wb["Added"].iter_rows(min_row=2)]
-    removed = [r[1].value for r in wb["Removed"].iter_rows(min_row=2)]
+    added = [r[2].value for r in wb["Added"].iter_rows(min_row=2)]
+    removed = [r[2].value for r in wb["Removed"].iter_rows(min_row=2)]
     assert added == ["100.3 SUN/MON - BLOCKED"] and removed == ["100.2 WEEK END - BLOCKED"]
     assert res.differences == 4
     audit = [[c.value for c in r] for r in wb["What Was Compared"].iter_rows(min_row=2)]
@@ -970,11 +970,11 @@ def test_tpr_documents_compared():
     assert doc.info and "Version 4.0" in doc.info[0][1] and "26 June 2026" in doc.info[0][1]
     res = run("tprs", [f["tpr_old"]], [f["tpr_new"]], d)
     wb = openpyxl.load_workbook(res.path)
-    changes = [tuple(c.value for c in r[1:5]) for r in wb["Changes"].iter_rows(min_row=2)]
+    changes = [tuple(c.value for c in r[2:6]) for r in wb["Changes"].iter_rows(min_row=2)]
     assert ("Beta Jn", "Headway", "4", "5") in changes, changes
     assert any(c[1] == "Text" and "3 minutes" in c[2] and "4 minutes" in c[3] for c in changes), changes
-    assert [r[1].value for r in wb["Added"].iter_rows(min_row=2)] == ["Delta"]
-    assert [r[1].value for r in wb["Removed"].iter_rows(min_row=2)] == ["Gamma"]
+    assert [r[2].value for r in wb["Added"].iter_rows(min_row=2)] == ["Delta"]
+    assert [r[2].value for r in wb["Removed"].iter_rows(min_row=2)] == ["Gamma"]
     audit = [[c.value for c in r] for r in wb["What Was Compared"].iter_rows(min_row=2)]
     assert any(r[0] == "Updated document" and "Version 4.1" in r[1] for r in audit)
     assert any(r[0] == "Not compared" and "covering commentary" in r[1] for r in audit)
@@ -994,3 +994,48 @@ def write_s4_xml(path):
                  'planType="L"><leg origin="AAA" dep="02:00:00" dest="BBB" arr="02:10:00"/></train></trainList>'
                  '<locationList><location tiploc="AAA" longDesc="Alpha"/><location tiploc="BBB" longDesc="Beta Jn"/>'
                  '</locationList></diagramExchange>')
+
+
+def test_document_text_ignores_dates_case_and_spelling_but_not_numbers():
+    from rstools.timetable.doccompare import book_of, books_of, same_text
+    assert same_text("Possession from 12/12/2026 to 03/01/2027 on Brighton Jn", "possession from 11/12/2027 to "
+                     "02/01/2028 on  brighton junction")
+    assert same_text("Valid 5 January 2026 - 3 March 2026.", "Valid 4 January 2027 - 2 March 2027.")
+    assert same_text("Colour light signals", "Color light signals")
+    assert same_text("Access to Alpha depot & the slow lines", "Access to Alpha depot and the slow lines")
+    assert not same_text("Block 0100 to 0400", "Block 0110 to 0400")
+    assert not same_text("Down Slow No1", "Down Slow No2")
+    assert not same_text("Down line blocked", "Up line blocked")
+    assert not same_text("Trains may pass Beta", "Trains must not pass Beta")
+    assert book_of("2027 EAS V4 S4 - EC.pdf p12") == "EC"
+    assert book_of("C:/x/TPR 2027 V4 KT.pdf") == "KT"
+    assert books_of("2027 EAS V4 S4 - EC.pdf p3", "2027 EAS V4 S4 - KS.pdf p9") == "EC / KS"
+    assert books_of("2027 EAS V4 S4 - EC.pdf", "2028 EAS V1 S4 - EC.pdf") == "EC"
+
+
+def test_changes_highlighted_in_copies_of_the_pdfs():
+    import hashlib
+    import pypdf
+    from rstools.timetable.engine import run
+    d = tempfile.mkdtemp()
+    f = write_rule_docs(d)
+    before = {k: hashlib.sha256(open(v, "rb").read()).hexdigest() for k, v in f.items() if v.endswith(".pdf")}
+    for mode, old, new, kinds in (("s4docs", "s4_old", "s4_new", {"Highlight"}),
+                                  ("tprs", "tpr_old", "tpr_new", {"Highlight"})):
+        res = run(mode, [f[old]], [f[new]], d, highlight_pdfs=True)
+        assert len(res.extra) == 2, res.extra                 # a copy of each side
+        counts = {}
+        for path in res.extra:
+            assert " - highlighted" in os.path.basename(path)
+            annots = [a.get_object() for pg in pypdf.PdfReader(path).pages for a in pg.get("/Annots", [])]
+            assert annots and {str(a["/Subtype"])[1:] for a in annots} == kinds
+            for a in annots:
+                x0, y0, x1, y1 = (float(v) for v in a["/Rect"])
+                assert x1 > x0 and y1 > y0 and str(a["/Contents"])
+            counts[path] = [str(a["/Contents"]) for a in annots]
+        texts = " ".join(" ".join(v) for v in counts.values())
+        assert "Changed" in texts and "Added" in texts and "Removed" in texts, texts
+    assert before == {k: hashlib.sha256(open(v, "rb").read()).hexdigest() for k, v in f.items()
+                      if v.endswith(".pdf")}                    # the sources are untouched
+    res = run("s4docs", [f["s4_old"]], [f["s4_new"]], d)
+    assert res.extra == []

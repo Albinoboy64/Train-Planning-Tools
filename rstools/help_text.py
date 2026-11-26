@@ -73,7 +73,7 @@ TIPS = {
     "Reset to defaults": "Switch every change type back on.",
     "Highlight only (no old values)": "Mark changes without showing the previous values struck through.",
     # ---------------------------------------------------------------- berthing charts
-    "Berthing charts": "Files dropped on this box go here.",
+    "Berthing Charts": "Files dropped on this box go here.",
     "Make a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
         "sidings, laid out like a chart you choose. A new chart has no highlights.",
     "Add a round of changes to a berthing chart": "Remakes the chart from the updated XML. Cells that differ from the "

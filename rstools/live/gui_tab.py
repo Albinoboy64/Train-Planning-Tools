@@ -51,11 +51,12 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
 }
 OPTIONAL = {("s4check", "a"), ("units", "xa"), ("units", "xb")}      # boxes that may be left blank
 PASSENGER_MODES = ("cwn", "timetables", "print_tt", "list_tt", "prints")     # where 'passenger times only' applies
-FILTERS = {"Differences only": DIFF_STATES, "All": None, "Paired (check by eye)": (PAIRED,),
-           "Changed": (CHANGED,), "Issues": (ISSUE,),
-           "Added": (ADDED,), "Removed / missing": (REMOVED,), "Unchanged": (SAME,),
-           "Updated by the last refresh": "fresh", "Not yet confirmed": "unconfirmed", "Confirmed": "confirmed",
-           "Changed since confirmed": "reopened"}
+CHECK_MODES = ("timetables", "print_tt", "list_tt", "prints")      # where header / timing differences can be switched
+FILTERS = {"Differences only": DIFF_STATES, "All": None,
+           "Added": (ADDED,), "Changed": (CHANGED,), "Changed since confirmed": "reopened",
+           "Confirmed": "confirmed", "Issues": (ISSUE,), "Not yet confirmed": "unconfirmed",
+           "Paired (check by eye)": (PAIRED,), "Removed / missing": (REMOVED,), "Unchanged": (SAME,),
+           "Updated by the last refresh": "fresh"}
 TICK = "\u2714"
 MAX_LIST = 20000                    # rows put in the list at once (search or filter to narrow a bigger result)
 SEP = " ; "
@@ -166,6 +167,18 @@ class LiveTab(ttk.Frame):
         self.pax_cb = ttk.Checkbutton(opts, text="Passenger times only", variable=self.pax_var,
                                       command=self._pax_changed)
         self.pax_cb.grid(row=0, column=2, sticky="w", padx=(16, 0))
+        self.hdr_var = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_check_header", True)))
+        self.hdr_cb = ttk.Checkbutton(opts, text="Check header differences", variable=self.hdr_var,
+                                      command=self._checks_changed)
+        self.hdr_cb.grid(row=0, column=3, sticky="w", padx=(16, 0))
+        self.tim_var = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_check_timing", True)))
+        self.tim_cb = ttk.Checkbutton(opts, text="Check timing differences", variable=self.tim_var,
+                                      command=self._checks_changed)
+        self.tim_cb.grid(row=0, column=4, sticky="w", padx=(16, 0))
+        Tooltip(self.hdr_cb, "Train header details (days run, train ID, UID, class...). Untick to ignore them: "
+                             "differences in them are greyed and do not make a train 'changed'.")
+        Tooltip(self.tim_cb, "Arrival, departure and passing times. Untick to compare only the header and the "
+                             "calling points: time differences are greyed and do not make a train 'changed'.")
         Tooltip(self.pax_cb, "Hide passing times and times shown in one file only (intermediate timing points), "
                              "for comparing timetables where one file does not show them.")
         self.prog = ttk.Progressbar(ctl, mode="determinate", maximum=1.0, length=120)
@@ -326,6 +339,8 @@ class LiveTab(ttk.Frame):
         else:
             self.days_frame.grid_remove()
         (self.pax_cb.grid if mode in PASSENGER_MODES else self.pax_cb.grid_remove)()
+        for cb in (self.hdr_cb, self.tim_cb):
+            (cb.grid if mode in CHECK_MODES else cb.grid_remove)()
         self._clear()
 
     def _files_changed(self):
@@ -416,7 +431,8 @@ class LiveTab(ttk.Frame):
         keys = [k for k, *_r in FILES[self.mode()]]
         return {"mode": self.mode(), "files": {k: self.vars[k].get() for k in keys}, "auto": self.auto_var.get(),
                 "ignore_source_only": self.ignore_var.get(), "check": self.check_var.get(),
-                "passenger_only": self.pax_var.get()}
+                "passenger_only": self.pax_var.get(), "check_header": self.hdr_var.get(),
+                "check_timing": self.tim_var.get()}
 
     def set_state(self, s: dict):
         if s.get("mode") in self.mode_names:
@@ -430,6 +446,8 @@ class LiveTab(ttk.Frame):
         self.check_var.set(bool(s.get("check", True)))
         if isinstance(s.get("passenger_only"), bool):
             self.pax_var.set(s["passenger_only"])
+        self.hdr_var.set(s.get("check_header") is not False)
+        self.tim_var.set(s.get("check_timing") is not False)
         self._view_changed()
 
     @staticmethod
@@ -500,6 +518,8 @@ class LiveTab(ttk.Frame):
         days = self._days()
         stamps = {p: self._stamp(p) for ps in files.values() for p in ps}
         extra = dict(passenger_only=mode in PASSENGER_MODES and self.pax_var.get(),
+                     header=self.hdr_var.get() or mode not in CHECK_MODES,
+                     timing=self.tim_var.get() or mode not in CHECK_MODES,
                      loose=bool(getattr(self.app.opts, "ignore_spacing", True)))
         threading.Thread(target=self._work, args=(mode, files, days, refresh, stamps, extra), daemon=True).start()
         self.app.pump.kick()
@@ -810,6 +830,13 @@ class LiveTab(ttk.Frame):
         self.status.configure(text=f"Progress loaded ({len(self.confirmed)} confirmed, saved {data['saved']}).")
         self.run()
 
+    def _checks_changed(self):
+        self.app.opts.live_check_header = self.hdr_var.get()
+        self.app.opts.live_check_timing = self.tim_var.get()
+        self.app.save_app_settings()
+        if self.result is not None:
+            self.run(refresh=True)
+
     def _pax_changed(self):
         self.app.opts.live_passenger_only = self.pax_var.get()
         self.app.save_app_settings()
@@ -837,13 +864,27 @@ class LiveTab(ttk.Frame):
 
     # ------------------------------------------------------------------ train details (fold) and picked rows
     def _details_open(self) -> bool:
-        return bool(getattr(self.app.opts, "live_details_open", True))
+        return bool(getattr(self.app.opts, "live_details_open", False))
+
+    def _fit(self, options, column: str) -> str:
+        """The first of `options` that fits the column (the last, shortest one if none does)."""
+        from tkinter import font
+        f = font.nametofont("AppBold" if "AppBold" in font.names(self) else "TkDefaultFont", self)
+        room = int(self.detail.column(column, "width")) - 2 * self._char_width()
+        return next((t for t in options if f.measure(t) <= room), options[-1])
 
     def _details_label(self, details):
         differ = sum(1 for r in details if r.state not in (SAME, "muted"))
-        text = (("▼ " if self._details_open() else "▶ ") + f"Train details ({len(details)})"
-                + (f" - {differ} differ" if differ else "") + ("" if self._details_open() else "  (click to show)"))
-        return [text] + [""] * (len(self.result.columns) - 1 if self.result else 0)
+        arrow = "▼ " if self._details_open() else "▶ "
+        title = self._fit([arrow + "Train Header Details", arrow + "Header Details", arrow + "Header"], "c0")
+        info = (f"{len(details)} items" + (f" - {differ} differ" if differ else "")
+                + ("" if self._details_open() else "   (click to show)"))
+        cells = [title] + [""] * (len(self.result.columns) - 1 if self.result else 0)
+        if len(cells) > 2:
+            cells[2] = info                        # in a wide column: nothing is clipped by the next one
+        else:
+            cells[0] = title + f" ({len(details)})"
+        return cells
 
     def _details_tags(self, details):
         return ("dhead",) + ((CHANGED,) if any(r.state not in (SAME, "muted") for r in details) else ())
@@ -867,7 +908,7 @@ class LiveTab(ttk.Frame):
         if not sel:
             return
         if sel[0] == self._details_iid:
-            self._set_notes(["Train details: click the heading (or press Enter) to show or hide them.", ""]
+            self._set_notes(["Train Header Details: click the heading (or press Enter) to show or hide them.", ""]
                             + list(getattr(self, "_item_notes", [])))
             return
         row = self._rows.get(sel[0])

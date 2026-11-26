@@ -36,6 +36,7 @@ class RunResult:
     lines: List[str] = field(default_factory=list)      # summary for the log
     warnings: List[str] = field(default_factory=list)
     differences: int = 0
+    extra: List[str] = field(default_factory=list)      # other files saved (the highlighted PDFs)
 
 
 def _workers(paths: Sequence[str]) -> int:
@@ -185,9 +186,11 @@ def compare_files(mode: str, first: Sequence[str], second: Sequence[str],
 
 def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, name: str = "", fmt: str = "xlsx",
         progress: Optional[Callable[[float, str], None]] = None,
-        log: Optional[Callable[[str], None]] = None, passenger_only: bool = False) -> RunResult:
+        log: Optional[Callable[[str], None]] = None, passenger_only: bool = False,
+        highlight_pdfs: bool = False) -> RunResult:
     """Compare and save. `passenger_only` (train prints): leave out passing times and calls without a public
-    time, for prints where one side does not show the intermediate timing points."""
+    time, for prints where one side does not show the intermediate timing points. `highlight_pdfs` (Section 4 and
+    TPR comparisons): also save copies of the PDFs with what changed highlighted."""
     p = progress or (lambda _f, _m: None)
     lg = log or (lambda _m: None)
     first, second = _check(first, second)
@@ -218,7 +221,12 @@ def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, na
         path = _out(out_dir, clip(name or default_name(mode, first, second)), fmt)
         _save(docs_workbook(cmp), path)
         diffs = sum(1 for i in cmp.items if i.status != "same")
-        return RunResult(path, doc_lines(cmp), list(cmp.warnings), diffs)
+        extra: List[str] = []
+        if highlight_pdfs:
+            from .pdfmark import highlight_pdfs as make_highlights
+            p(0.9, "Highlighting the PDFs...")
+            extra = make_highlights(cmp, os.path.dirname(path), lg)
+        return RunResult(path, doc_lines(cmp), list(cmp.warnings), diffs, extra)
     from .output import build_workbook as timetable_workbook, document_sections, output_name, summary_lines
     path = _out(out_dir, clip(name or output_name(cmp)), fmt)
     wb = timetable_workbook(cmp)
@@ -338,6 +346,7 @@ def _cmp_docs(mode, first, second, p, lg):
             for path, r in zip(paths, res):
                 doc.tables += r.tables
                 doc.paragraphs += r.paragraphs
+                doc.para_refs += r.para_refs
                 doc.info += r.info
                 doc.skipped += r.skipped
                 doc.deleted += r.deleted

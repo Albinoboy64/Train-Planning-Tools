@@ -15,13 +15,14 @@ from .units import Report
 # report name -> (number of key columns, list every figure (summary) or only changes (detail))
 SPEC: Dict[str, Tuple[int, bool]] = {
     "Capacity Summary": (1, True), "Capacity by Hour": (1, True), "Capacity by Train": (2, False),
-    "Washes and CETs by Fleet": (1, True), "Washes and CETs by Diagram": (2, False),
-    "Washes and CETs by Unit": (1, False),
+    "Washes by Fleet": (1, True), "Washes by Diagram": (2, False), "Washes by Unit": (1, False),
+    "CETs by Fleet": (1, True), "CETs by Diagram": (2, False), "CETs by Unit": (1, False),
+    "Inferred Links": (3, False),
     "Depot Moves by Day": (1, True), "Depot Moves by Depot": (3, True), "Depot Moves by Diagram": (2, False),
     "Captive Diagrams": (2, False), "Captive Units": (1, False), "Fuel Check (171s)": (1, False),
 }
 # descriptive columns left out of the comparison (they change whenever diagrams are renumbered)
-SKIP = {"Diagrams worked", "Linked by"}
+SKIP = {"Diagrams worked", "Linked by", "Matched on", "Why it was inferred", "Stabled at"}
 ONLY_OLD, ONLY_NEW = "Only in the original", "Only in the updated"
 
 
@@ -48,6 +49,8 @@ def _pct(old, new):
 
 def compare_report(old: Report, new: Report) -> Tuple[Report, Counter]:
     nkeys, show_all = SPEC.get(new.name, (1, False))
+    if new.name.endswith("by Fleet") and new.headers and new.headers[0] == "Day":
+        nkeys = 2                                       # each day's fleets
     nkeys = min(nkeys, len(new.headers))
     figures = new.headers[nkeys:]
     a, b = _keyed(old.rows, nkeys), _keyed(new.rows, nkeys)

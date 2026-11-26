@@ -142,6 +142,20 @@ def rect_to_visual(page, x0: float, y0: float, x1: float, y1: float) -> Tuple[fl
     return x0, y0, x1, y1
 
 
+def rect_from_visual(page, x0: float, y0: float, x1: float, y1: float) -> Tuple[float, float, float, float]:
+    """The inverse of rect_to_visual: a box on the displayed page as (left, bottom, right, top) in drawing coordinates
+    (what a PDF annotation's /Rect uses)."""
+    rot = page.get_rotation() % 360
+    vw, vh = page.get_size()
+    if rot == 90:
+        return vh - y1, x0, vh - y0, x1
+    if rot == 270:
+        return y0, vw - x1, y1, vw - x0
+    if rot == 180:
+        return vw - x1, vh - y1, vw - x0, vh - y0
+    return x0, y0, x1, y1
+
+
 def join_runs(runs: Sequence[Run]) -> str:
     """The text of runs on one line, left to right: a space where the PDF has one (or a gap), none where the
     runs only touch (kerning splits a word like 'Ju' 'ne')."""

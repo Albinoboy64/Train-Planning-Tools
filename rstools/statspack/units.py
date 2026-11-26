@@ -120,6 +120,7 @@ class UnitWeek:
     """One unit followed through the days considered."""
     diagrams: List[DayDiagram]
     links: List[str] = field(default_factory=list)      # how each step was linked: 'XML' / 'TRENT' / 'inferred'
+    inferred: List[dict] = field(default_factory=list)  # for each inferred link: where and why (see follow_units)
 
     @property
     def washes(self) -> int:
@@ -128,6 +129,19 @@ class UnitWeek:
     @property
     def cets(self) -> int:
         return sum(d.cets for d in self.diagrams)
+
+    @property
+    def wash_gap(self) -> int:
+        """Most calendar days in a row the unit goes without a wash (a day it stables with no diagram counts)."""
+        best = run = 0
+        prev: Optional[DayDiagram] = None
+        for d in self.diagrams:
+            if prev is not None:
+                run += max((d.day - prev.day) % 7 - 1, 0)
+            run = 0 if d.washes else run + 1
+            best = max(best, run)
+            prev = d
+        return best
 
 
 def day_diagrams(trent: TrentData, day: int) -> List[DayDiagram]:
@@ -216,6 +230,19 @@ def ends_cycle(loc: str, depots: Optional["Depots"]) -> bool:
     return loc.upper() in _CYCLE_END_TIPLOCS
 
 
+def _why(src: Tuple[int, str], dest: Tuple[int, str], node, depots: Optional["Depots"], tier: int, cause: str) -> dict:
+    """Where and why a link was inferred: the diagram's end location, how well it matches the next start, the cause."""
+    a, b = node[src], node[dest]
+    names = depots.names if depots is not None else {}
+    place = f"{names.get(a.end_loc, a.end_loc)} ({a.end_loc})"
+    depot = depots.depot_of(a.end_loc) if depots is not None else ""
+    match = ("same location" if tier == 0 else f"same depot ({depot})" if tier == 1 else "same station area")
+    if b.start_loc != a.end_loc:
+        match += f", next diagram starts at {names.get(b.start_loc, b.start_loc)} ({b.start_loc})"
+    return {"day": DAYS[a.day], "diagram": a.key, "fleet": a.fleet, "stabled_at": place,
+            "forms": f"{DAYS[b.day]} {b.key}", "match": match, "reason": cause[0].upper() + cause[1:]}
+
+
 def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[int],
                  depots: Optional["Depots"] = None):
     """Link the chosen days' diagrams into units. Returns ([UnitWeek], {day: [DayDiagram]}, warnings)."""
@@ -247,6 +274,7 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
     # with TO SU860 standing at the same depot all day -> WO SU861). That stabling diagram is the same unit's
     # day, so the chain runs through it. Anything else is a clash in the plan and is reported.
     holder_of = {target: src for src, (target, _how) in succ.items()}
+    detail: Dict[Tuple[int, str], dict] = {}
     unresolved = []
     for src, target in clashes:
         holder = holder_of.get(target)
@@ -256,6 +284,8 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                 and _closeness(node[src].end_loc, node[holder].start_loc, depots) in (0, 1)):
             succ[src] = (holder, "inferred")
             pred.add(holder)
+            detail[src] = _why(src, holder, node, depots, 0, "the unit stabled for a day, and the diagram standing "
+                               "there forms the diagram its own next-day working names")
         else:
             unresolved.append(f"{DAYS[src[0]]} {src[1]} -> {DAYS[target[0]]} {target[1]}")
     if unresolved:
@@ -298,6 +328,15 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                         succ[(d, x.key)] = ((d2, y.key), "inferred")
                         pred.add((d2, y.key))
                         inferred += 1
+                        if attune is None or not attune.path:
+                            cause = "no Attune XML was given, so there is no next-day working"
+                        elif d not in covered:
+                            cause = f"the XML has no unit diagrams for {DAY_NAMES[d]}"
+                        elif (d, x.key) in stabled:
+                            cause = "its diagram ends 'Stabld', so the next working is not named"
+                        else:
+                            cause = "the XML and TRENT print give no next-day working for it"
+                        detail[(d, x.key)] = _why((d, x.key), (d2, y.key), node, depots, tier, cause)
                         break
     lacking = [DAY_NAMES[d] for d in days[:-1] if d not in covered]
     if lacking and not trent_links and not (attune is not None and attune.path):
@@ -317,11 +356,15 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
             if (d, x.key) in pred and d != days[0]:
                 continue                            # picked up by a unit from an earlier day
             chain, how, at = [x], [], (d, x.key)
+            notes: List[dict] = []
             while at in succ and len(chain) < len(days):
+                here = at
                 at, kind = succ[at]
                 chain.append(node[at])
                 how.append(kind)
-            units.append(UnitWeek(chain, how))
+                if kind == "inferred" and here in detail:
+                    notes.append(detail[here])
+            units.append(UnitWeek(chain, how, notes))
     return units, per_day, warnings
 
 
@@ -349,45 +392,91 @@ def _chain(u: UnitWeek) -> str:
     return out
 
 
-def _gap(u: UnitWeek) -> int:
-    """Most diagrams in a row without a wash."""
-    best = run = 0
-    for d in u.diagrams:
-        run = 0 if d.washes else run + 1
-        best = max(best, run)
-    return best
+WASH_LIMIT = 3          # a unit should not go more than this many days without a wash
 
 
-def wash_cet_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]], week: bool) -> List[Report]:
-    if not week:
-        rows, kinds = [], []
-        for d, diags in per_day.items():
-            for x in diags:
-                rows.append([DAYS[d], x.key, x.fleet, x.washes, x.cets, x.fuels, x.end_loc])
-                kinds.append("body")
-        by_fleet = _fleet_totals([(x.fleet, x.washes, x.cets, x.fuels) for diags in per_day.values() for x in diags],
-                                 "Diagrams")
-        return [Report("Washes and CETs by Diagram", "Washes and CETs by diagram",
-                       ["Day", "Diagram", "Fleet", "Washes", "CETs", "Fuel", "Ends at"], rows, kinds,
-                       "WASH, CET and FUEL lines on each diagram in the TRENT print."), by_fleet]
+def _period(period) -> str:
+    """'week' / 'days' / 'timetable' (True and False, from older callers, mean week and days)."""
+    return ("week" if period else "days") if isinstance(period, bool) else str(period)
+
+
+def over_wash_limit(units: List[UnitWeek]) -> List[UnitWeek]:
+    return [u for u in units if u.wash_gap > WASH_LIMIT]
+
+
+def wash_cet_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]], period=True,
+                     kinds: Sequence[str] = ("washes", "cets")) -> List[Report]:
+    """Washes and CETs, each on its own tabs: by diagram or by unit, and by fleet (per day when each day is shown
+    separately, for the whole timetable when only the fleet totals are wanted), then the inferred links."""
+    period = _period(period)
+    out: List[Report] = []
+    for kind in ("washes", "cets"):
+        if kind not in kinds:
+            continue
+        word = "Washes" if kind == "washes" else "CETs"
+        if period == "week":
+            out += [_by_unit(units, kind), _fleet_totals([(u.diagrams[0].fleet, u.washes, u.cets,
+                                                           sum(x.fuels for x in u.diagrams)) for u in units],
+                                                         "Units", kind)]
+        elif period == "days":
+            rows, marks = [], []
+            for d, diags in per_day.items():
+                for x in diags:
+                    rows.append([DAYS[d], x.key, x.fleet, x.washes if kind == "washes" else x.cets]
+                                + ([x.fuels] if kind == "washes" else []) + [x.end_loc])
+                    marks.append("body")
+            out += [Report(f"{word} by Diagram", f"{word} by diagram",
+                           ["Day", "Diagram", "Fleet", word] + (["Fuel"] if kind == "washes" else []) + ["Ends at"],
+                           rows, marks, f"{'WASH and FUEL' if kind == 'washes' else 'CET'} lines on each diagram "
+                           "in the TRENT print."), _fleet_days(per_day, kind)]
+        else:
+            out.append(_fleet_totals([(x.fleet, x.washes, x.cets, x.fuels) for diags in per_day.values()
+                                      for x in diags], "Diagrams", kind,
+                                     "Every ticked day together: each diagram on each day counts once."))
+    if period == "week" and out:
+        out.append(inferred_links(units))
+    return out
+
+
+def _by_unit(units: List[UnitWeek], kind: str) -> Report:
     rows = []
     for u in sorted(units, key=lambda u: (u.diagrams[0].fleet, u.diagrams[0].day, u.diagrams[0].key)):
         first = u.diagrams[0]
-        rows.append([first.label, first.fleet, len(u.diagrams), u.washes, u.cets,
-                     sum(x.fuels for x in u.diagrams), _gap(u), _chain(u),
-                     (" + ".join(sorted(set(u.links))) if "inferred" not in u.links
-                      else f"{u.links.count('inferred')} inferred")])
-    by_fleet = _fleet_totals([(u.diagrams[0].fleet, u.washes, u.cets, sum(x.fuels for x in u.diagrams))
-                              for u in units], "Units")
-    return [Report("Washes and CETs by Unit", "Washes and CETs per unit",
-                   ["Unit (first diagram)", "Fleet", "Days", "Washes", "CETs", "Fuel",
-                    "Most diagrams without a wash", "Diagrams worked", "Linked by"],
-                   rows, ["body"] * len(rows),
-                   "Each unit followed through the week with the next-day workings ('>' from the XML or TRENT "
-                   "print, '>?' inferred from where it stabled)."), by_fleet]
+        linked = (" + ".join(sorted(set(u.links))) if "inferred" not in u.links
+                  else f"{u.links.count('inferred')} inferred")
+        if kind == "washes":
+            gap = u.wash_gap
+            rows.append([first.label, first.fleet, len(u.diagrams), u.washes, sum(x.fuels for x in u.diagrams), gap,
+                         "OK" if gap <= WASH_LIMIT else f"More than {WASH_LIMIT} days without a wash",
+                         _chain(u), linked])
+        else:
+            rows.append([first.label, first.fleet, len(u.diagrams), u.cets, _chain(u), linked])
+    if kind == "washes":
+        late = over_wash_limit(units)
+        note = ("Each unit followed through the week with the next-day workings ('>' from the XML or TRENT print, "
+                "'>?' inferred: see Inferred Links). A unit should not go more than "
+                f"{WASH_LIMIT} days without a wash"
+                + (f": {len(late)} unit(s) do." if late else ": none do."))
+        return Report("Washes by Unit", "Washes per unit",
+                      ["Unit (first diagram)", "Fleet", "Days", "Washes", "Fuel", "Days without a wash (most)",
+                       f"Wash every {WASH_LIMIT} days", "Diagrams worked", "Linked by"], rows,
+                      ["body"] * len(rows), note)
+    return Report("CETs by Unit", "CETs per unit",
+                  ["Unit (first diagram)", "Fleet", "Days", "CETs", "Diagrams worked", "Linked by"], rows,
+                  ["body"] * len(rows), "Each unit followed through the week with the next-day workings ('>' from "
+                                        "the XML or TRENT print, '>?' inferred: see Inferred Links).")
 
 
-def _fleet_totals(items, what: str) -> Report:
+def inferred_links(units: List[UnitWeek]) -> Report:
+    """Every link made by matching where a unit stabled to where a diagram starts, with where and why."""
+    rows = [[n["day"], n["diagram"], n["fleet"], n["stabled_at"], n["forms"], n["match"], n["reason"]]
+            for u in units for n in u.inferred]
+    return Report("Inferred Links", "Links inferred from where units stabled",
+                  ["Day", "Diagram", "Fleet", "Stabled at", "Forms", "Matched on", "Why it was inferred"], rows,
+                  ["body"] * len(rows), "Where the XML or TRENT print names the next working, nothing is inferred.")
+
+
+def _agg(items) -> Dict[str, List[int]]:
     agg: Dict[str, List[int]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
     for fleet, w, c, f in items:
         a = agg[fleet]
@@ -397,14 +486,53 @@ def _fleet_totals(items, what: str) -> Report:
         a[3] += f
         a[4] += 0 if w else 1
         a[5] += 0 if c else 1
-    rows: List[list] = [[fl, a[0], a[1], a[2], a[3], round(a[1] / a[0], 2) if a[0] else 0, a[4], a[5]]
-                        for fl, a in sorted(agg.items())]
-    tot = [sum(r[i] for r in rows) for i in range(1, 5)]
-    rows.append(["Total", *tot, round(tot[1] / tot[0], 2) if tot[0] else 0, sum(r[6] for r in rows),
-                 sum(r[7] for r in rows)])
-    return Report("Washes and CETs by Fleet", "Washes and CETs by fleet",
-                  ["Fleet", what, "Washes", "CETs", "Fuel", f"Washes per {what[:-1].lower()}",
-                   f"{what} with no wash", f"{what} with no CET"], rows, ["body"] * (len(rows) - 1) + ["total"])
+    return agg
+
+
+def _fleet_row(label: str, a: List[int], kind: str) -> list:
+    n, w, c, f, nw, nc = a
+    if kind == "washes":
+        return [label, n, w, f, round(w / n, 2) if n else 0, nw]
+    return [label, n, c, round(c / n, 2) if n else 0, nc]
+
+
+def _fleet_heads(what: str, kind: str) -> List[str]:
+    one = what[:-1].lower()
+    return (["Fleet", what, "Washes", "Fuel", f"Washes per {one}", f"{what} with no wash"] if kind == "washes"
+            else ["Fleet", what, "CETs", f"CETs per {one}", f"{what} with no CET"])
+
+
+def _fleet_totals(items, what: str, kind: str = "washes", note: str = "") -> Report:
+    agg = _agg(items)
+    rows: List[list] = [_fleet_row(fl, a, kind) for fl, a in sorted(agg.items())]
+    total = [sum(a[i] for a in agg.values()) for i in range(6)]
+    rows.append(_fleet_row("Total", total, kind))
+    word = "Washes" if kind == "washes" else "CETs"
+    return Report(f"{word} by Fleet", f"{word} by fleet", _fleet_heads(what, kind), rows,
+                  ["body"] * (len(rows) - 1) + ["total"], note)
+
+
+def _fleet_days(per_day: Dict[int, List[DayDiagram]], kind: str) -> Report:
+    """By fleet for each day: a block per day (fleets, then the day's total), then the total for all the days."""
+    word = "Washes" if kind == "washes" else "CETs"
+    rows: List[list] = []
+    marks: List[str] = []
+    every = []
+    for d, diags in per_day.items():
+        items = [(x.fleet, x.washes, x.cets, x.fuels) for x in diags]
+        every += items
+        agg = _agg(items)
+        for fl, a in sorted(agg.items()):
+            rows.append([DAY_NAMES[d], *_fleet_row(fl, a, kind)])
+            marks.append("body")
+        total = [sum(a[i] for a in agg.values()) for i in range(6)]
+        rows.append([DAY_NAMES[d], *_fleet_row("Day total", total, kind)])
+        marks.append("total")
+    agg = _agg(every)
+    rows.append(["All days", *_fleet_row("Total", [sum(a[i] for a in agg.values()) for i in range(6)], kind)])
+    marks.append("total")
+    return Report(f"{word} by Fleet", f"{word} by fleet, each day",
+                  ["Day"] + _fleet_heads("Diagrams", kind), rows, marks)
 
 
 MOVE_TYPES = ("Return", "Swap", "Leaves depot", "Back to depot", "Away from depot")

@@ -540,9 +540,47 @@ def _fmt_times(c: Call) -> str:
     return ", ".join(f"{_TIME_NAMES.get(role, role).lower()} {t}" for role, t in c.times.items())
 
 
-def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False) -> List[PrintChange]:
+KIND_ORDER = ("Days run", "TID", "UID", "Header", "Calling points", "Timing", "Platform/line", "Activity",
+              "Dwell/allowances", "Details")
+_TID_KEYS = ("TrainID", "SignalID", "RSID Headcode", "Train", "Headcode")
+
+
+def change_kind(c: "PrintChange") -> str:
+    """The broad nature of a change: 'Timing', 'TID', 'Days run', 'UID', 'Header', 'Calling points'..."""
+    what = c.change
+    if c.location == "(train details)":
+        key = what[:-len(" changed")] if what.endswith(" changed") else what
+        if key in ("Days Pattern", "Days run"):
+            return "Days run"
+        if key in _TID_KEYS:
+            return "TID"
+        if key in ("Train UID", "UID"):
+            return "UID"
+        return "Header"
+    if what.startswith("Location"):
+        return "Calling points"
+    if " time " in what:
+        return "Timing"
+    if what.startswith(("Platform", "Line")):
+        return "Platform/line"
+    if what.startswith("Activity"):
+        return "Activity"
+    if what.startswith(("Dwell", "Engineering", "Pathing", "Performance", "Adjustment")):
+        return "Dwell/allowances"
+    return "Details"
+
+
+def kinds_text(changes: Iterable["PrintChange"]) -> str:
+    """'Timing, TID change' for a set of changes ('No change' for none)."""
+    found = {change_kind(c) for c in changes}
+    return ", ".join(k for k in KIND_ORDER if k in found) + " change" if found else "No change"
+
+
+def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False, header: bool = True,
+                  timing: bool = True) -> List[PrintChange]:
     """The differences between two paired trains. `passenger_only`: passing times and calls with no public time
-    are left out (one print may not show the intermediate timing points)."""
+    are left out (one print may not show the intermediate timing points). `header` / `timing`: whether the train's
+    header details (days, IDs, class...) and the times are compared."""
     out: List[PrintChange] = []
     calls_a, calls_b = a.calls, b.calls
     if passenger_only:
@@ -550,12 +588,14 @@ def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False) ->
         calls_a, calls_b = passenger_calls(a, public), passenger_calls(b, public)
     label = a.label() if a.label() == b.label() else f"{a.label()} / {b.label()}"
     days = a.days if a.days == b.days else f"{a.days} / {b.days}".strip(" /")
-    for key in dict.fromkeys(list(a.info) + list(b.info)):
+    for key in dict.fromkeys(list(a.info) + list(b.info)) if header else ():
         va, vb = a.info.get(key, ""), b.info.get(key, "")
         if va != vb:
             out.append(PrintChange(label, days, "(train details)", f"{key} changed", va or "-", vb or "-"))
+    if header and a.days != b.days and "Days Pattern" not in a.info and "Days Pattern" not in b.info:
+        out.append(PrintChange(label, days, "(train details)", "Days run changed", a.days or "-", b.days or "-"))
     ha, hb = [h for h in a.heading if h not in b.heading], [h for h in b.heading if h not in a.heading]
-    if ha or hb:
+    if header and (ha or hb):
         out.append(PrintChange(label, days, "(train details)", "Train details changed", "\n".join(ha) or "-",
                                "\n".join(hb) or "-"))
     sm = difflib.SequenceMatcher(None, [c.key for c in calls_a], [c.key for c in calls_b], autojunk=False)
@@ -566,7 +606,7 @@ def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False) ->
                     if passenger_only and role == "pass":
                         continue
                     ta, tb = ca.times.get(role, ""), cb.times.get(role, "")
-                    if ta != tb:
+                    if ta != tb and timing:
                         name = _TIME_NAMES.get(role.rstrip("0123456789"), "Time")
                         what = (f"{name} time changed" if ta and tb else f"{name} time added" if tb
                                 else f"{name} time removed")

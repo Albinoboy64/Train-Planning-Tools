@@ -3,8 +3,10 @@
 Possession rows are paired by section number and night (the section number is Network Rail's stable reference;
 the section's name is compared as its locations). Where a section has several possessions for a night (different
 periods, or a cell holding two possessions) they are paired by the periods they cover, then in order. Compared:
-the periods (names and dates), the windows (times and days), the locations (section name and ends), what is
-blocked, and the remarks / notes. Page headings, the line of route title and page numbers are not compared.
+the periods (names; their dates always move between issues so are not compared), the windows (times and days),
+the locations (section name and ends), what is blocked, and the remarks / notes (by content: dates, case,
+punctuation and spelling slips do not count). Page headings, the line of route title and page numbers are not
+compared.
 """
 from __future__ import annotations
 
@@ -12,17 +14,16 @@ import re
 from collections import defaultdict
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, norm, pair_fields
+from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, books_of, norm, pair_fields
 from .section4 import Possession, Statement
 
-FIELDS = ("Section", "Locations", "Periods", "Dates", "Windows", "Blocked", "Remarks")
+FIELDS = ("Section", "Locations", "Periods", "Windows", "Blocked", "Remarks")
 
 
 def _values(p: Possession) -> Dict[str, str]:
     return {"Section": norm(p.section),
             "Locations": " / ".join(norm(e) for e in p.ends),
             "Periods": "; ".join(norm(x.name) for x in p.periods),
-            "Dates": "; ".join(f"{x.start:%d/%m/%Y} to {x.end:%d/%m/%Y}" for x in p.periods),
             "Windows": "; ".join(w.text for w in p.windows),
             "Blocked": norm(p.blocked),
             "Remarks": norm(p.remarks)}
@@ -100,12 +101,14 @@ def compare_statements(a: Statement, b: Statement) -> DocComparison:
             va, vb = (_values(x) if x else {}), (_values(y) if y else {})
             item = DocItem(f"{key[0]}|{key[1]}|{key[2]}|{n}", ref.route or "Section 4", label,
                            fields=pair_fields(FIELDS, va, vb),
-                           where=" / ".join(s for s in ((x.source if x else ""), (y.source if y else "")) if s))
+                           where=" / ".join(s for s in ((x.source if x else ""), (y.source if y else "")) if s),
+                           book=books_of(x.source if x else "", y.source if y else ""),
+                           refs_a=list(x.refs) if x else [], refs_b=list(y.refs) if y else [])
             item.status = ADDED if x is None else REMOVED if y is None else (CHANGED if item.changes else SAME)
             cmp.items.append(item)
     _compare_notes(a, b, cmp)
     cmp.compared = ["Each possession row, paired by section number, night and what is blocked: the section name and "
-                    "its end locations, the periods and their dates, the possession windows (times and days), what "
+                    "its end locations, the period names, the possession windows (times and days), what "
                     "is blocked, and the remarks.",
                     "Each route's NOTES and Timetable Construction Notes, and other text outside the possession "
                     "tables (such as track patrolling plans), route by route and sentence by sentence.",
@@ -126,7 +129,7 @@ def _compare_notes(a: Statement, b: Statement, cmp: DocComparison):
 
     def blocks(st: Statement):
         return [(" > ".join(x for x in (n.route, n.kind, n.scope) if x), n.text, int(n.source.rsplit("p", 1)[-1])
-                 if n.source.rsplit("p", 1)[-1].isdigit() else 0) for n in st.notes]
+                 if n.source.rsplit("p", 1)[-1].isdigit() else 0, n.refs) for n in st.notes]
     _compare_text(blocks(a), blocks(b), cmp)
 
 

@@ -58,13 +58,13 @@ def write(layout: Layout, path: str, cover: Callable[[str], str] = lambda t: t,
     `notes` go on a Notes sheet at the end; `counts` adds the unit counts of each siding location."""
     import openpyxl
     from cwn_compare.xlsxfix import save_workbook
-    from rstools.fsutil import plain_text
+    from rstools.fsutil import plain_text, sheet_title
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    _cover(wb.create_sheet(layout.cover_name[:31] or "Cover"), layout.cover, cover, legend)
+    _cover(wb.create_sheet(sheet_title(layout.cover_name or "Cover", wb.sheetnames)), layout.cover, cover, legend)
     widths = _siding_widths(layout, counts)
     for sheet in layout.sheets:
-        ws = wb.create_sheet(sheet.name[:31])
+        ws = wb.create_sheet(sheet_title(sheet.name, wb.sheetnames))
         if isinstance(sheet, DepotSheet):
             _depot(ws, sheet)
         else:

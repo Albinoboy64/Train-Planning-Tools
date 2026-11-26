@@ -6,11 +6,73 @@ removed. The Live View shows the same result.
 """
 from __future__ import annotations
 
+import difflib
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple
 
 CHANGED, ADDED, REMOVED, SAME = "changed", "added", "removed", "same"
+
+
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
+_DATE = re.compile(rf"\b\d{{1,2}}\s*[/.\-]\s*\d{{1,2}}\s*[/.\-]\s*\d{{2,4}}\b"
+                   rf"|\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?{_MONTH}(?:\s*,?\s*\d{{4}})?"
+                   rf"|\b{_MONTH}\s+(?:\d{{1,2}}(?:st|nd|rd|th)?,?\s+)?\d{{4}}\b"
+                   rf"|\b20\d\d\s*[/-]\s*\d{{2,4}}\b", re.I)
+_WORDS = {"junction": "jn", "jcn": "jn", "jct": "jn", "street": "st", "road": "rd", "station": "stn", "sta": "stn",
+          "approx": "approximately", "no": "no"}
+
+
+def content_tokens(text: str) -> List[str]:
+    """The words of a text as compared between two issues: dates blanked out (a new issue's dates always move),
+    case, punctuation and spacing ignored, and common abbreviations unified."""
+    t = _DATE.sub(" ", (text or "").replace("&", " and "))
+    t = norm(t).lower()
+    return [_WORDS.get(w, w) for w in re.findall(r"[a-z0-9]+", t)]
+
+
+def content_key(text: str) -> str:
+    return " ".join(content_tokens(text))
+
+
+def same_text(a: str, b: str) -> bool:
+    """True when two texts say the same thing: equal as content_tokens, or differing only by a spelling slip in a
+    word (never in a number: times, section numbers, platforms and line numbers must match exactly)."""
+    ta, tb = content_tokens(a), content_tokens(b)
+    if ta == tb or "".join(ta) == "".join(tb):
+        return True
+    if len(ta) != len(tb):
+        return False
+    for x, y in zip(ta, tb):
+        if x == y:
+            continue
+        if any(ch.isdigit() for ch in x + y) or len(x) < 4 or len(y) < 4:
+            return False
+        if difflib.SequenceMatcher(None, x, y).ratio() < 0.85:
+            return False
+    return True
+
+
+_BOOK_NOISE = re.compile(r"\b(?:20\d\d(?:[-/]\d{2,4})?|v\d+(?:\.\d+)?|issue\s*\d+|s4|tpr|eas|timetable|planning|"
+                         r"rules|section|standard|possession|opportunities|pdf)\b", re.I)
+
+
+def book_of(source: str) -> str:
+    """The book (region) a file or a 'file pN' source is from: '2027 EAS V4 S4 - EC.pdf p12' -> 'EC'."""
+    name = os.path.splitext(os.path.basename(re.sub(r"\s+p\d+(?:[,-]\d+)*$", "", source or "")))[0]
+    name = _BOOK_NOISE.sub(" ", name)
+    name = re.sub(r"[_\-\s]+", " ", name).strip()
+    return name
+
+
+def books_of(*sources: str) -> str:
+    out = []
+    for s in sources:
+        b = book_of(s)
+        if b and b not in out:
+            out.append(b)
+    return " / ".join(out)
 
 
 @dataclass
@@ -21,10 +83,13 @@ class DocItem:
     status: str = SAME
     fields: List[Tuple[str, str, str]] = field(default_factory=list)    # (field, original, updated), every field
     where: str = ""                         # file and page(s), e.g. 'KS.pdf p12 / KS v2.pdf p13'
+    book: str = ""                          # the region the item is from ('EC', 'KS / EC')
+    refs_a: List[Tuple] = field(default_factory=list)    # where it is in the original PDFs: (path, page, rect)
+    refs_b: List[Tuple] = field(default_factory=list)    # ...and in the updated ones
 
     @property
     def changes(self) -> List[Tuple[str, str, str]]:
-        return [f for f in self.fields if f[1] != f[2]]
+        return [f for f in self.fields if f[1] != f[2] and not same_text(f[1], f[2])]
 
 
 @dataclass
@@ -69,16 +134,16 @@ def build_workbook(cmp: DocComparison):
     for it in cmp.items:
         if it.status == CHANGED:
             for name, old, new in it.changes:
-                rows.append([it.group, it.label, name, old or "-", new or "-", it.where])
-    add_sheet(wb, "Changes", ["Where", "Item", "What changed", "Original", "Updated", "Pages"], rows,
-              [36, 34, 20, 50, 50, 26])
+                rows.append([it.book, it.group, it.label, name, old or "-", new or "-", it.where])
+    add_sheet(wb, "Changes", ["Book", "Where", "Item", "What changed", "Original", "Updated", "Pages"], rows,
+              [12, 36, 34, 20, 50, 50, 26])
     for title, status, side in (("Added", ADDED, 2), ("Removed", REMOVED, 1)):
         part = []
         for it in cmp.items:
             if it.status == status:
                 values = [(n, o if side == 1 else u) for n, o, u in it.fields]
-                part.append([it.group, it.label, "; ".join(f"{n}: {v}" for n, v in values if v), it.where])
-        add_sheet(wb, title, ["Where", "Item", "Details", "Pages"], part, [36, 34, 100, 26])
+                part.append([it.book, it.group, it.label, "; ".join(f"{n}: {v}" for n, v in values if v), it.where])
+        add_sheet(wb, title, ["Book", "Where", "Item", "Details", "Pages"], part, [12, 36, 34, 100, 26])
     audit = [["Original", "; ".join(os.path.basename(f) for f in cmp.first)],
              ["Updated", "; ".join(os.path.basename(f) for f in cmp.second)]]
     audit += [[label, text] for label, text in cmp.info]

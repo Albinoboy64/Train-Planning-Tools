@@ -30,7 +30,7 @@ from .meta import is_comparison_output, read_meta_file
 from .options import Options, PRESET_COLOURS, default_categories, default_name
 
 APP_WIDE = ("last_tab", "theme", "text_size", "recent", "check_updates", "github_token", "notify_done", "saved",
-            "live_details_open", "live_passenger_only")
+            "live_details_open", "live_passenger_only", "live_check_header", "live_check_timing")
 TAB_NAMES = ("Stock Tools", "Stats Pack", "Timing Tools", "Live View")
 REPORT_FORMATS = {"xlsx": "Excel", "pdf": "PDF", "docx": "Word"}
 ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -54,12 +54,12 @@ BERTH_MODES = {
 
 
 # every task of the Stock Tools tab, in the order of its Task drop-down: (mode, wording)
-STOCK_TASKS = [("compare", "Compare two CWNs"),
-               ("cumulative", "Add a new round to an earlier comparison CWN"),
-               ("batch", "Compare two folders of CWNs (batch)"),
-               ("reorder", "Put each train's day variants in order (one CWN)"),
-               ("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")
-               ] + [(mode, spec[0]) for mode, spec in BERTH_MODES.items()]
+STOCK_TASKS = sorted([("compare", "Compare two CWNs"),
+                      ("cumulative", "Add a new round to an earlier comparison CWN"),
+                      ("batch", "Compare two folders of CWNs (batch)"),
+                      ("reorder", "Put each train's day variants in order (one CWN)"),
+                      ("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")
+                      ] + [(mode, spec[0]) for mode, spec in BERTH_MODES.items()], key=lambda t: t[1].casefold())
 
 OPENABLE = (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".csv", ".txt", ".log")
 
@@ -900,7 +900,7 @@ class App(tk.Tk):
         self._task_shown()
 
         # --- CWN comparison: its two files
-        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. CWN comparison", padding=8)
+        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. CWN Comparison", padding=8)
         mf.grid(row=1, column=0, sticky="ew")
         mf.columnconfigure(1, weight=1)
         self.orig_lbl = ttk.Label(mf, text="Original CWN:")
@@ -1086,7 +1086,7 @@ class App(tk.Tk):
         self._schedule_days()
 
         # --- categories
-        cf = self.cats_frame = ttk.LabelFrame(right, text="3. Changes to include", padding=8)
+        cf = self.cats_frame = ttk.LabelFrame(right, text="3. Changes to Include", padding=8)
         cf.grid(row=0, column=0, sticky="nsew")
         heads = [("Change type", ""),
                  ("Show in\nCWN", "Highlight this type of change in the output CWN. For cancelled trains: "
@@ -1101,7 +1101,7 @@ class App(tk.Tk):
                 Tooltip(lab, help_text)
         self.cat_vars = {}
         self.show_old_cbs = []                          # greyed out when the output is 'highlighted only'
-        for r, (key, label, has_old, desc) in enumerate(CATEGORIES, start=1):
+        for r, (key, label, has_old, desc) in enumerate(sorted(CATEGORIES, key=lambda c: c[1].casefold()), start=1):
             lab = ttk.Label(cf, text=label)
             lab.grid(row=r, column=0, sticky="w", padx=4)
             Tooltip(lab, desc)
@@ -1169,7 +1169,7 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------ berthing charts
     def _build_berthing(self, left):
-        bf = self.berth_frame = ttk.LabelFrame(left, text="Berthing charts", padding=8)
+        bf = self.berth_frame = ttk.LabelFrame(left, text="Berthing Charts", padding=8)
         bf.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         bf.columnconfigure(1, weight=1)
         self.berth_vars = {m: [tk.StringVar() for _r in spec[1]] for m, spec in BERTH_MODES.items()}

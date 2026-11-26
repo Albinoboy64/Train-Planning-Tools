@@ -677,3 +677,25 @@ def test_oversized_archives_are_refused_by_every_zip_based_reader(tmp_path, monk
             with pytest.raises(error) as caught:
                 read(path)
             assert "unrealistic size" in str(caught.value) or kind == "docx", (kind, name, str(caught.value))
+
+
+def test_sheet_titles_are_valid_and_unique(tmp_path):
+    import openpyxl
+    from rstools.fsutil import sheet_title
+    assert sheet_title("A/B [1]: x?") == "A-B (1). x"
+    assert sheet_title("'") == "Sheet" and sheet_title("") == "Sheet"
+    assert len(sheet_title("x" * 50)) == 31
+    taken = ["Brighton", "brighton (2)"]
+    assert sheet_title("BRIGHTON", taken) == "BRIGHTON (3)"
+    long = "y" * 31
+    assert len(sheet_title(long, [long])) == 31 and sheet_title(long, [long]) != long
+    from rstools.stationbook import write_book
+    path = str(tmp_path / "b.xlsx")
+    write_book(path, [("East/West [TLGN] SX", []), ("East-West (TLGN) SX", [])], "head")
+    names = openpyxl.load_workbook(path).sheetnames
+    assert len(names) == len({n.lower() for n in names}) == 2
+    from rstools.statspack.xlsxw import Workbook
+    wb = Workbook()
+    for n in ("Totals: A", "Totals. A"):
+        wb.add(n, wb.new_sheet(), [], [])
+    assert len({n.lower() for n, _x in wb.sheets}) == 2

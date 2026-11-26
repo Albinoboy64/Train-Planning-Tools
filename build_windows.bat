@@ -40,12 +40,17 @@ REM smoke test: Section 4 and TPR document comparisons, the Section 4 check, a s
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_rule_docs(os.path.abspath('smoke')); t.write_s4_xml('smoke/s4plan.xml')" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_stationbook as t; t.write_late_xml('smoke/late.xml'); t.write_late_xml('smoke/other.xml', operator='XC')" || goto :failed
 for %%f in (s4cmp tprcmp s4check swb_merged) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
-start /wait "" dist\TrainPlanningTools.exe timetable --s4 smoke\s4_old.pdf --vs-s4 smoke\s4_new.pdf --out smoke --name s4cmp
+if exist "smoke\s4_new - highlighted*.pdf" del "smoke\s4_new - highlighted*.pdf"
+start /wait "" dist\TrainPlanningTools.exe timetable --s4 smoke\s4_old.pdf --vs-s4 smoke\s4_new.pdf --highlight-pdfs --out smoke --name s4cmp
 start /wait "" dist\TrainPlanningTools.exe timetable --tpr smoke\tpr_old.pdf --vs-tpr smoke\tpr_new.pdf --out smoke --name tprcmp
 start /wait "" dist\TrainPlanningTools.exe timetable --s4-check smoke\s4plan.xml --s4 smoke\s4_old.pdf --out smoke --name s4check
 start /wait "" dist\TrainPlanningTools.exe stationbook --xml smoke\late.xml --station Alpha --merge-xml smoke\other.xml --out smoke --name swb_merged
 for %%f in (s4cmp tprcmp s4check swb_merged) do if not exist smoke\%%f.xlsx (
     echo The built exe did not produce smoke\%%f.xlsx.
+    goto :failed
+)
+if not exist "smoke\s4_new - highlighted.pdf" (
+    echo The built exe did not produce the highlighted Section 4 PDFs.
     goto :failed
 )
 echo.

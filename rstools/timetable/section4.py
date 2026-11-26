@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from .pdfgrid import (cluster, find_furniture, line_text, lines_of, rect_to_visual, segments, text_in, text_runs,
-                      to_visual)
+from .pdfgrid import (cluster, find_furniture, line_text, lines_of, rect_from_visual, rect_to_visual, segments,
+                      text_in, text_runs, to_visual)
 
 DAY_CODES = {"m": 0, "mo": 0, "mon": 0, "t": 1, "tu": 1, "tue": 1, "tues": 1, "w": 2, "we": 2, "wed": 2,
              "th": 3, "thu": 3, "thur": 3, "thurs": 3, "f": 4, "fr": 4, "fri": 4, "s": 5, "sa": 5, "sat": 5,
@@ -66,6 +66,7 @@ class Possession:
     blocked: str                # 'Down and Up Chatham Main BLOCKED'
     remarks: str
     source: str                 # file and page
+    refs: List[Tuple] = field(default_factory=list)     # (path, page index, (left, bottom, right, top)) in the PDF
 
     @property
     def available(self) -> str:
@@ -97,6 +98,7 @@ class RouteNote:
     scope: str                  # construction notes: the stretch of line they are for
     text: str
     source: str                 # file and page
+    refs: List[Tuple] = field(default_factory=list)
 
 
 @dataclass
@@ -268,7 +270,9 @@ def _read_pdf(path: str, st: Statement):
                     for windows, blocked in _segments_of(text):
                         line_of_route = known.get(number.split(".")[0].lstrip("0"), route)
                         st.possessions.append(Possession(line_of_route, section, number, ends, night, covered, windows,
-                                                         blocked, remarks, f"{os.path.basename(path)} p{pno + 1}"))
+                                                         blocked, remarks, f"{os.path.basename(path)} p{pno + 1}",
+                                                         [(path, pno, (x0, min(sec_lo, rem_lo), x1,
+                                                                       max(sec_hi, rem_hi)))]))
         try:
             _read_notes(pdf, path, boxes, st)
         except Exception as exc:                    # the notes are extra: never lose the possessions over them
@@ -297,12 +301,17 @@ def _read_notes(pdf, path: str, boxes: Dict[int, Tuple[float, float, float, floa
         st.info.append((name, (head + " - " if head else "") + furniture.info["Header"]))
     route, scope, kind = "", "", "Other text"
     para: List[str] = []
+    para_box: List[float] = []                  # the paragraph's box on the displayed page: x0, y0, x1, y1
     last_y, last_size = 0.0, 10.0
 
     def flush(page_no: int):
         if para:
-            st.notes.append(RouteNote(route, kind, scope, " ".join(para), f"{name} p{page_no}"))
+            refs = []
+            if para_box:
+                refs = [(path, page_no - 1, rect_from_visual(pages[page_no - 1], *para_box))]
+            st.notes.append(RouteNote(route, kind, scope, " ".join(para), f"{name} p{page_no}", refs))
             para.clear()
+        para_box.clear()
     for pno, page_lines in enumerate(lines):
         box = rect_to_visual(pages[pno], *boxes[pno]) if pno in boxes else None
         for line in page_lines:
@@ -332,6 +341,10 @@ def _read_notes(pdf, path: str, boxes: Dict[int, Tuple[float, float, float, floa
                 flush(pno + 1)
             if text:
                 para.append(text)
+                box_now = [min(r.x0 for r in line), min(r.y0 for r in line), max(r.x1 for r in line),
+                           max(r.y1 for r in line)]
+                para_box[:] = box_now if not para_box else [min(para_box[0], box_now[0]), min(para_box[1], box_now[1]),
+                                                           max(para_box[2], box_now[2]), max(para_box[3], box_now[3])]
             last_y, last_size = cy, size
         flush(pno + 1)
 

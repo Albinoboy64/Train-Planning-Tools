@@ -63,7 +63,7 @@ class RulesDialog(tk.Toplevel):
             ttk.Label(bf, text=f"Berthing chart layout - used for a new berthing chart when no chart is chosen to take "
                                f"the layout from: {lay['sheets']} sheets, from {lay['source']}.",
                       wraplength=px(self, 740), justify="left").grid(row=len(rules.BUILT_IN) + 1, column=0, sticky="w")
-        sf = ttk.LabelFrame(self, text="Section 4 rule sets", padding=8)
+        sf = ttk.LabelFrame(self, text="Section 4 Rule Sets", padding=8)
         sf.grid(row=2, column=0, sticky="nsew", **pad)
         sf.columnconfigure(0, weight=1)
         sf.rowconfigure(0, weight=1)

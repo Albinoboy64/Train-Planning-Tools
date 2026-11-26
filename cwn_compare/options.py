@@ -65,7 +65,9 @@ class Options:
     open_when_done: bool = False     # open the output when a run finishes (both tabs)
     theme: str = "system"            # light | dark | contrast | system (follow Windows)
     text_size: str = "normal"        # small | normal | large | xlarge
-    live_details_open: bool = True   # Live View: train-detail rows of train prints shown (unfolded)
+    live_details_open: bool = False  # Live View: Train Header Details rows of train prints shown (unfolded)
+    live_check_header: bool = True   # Live View: header differences (days, IDs, class...) are checked
+    live_check_timing: bool = True   # Live View: timing differences are checked
     live_passenger_only: bool = False    # Live View: passing / one-sided intermediate times hidden
     check_updates: bool = True       # look for a newer release on GitHub when the app starts
     notify_done: bool = True         # flash the taskbar and show a notice when a run ends in the background

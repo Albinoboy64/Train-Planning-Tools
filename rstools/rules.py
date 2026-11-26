@@ -302,6 +302,7 @@ def load_set(name: str = ""):
 
 def _dump(p) -> dict:
     d = asdict(p)
+    d.pop("refs", None)                     # where it sits in a PDF is not part of a saved rule set
     for per in d["periods"]:
         per["start"], per["end"] = per["start"].isoformat(), per["end"].isoformat()
     d["ends"] = list(d["ends"])

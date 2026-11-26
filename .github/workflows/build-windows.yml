@@ -87,7 +87,7 @@ jobs:
           if (!(Test-Path smoke\sp.xlsx)) { throw "exe did not produce a stats pack" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp','--format','pdf' -Wait -PassThru
           if (!(Test-Path smoke\sp.pdf)) { throw "exe did not produce a PDF stats pack" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units','--unit-reports','washes,depots,captive,fuel','--format','docx' -Wait -PassThru
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units','--unit-reports','washes,cets,depots,captive,fuel','--unit-period','days','--format','docx' -Wait -PassThru
           if (!(Test-Path smoke\units.docx)) { throw "exe did not produce a Word unit report" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','seats','--capacity-corridor','"Brighton Main Line (East Croydon - Brighton)"','--corridor-direction','reverse','--between','06:00-09:00','--at','"East Croydon"','--direction','both' -Wait -PassThru
           if (!(Test-Path smoke\seats.xlsx)) { throw "exe did not produce a capacity report" }
@@ -108,8 +108,9 @@ jobs:
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--passenger-only','--out','smoke','--name','prints_pax' -Wait -PassThru
           if (!(Test-Path smoke\prints_pax.xlsx)) { throw "exe did not produce a passenger-times-only print comparison" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_timetable as t; t.write_rule_docs(os.path.abspath('smoke')); t.write_s4_xml('smoke/s4plan.xml')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--out','smoke','--name','s4cmp' -Wait -PassThru
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--highlight-pdfs','--out','smoke','--name','s4cmp' -Wait -PassThru
           if (!(Test-Path smoke\s4cmp.xlsx)) { throw "exe did not compare two sets of Section 4 documents" }
+          if (!(Test-Path 'smoke\s4_new - highlighted.pdf')) { throw "exe did not save the highlighted Section 4 PDFs" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--tpr','smoke\tpr_old.pdf','--vs-tpr','smoke\tpr_new.pdf','--out','smoke','--name','tprcmp' -Wait -PassThru
           if (!(Test-Path smoke\tprcmp.xlsx)) { throw "exe did not compare two sets of TPR documents" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--out','smoke','--name','s4check' -Wait -PassThru

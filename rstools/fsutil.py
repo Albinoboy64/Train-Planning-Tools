@@ -234,3 +234,20 @@ def clean_cell(value):
         from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
         return ILLEGAL_CHARACTERS_RE.sub("", value)
     return value
+
+
+_SHEET_BAD = str.maketrans({"/": "-", "\\": "-", "?": "", "*": "", "[": "(", "]": ")", ":": "."})
+
+
+def sheet_title(name: str, taken=None) -> str:
+    """A worksheet name Excel accepts: no \\ / ? * [ ] :, no leading or trailing apostrophe, 31 characters at most,
+    and different (ignoring case) from every name in `taken` (a ' (2)' is added where needed)."""
+    t = "".join(ch for ch in str(name or "") if ch >= " " and ch != "\x7f").translate(_SHEET_BAD)
+    t = " ".join(t.split()).strip("' ")[:31].strip("' ") or "Sheet"
+    used = {x.lower() for x in (taken or ())}
+    out, n = t, 1
+    while out.lower() in used:
+        n += 1
+        tail = f" ({n})"
+        out = t[:31 - len(tail)].rstrip("' ") + tail
+    return out

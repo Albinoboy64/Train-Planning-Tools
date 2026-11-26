@@ -180,6 +180,8 @@ class SheetWriter:
         self.r = 0
         self.widths: Dict[int, int] = {}      # column -> characters shown, once measure() is on
         self._measure = False
+        self.freeze_row = 0                   # rows above and including this one stay in view (0: none)
+        self.filter_ref = ""                  # 'A3:H40': an Excel filter on the heading row
 
     def measure(self):
         """From the next row on, record the longest value shown in each column (for its width)."""
@@ -244,10 +246,14 @@ class SheetWriter:
         col_xml = "".join(f'<col min="{a}" max="{b}" width="{w}" customWidth="1"/>' for a, b, w in cols)
         merge_xml = (f'<mergeCells count="{len(merges)}">' + "".join(f'<mergeCell ref="{m}"/>' for m in merges)
                      + "</mergeCells>") if merges else ""
+        views = (f'<sheetViews><sheetView workbookViewId="0"><pane ySplit="{self.freeze_row}" '
+                 f'topLeftCell="A{self.freeze_row + 1}" activePane="bottomLeft" state="frozen"/></sheetView>'
+                 '</sheetViews>') if self.freeze_row else ""
+        auto = f'<autoFilter ref="{self.filter_ref}"/>' if self.filter_ref else ""
         return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{MAIN}">'
-                f'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+                f'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' + views
                 + (f"<cols>{col_xml}</cols>" if cols else "")
-                + f'<sheetData>{"".join(self.rows)}</sheetData>{merge_xml}'
+                + f'<sheetData>{"".join(self.rows)}</sheetData>{auto}{merge_xml}'
                 f'<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
                 f'<pageSetup paperSize="9" fitToWidth="1" fitToHeight="0" orientation="portrait"/></worksheet>')
 
@@ -262,8 +268,8 @@ class Workbook:
         return SheetWriter(self.sst, self.styles)
 
     def add(self, name: str, writer: SheetWriter, cols, merges):
-        if any(n.lower() == name.lower() for n, _x in self.sheets):
-            raise ValueError(f"Duplicate sheet name {name!r}")
+        from rstools.fsutil import sheet_title
+        name = sheet_title(name, [n for n, _x in self.sheets])
         self.sheets.append((name, writer.xml(cols, merges)))
 
     def save(self, path: str):
@@ -466,6 +472,10 @@ def _render_glossary(wb: Workbook, sw: SheetWriter, spec: dict, table: Table):
             sw.row([(1, a, st.xf(s["item"][0])), (2, b, st.xf(s["item"][1]))])
 
 
+WRAP_AT = 60            # a report column with a value longer than this is wrapped, not stretched
+WRAP_WIDTH = 70.0
+
+
 def render_report(wb: Workbook, name: str, title: str, headers: Sequence[str], rows: Sequence[Sequence],
                   kinds: Sequence[str] = (), note: str = ""):
     """A plain report tab in the stats pack's look: title, optional note, heading row, rows
@@ -480,13 +490,19 @@ def render_report(wb: Workbook, name: str, title: str, headers: Sequence[str], r
     if note:
         sw.row([(1, note, st.xf(nowrap(spec["body"]["2"])))])
     sw.row([(i, h, head) for i, h in enumerate(headers, start=1)])
+    sw.freeze_row = sw.r                               # the headings stay in view
     sw.measure()
+    wide = {i for i in range(len(headers)) if any(len(str(r[i])) > WRAP_AT for r in rows if i < len(r))}
+    body_w, last_w = st.xf(spec["body"]["2"]), st.xf(spec["last"]["2"])       # the layout's own (wrapping) styles
     for r, row in enumerate(rows):
-        style = last if (kinds and r < len(kinds) and kinds[r] == "total") else body
-        sw.row([(i, v, style) for i, v in enumerate(row, start=1)])
+        total = bool(kinds and r < len(kinds) and kinds[r] == "total")
+        sw.row([(i, v, (last_w if total else body_w) if i - 1 in wide else (last if total else body))
+                for i, v in enumerate(row, start=1)])
     if not rows:                                       # an empty tab says so rather than looking broken
         sw.row([(1, "None", body)])
+    elif headers:
+        sw.filter_ref = f"A{sw.freeze_row}:{col_letter(len(headers))}{sw.freeze_row + len(rows)}"
     widths = [max(sw.widths.get(i + 1, 0), max((len(w) for w in str(h).split()), default=0))
               for i, h in enumerate(headers)]
-    wb.add(name[:31], sw, fit_columns([(1, len(headers), 10.0)], widths, [font_size(spec["body"]["2"])] * len(headers)),
-           [])
+    wb.add(name[:31], sw, fit_columns([(1, len(headers), 10.0)], widths, [font_size(spec["body"]["2"])] * len(headers),
+                                      cap=WRAP_WIDTH), [])
