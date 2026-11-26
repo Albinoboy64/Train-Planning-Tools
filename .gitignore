@@ -14,6 +14,8 @@ dist/
 *.pdf
 # Explicitly keep the sample template used by the app.
 !rstools/timetable/template.xlsx
+# a tiny made-up workbook (no real data) for the .xls reader test
+!tests/fixtures/synthetic_cwn.xls
 # Never commit local app data or generated smoke-test inputs/outputs.
 TrainPlanningTools-data/
 smoke/

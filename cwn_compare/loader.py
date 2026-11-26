@@ -102,6 +102,11 @@ def _load_xls(path: str) -> "openpyxl.Workbook":
     import openpyxl
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
+    from rstools import limits
+    try:
+        limits.check_size(path, "XLS_MAX_BYTES", "Excel .xls workbook")   # before the file is opened
+    except limits.TooLargeError as exc:
+        raise LoadError(str(exc))
     import xlrd
 
     book = xlrd.open_workbook(path, formatting_info=True)

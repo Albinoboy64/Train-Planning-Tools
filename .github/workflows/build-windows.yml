@@ -84,6 +84,11 @@ jobs:
   build:
     needs: [lint, typecheck, test, audit]
     runs-on: windows-latest
+    # Builds of main run one after another (a waiting older build is replaced by the newest), so two releases of
+    # one version can never publish at the same time: the newest build always publishes last.
+    concurrency:
+      group: ${{ github.ref == 'refs/heads/main' && 'release-main' || github.run_id }}
+      cancel-in-progress: false
     permissions:
       contents: write            # the release
       id-token: write            # build provenance attestation

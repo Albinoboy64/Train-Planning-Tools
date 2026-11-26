@@ -377,7 +377,7 @@ Choose the **Task** at the top (the list is grouped: *Timetable checks*, *Train 
 * **Notification when a run finishes**: if the app is in the background when a run ends (e.g. you are working in Excel), its taskbar button flashes and a small notice appears in the bottom-right corner of the screen. Click the notice to bring the app to the front. Switch this off in *Options > Notify me when a run finishes in the background*.
 * **Help on every control**: rest the mouse on any option, button or box for a short explanation.
 * **Help > Error log...**: the log of unexpected errors, to send with a support request. It opens as a preview with **file paths**, your **user and computer names** (and any email address) and **text quoted from your files** hidden; untick any of these to show it. Only what the preview shows is copied (**Copy**) or saved (**Export...**, as *error log YYYY-MM-DD.txt* on this PC, never over an existing file). **Clear log** empties it. The log only ever holds error details, never the contents of your XML, workbook or PDF files: a line long enough to be file contents is cut short when it is written.
-* **File size limits**: to stop a damaged or hostile file filling the PC's memory, the app refuses files far larger than any real one: an Attune XML over 4 GB, a VPT over 1 GB, a PDF over 500 MB or 20,000 pages, an Office file that unpacks to over 2 GB (or 512 MB in one part). XML with a document type declaration (`<!DOCTYPE` / `<!ENTITY`, never in Attune or Office files) is refused too, so it cannot expand or pull in other files. If a genuine file is ever refused, raise its limit in **limits.json** in the data folder, e.g. `{"XML_MAX_BYTES": 8589934592}`: the names are `XML_MAX_BYTES`, `XML_PART_MAX_BYTES`, `VPT_MAX_BYTES`, `PDF_MAX_BYTES`, `PDF_MAX_PAGES`, `ZIP_PART_LIMIT`, `ZIP_TOTAL_LIMIT` and `ZIP_RATIO_LIMIT` (whole numbers; anything else is ignored).
+* **File size limits**: to stop a damaged or hostile file filling the PC's memory, the app refuses files far larger than any real one: an Attune XML over 4 GB, a VPT over 1 GB, a PDF over 500 MB or 20,000 pages, an Office file that unpacks to over 2 GB (or 512 MB in one part). XML with a document type declaration (`<!DOCTYPE` / `<!ENTITY`, never in Attune or Office files) is refused too, so it cannot expand or pull in other files. If a genuine file is ever refused, raise its limit in **limits.json** in the data folder, e.g. `{"XML_MAX_BYTES": 8589934592}`: the names are `XML_MAX_BYTES`, `XML_PART_MAX_BYTES`, `VPT_MAX_BYTES`, `PDF_MAX_BYTES`, `PDF_MAX_PAGES`, `XLS_MAX_BYTES`, `CSV_MAX_BYTES`, `ZIP_PART_LIMIT`, `ZIP_TOTAL_LIMIT` and `ZIP_RATIO_LIMIT` (whole numbers; anything else is ignored).
 
 ## Live View
 
@@ -411,6 +411,14 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.33.1** - fixes from the 3.33.0 review
+* **Stats Pack**: the *Task* box is no longer blank when the app starts, and the frames are numbered 1, 2, 3... with no gap when *Options* is hidden.
+* **Command line**: a mistyped command (e.g. `statpack`) now says it is an unknown command and lists the real ones (exit code 2) instead of asking for `--updated`; `--help` lists the commands; `selftest --help` shows its usage.
+* **Settings** are still saved when the Live View window's place cannot be.
+* **File limits** now also cover older Excel `.xls` workbooks (`XLS_MAX_BYTES`) and train list `.csv` files (`CSV_MAX_BYTES`), raisable in `limits.json` like the others.
+* **Release build**: builds of `main` now run one after another, so two close pushes cannot publish the same version at the same time.
+* More tests: reading `.xls` and `.xlsb` CWNs, the update and rules dialogs, the new command-line messages.
 
 **3.33.0** - `section4` command, Live View berthing cells and pop-out window, file limits, private error log, release SBOM
 * **`section4` command**: `TrainPlanningTools.exe section4 --xml PLAN.xml [--pdf S4.pdf ...] [--vpt OURS.vpt] [--other-vpt OTHER.vpt ...] [--out] [--name] [--format]` runs the Section 4 check (the same as `timetable --s4-check`, which still works). Bad flags and files are reported before anything is read.

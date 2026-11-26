@@ -131,6 +131,7 @@ class StatsPackTab(ttk.Frame):
         self.task_box.grid(row=0, column=1, sticky="ew")
         self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
         self.mode.trace_add("write", lambda *_a: self._task_shown())
+        self._task_shown()                      # the task chosen at the start is shown in the box
         opt = self.opt_frame = ttk.LabelFrame(left, text="2. Options", padding=8)
         opt.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         uf = self.units_frame = ttk.Frame(opt)
@@ -151,7 +152,7 @@ class StatsPackTab(ttk.Frame):
         self._build_seats(opt, 1)
 
         # 1. input
-        ff = ttk.LabelFrame(left, text="1. Input", padding=8)
+        ff = self.in_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
         ff.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ff.columnconfigure(1, weight=1)
         self.vars = {k: tk.StringVar() for k in ("xml_a", "trent_a", "xml_b", "trent_b", "pack_a", "pack_b")}
@@ -172,7 +173,7 @@ class StatsPackTab(ttk.Frame):
         self.dnd_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # 3. output
-        of = ttk.LabelFrame(left, text="3. Output", padding=8)
+        of = self.out_frame = ttk.LabelFrame(left, text="3. Output", padding=8)
         of.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         of.columnconfigure(1, weight=1)
         fmtf = ttk.Frame(of)
@@ -259,7 +260,7 @@ class StatsPackTab(ttk.Frame):
         self.fleet_note.grid(row=7, column=0, sticky="w", pady=(4, 0))
 
         # 5. run
-        rf = ttk.LabelFrame(right, text="5. Run", padding=8)
+        rf = self.run_frame = ttk.LabelFrame(right, text="5. Run", padding=8)
         rf.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
         rf.columnconfigure(0, weight=1)
         rf.rowconfigure(2, weight=1)
@@ -566,9 +567,21 @@ class StatsPackTab(ttk.Frame):
         (self.opt_frame.grid if mode in ("units", "seats") else self.opt_frame.grid_remove)()
         if mode == "seats":
             self._load_groups()
+        self._number_frames()
         self._update_name_hint()
         if mode != "packs":
             self._read_inputs()
+
+    def _number_frames(self):
+        """Number the frames shown, in order, with no gap when 'Options' is hidden."""
+        frames = [(self.in_frame, "Input"), (self.opt_frame, "Options"), (self.out_frame, "Output"),
+                  (self.sel_frame, "Days, Operators and Fleets"), (self.run_frame, "Run")]
+        n = 0
+        for frame, title in frames:
+            if frame is self.opt_frame and not frame.winfo_manager():
+                continue
+            n += 1
+            frame.configure(text=f"{n}. {title}")
 
     def _set_state(self, widget, enabled: bool):
         for child in widget.winfo_children():

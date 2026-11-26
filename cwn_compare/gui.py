@@ -852,11 +852,11 @@ class App(tk.Tk):
         if (self.running or self.stats_tab.running or self.tt_tab.running) and not messagebox.askyesno(
                 APP_NAME, "A run is still in progress and its output will not be saved.\n\nClose anyway?"):
             return
-        try:
-            self.live_window._save_place()          # Live View's own window: its size and place for next time
-            self.save_app_settings()
-        except Exception:
-            pass
+        for save in (self.live_window._save_place, self.save_app_settings):   # one failing never skips the other
+            try:
+                save()
+            except Exception:
+                errorlog.write(traceback.format_exc())
         self.pump.stop()
         for job in (self._theme_id, self._dpi_after, self._days_after):
             if job:

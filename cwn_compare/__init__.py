@@ -1,2 +1,2 @@
 """Train Planning Tools - Stock Tools, Stats Pack, Timing Tools and Live View."""
-__version__ = "3.33.0"
+__version__ = "3.33.1"

@@ -834,3 +834,83 @@ def test_bad_characters_and_cut_off_xml_are_reported(tmp_path):
     cut.write_bytes(data[: len(data) - 40])
     with pytest.raises(StationBookError, match="could not be read|complete Attune"):
         read_plan(str(cut))
+
+
+def test_xls_and_csv_size_limits(tmp_path, monkeypatch):
+    from cwn_compare import loader
+    from rstools.timetable.trainlist import TrainListError, read_train_list
+    xls = tmp_path / "big.xls"
+    xls.write_bytes(b"x" * 5000)
+    csv_file = tmp_path / "big.csv"
+    csv_file.write_text("a,b\n" + "1,2\n" * 2000)
+    set_limits(monkeypatch, XLS_MAX_BYTES=1000, CSV_MAX_BYTES=1000)
+    with pytest.raises(loader.LoadError, match="XLS_MAX_BYTES"):
+        loader.load_any(str(xls))
+    with pytest.raises(TrainListError, match="CSV_MAX_BYTES"):
+        read_train_list(str(csv_file))
+    from rstools import limits
+    assert limits.DEFAULTS["XLS_MAX_BYTES"] > 0 and limits.DEFAULTS["CSV_MAX_BYTES"] > 0
+
+
+def test_xls_workbook_is_read_with_values_and_formatting(monkeypatch):
+    """A (synthetic, made-up) .xls: numbers, times, text and formatting come through as an .xlsx workbook; a
+    formula-looking text stays text."""
+    pytest.importorskip("xlrd")
+    from cwn_compare import loader
+    path = os.path.join(os.path.dirname(__file__), "fixtures", "synthetic_cwn.xls")
+    wb = loader.load_any(path)
+    ws = wb["Synthetic CWN"]
+    assert [c.value for c in ws[1]][:3] == ["Train", "Dep", "Note"]
+    assert ws["A2"].value == "1A00" and ws["B2"].value == 5 and isinstance(ws["B2"].value, int)
+    import datetime
+    assert ws["B3"].value == datetime.time(5, 37)
+    assert ws["A1"].font.bold and ws["A1"].fill.fgColor.rgb not in (None, "00000000")
+    assert str(ws["C2"].value).startswith("=")                      # kept as text: the output code makes it safe
+    assert ws["C2"].data_type == "s" or ws["C2"].data_type == "f"
+
+
+def test_xlsb_values_are_read_through_pyxlsb(tmp_path, monkeypatch):
+    """.xlsb goes through pyxlsb (faked here: no .xlsb can be written): whole numbers become ints, empty cells are
+    skipped, and sheet names stay unique."""
+    import sys
+    import types
+    import zipfile
+    from cwn_compare import loader
+
+    class Cell:
+        def __init__(self, r, c, v):
+            self.r, self.c, self.v = r, c, v
+
+    class Sheet:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def rows(self):
+            return self._rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class Book:
+        sheets = ["Sheet1", "sheet1"]
+
+        def get_sheet(self, name):
+            return Sheet([[Cell(0, 0, "Train"), Cell(0, 1, None)], [Cell(1, 0, "1A00"), Cell(1, 1, 5.0)]])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setitem(sys.modules, "pyxlsb", types.SimpleNamespace(open_workbook=lambda path: Book()))
+    path = tmp_path / "x.xlsb"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+    wb = loader.load_any(str(path))
+    assert len(wb.sheetnames) == 2 and len(set(n.lower() for n in wb.sheetnames)) == 2
+    ws = wb[wb.sheetnames[0]]
+    assert ws["A1"].value == "Train" and ws["B2"].value == 5 and ws["B1"].value is None

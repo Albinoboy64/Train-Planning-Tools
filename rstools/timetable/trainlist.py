@@ -102,6 +102,11 @@ def read_train_list(path: str) -> TrainList:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".csv":
         import csv
+        from rstools import limits
+        try:
+            limits.check_size(path, "CSV_MAX_BYTES", "train list")
+        except limits.TooLargeError as exc:
+            raise TrainListError(str(exc))
         with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
             sheets = [("CSV", [list(r) for r in csv.reader(fh)])]
     else:

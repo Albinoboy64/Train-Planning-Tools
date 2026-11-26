@@ -20,6 +20,8 @@ DEFAULTS: Dict[str, int] = {
     "VPT_MAX_BYTES": 1 * GB,            # an Attune VPT export (a full timetable is ~60 MB)
     "PDF_MAX_BYTES": 500 * MB,          # a PDF: Section 4, TPR, train prints (the largest seen is ~40 MB)
     "PDF_MAX_PAGES": 20000,             # pages in one PDF (a whole Section 4 book is ~1,500)
+    "XLS_MAX_BYTES": 512 * MB,          # an older Excel .xls CWN (the 65,536-row format limit keeps real ones small)
+    "CSV_MAX_BYTES": 256 * MB,          # a train list exported as CSV (a full timetable's list is ~20 MB)
     "ZIP_PART_LIMIT": 512 * MB,         # one part of an Office file, unpacked (the largest real CWN part ~100 MB)
     "ZIP_TOTAL_LIMIT": 2 * GB,          # a whole Office file, unpacked
     "ZIP_RATIO_LIMIT": 200,             # unpacked / packed size of a part over 50 MB: real workbooks are under ~30

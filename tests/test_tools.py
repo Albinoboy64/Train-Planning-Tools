@@ -1248,3 +1248,131 @@ def test_task_box_groups_headings_and_picks():
         assert box.picked() == "a"
     finally:
         root.destroy()
+
+
+def test_stats_tab_shows_its_task_and_numbers_its_frames_without_gaps(tmp_path, monkeypatch):
+    """A fresh start shows a task in every Task box, and the Stats Pack frames run 1, 2, 3... whichever are shown."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    from rstools.statspack import gui_tab as sg
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        for tab in (app, app.stats_tab, app.tt_tab):
+            assert tab.task_box.get().strip(), type(tab).__name__
+        assert app.live_tab.mode_box.get().strip()
+        st = app.stats_tab
+        for mode in sg.MODES:
+            st.mode.set(mode)
+            st._mode_changed()
+            app.update()
+            frames = (st.in_frame, st.opt_frame, st.out_frame, st.sel_frame, st.run_frame)
+            shown = [f for f in frames if f.winfo_manager()]
+            numbers = [int(f.cget("text").split(".")[0]) for f in shown]
+            assert numbers == list(range(1, len(shown) + 1)), (mode, [f.cget("text") for f in shown])
+    finally:
+        app.destroy()
+
+
+def test_settings_are_saved_even_when_the_live_window_place_cannot_be(tmp_path, monkeypatch):
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    saved = []
+    monkeypatch.setattr(app.live_window, "_save_place", lambda: (_ for _ in ()).throw(RuntimeError("no place")))
+    monkeypatch.setattr(app, "save_app_settings", lambda: saved.append(True))
+    app._on_close()
+    assert saved == [True]
+
+
+def test_command_line_unknown_command_and_help(capsys):
+    import pytest
+    import TrainPlanningTools as cli
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["statpack", "--xml", "x.xml"])
+    err = capsys.readouterr().err
+    assert caught.value.code == 2 and "unknown command 'statpack'" in err
+    for name in ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "selftest"):
+        assert name in err
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["--help"])
+    assert caught.value.code == 0 and "section4" in capsys.readouterr().out      # the commands are listed
+    cli.main(["selftest", "--help"])                                              # help, not a file called --help
+    assert "usage: TrainPlanningTools selftest" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["SECTION4", "--xml", "missing.xml"])                             # commands are not case sensitive
+    assert caught.value.code == 2 and "could not be found" in capsys.readouterr().err
+
+
+def test_update_dialog_reports_a_new_version_and_an_error(tmp_path, monkeypatch):
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    from rstools import update_dialog, updater
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        newer = updater.Release("99.0.0", "v99.0.0", "Notes for the new version", "https://example.invalid/r",
+                                "https://example.invalid/a", 1000, "sha256:abc")
+        dlg = update_dialog.UpdateDialog(app, "1.0.0", "", release=newer)
+        app.update()
+        assert "99.0.0 is available" in dlg.head.cget("text")
+        assert not dlg.install_btn.instate(["disabled"])
+        assert "Notes for the new version" in dlg.notes.get("1.0", "end")
+        dlg._error("The update check failed: offline")                       # an error keeps an offered update usable
+        assert dlg.head.cget("text") == "Could not check for updates" and "offline" in dlg.sub.cget("text")
+        assert not dlg.install_btn.instate(["disabled"])
+        dlg.destroy()
+        same = updater.Release("1.0.0", "v1.0.0", "", "https://example.invalid/r", "https://example.invalid/a", 1, "")
+        dlg = update_dialog.UpdateDialog(app, "1.0.0", "", release=same)
+        app.update()
+        assert dlg.head.cget("text") == "You have the latest version" and dlg.install_btn.instate(["disabled"])
+        assert "(No release notes.)" in dlg.notes.get("1.0", "end")
+        dlg.destroy()
+    finally:
+        app.destroy()
+
+
+def test_rules_dialog_lists_sets_and_protects_the_built_in_one(tmp_path, monkeypatch):
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    from rstools import rules, rules_dialog
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        dlg = rules_dialog.RulesDialog(app)
+        app.update()
+        names = list(dlg.tree.get_children())
+        assert rules.BUILT_IN_S4 in names
+        dlg.tree.selection_set(rules.BUILT_IN_S4)
+        dlg._buttons()
+        assert dlg.del_btn.instate(["disabled"]) and not dlg.use_btn.instate(["disabled"])
+        asked = []
+        monkeypatch.setattr(rules_dialog.messagebox, "askyesno", lambda *a, **k: asked.append(a) or True)
+        dlg._remove()                                    # the built-in set cannot be removed, and is not asked about
+        assert asked == [] and rules.BUILT_IN_S4 in dlg.tree.get_children()
+        dlg._use()
+        assert "is now the Section 4 rule set in use" in dlg.status.cget("text")
+        dlg.destroy()
+    finally:
+        app.destroy()

@@ -49,7 +49,9 @@ def cli(argv):
     from cwn_compare.engine import run
     from cwn_compare.options import Options
 
-    ap = argparse.ArgumentParser(description="Compare two Carriage Working Notices")
+    ap = argparse.ArgumentParser(
+        description="Compare two Carriage Working Notices. Other commands: " + ", ".join(COMMANDS)
+        + " (e.g. TrainPlanningTools statspack --help).")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--original", help="original CWN")
     g.add_argument("--previous", help="previously generated comparison CWN (adds a new round)")
@@ -566,6 +568,11 @@ def selftest_cli(argv):
     Section 4 rule set is inside it, and a window opens with drag and drop (the tkdnd files bundled must match the
     exe's Tcl/Tk)."""
     from rstools.timetable.prints import _pdfium_lines
+    if argv and argv[0] in ("-h", "--help"):
+        print("usage: TrainPlanningTools selftest ATTUNE_PRINT.pdf\n\nChecks the built exe: it reads an Attune print "
+              "with PDFium, finds its built-in Section 4 rules and berthing layout, and opens a window with drag "
+              "and drop. Exits with 1 if anything is wrong.")
+        return
     path = argv[0] if argv else ""
     pages = _pdfium_lines(path) if path else None
     if not pages:
@@ -600,25 +607,29 @@ def selftest_cli(argv):
         root.destroy()
 
 
+COMMANDS = ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "selftest")
+
+
+def main(argv):
+    """Open the window (no arguments), run a subcommand, or compare two CWNs (arguments starting with --)."""
+    first = argv[0].lower() if argv else ""
+    runners = {"statspack": statspack_cli, "stationbook": stationbook_cli, "reorder": reorder_cli,
+               "timetable": timetable_cli, "section4": section4_cli, "berthing": berthing_cli,
+               "selftest": selftest_cli}
+    if first in runners:
+        runners[first](argv[1:])
+    elif argv and not argv[0].startswith("-"):
+        sys.stderr.write(f"TrainPlanningTools: unknown command '{argv[0]}' (commands: {', '.join(COMMANDS)}; "
+                         "or compare CWNs with --original and --updated; run with --help for the options)\n")
+        sys.exit(2)
+    elif argv:
+        cli(argv)
+    else:
+        from cwn_compare.gui import main as open_window
+        open_window()
+
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()   # lets the packaged exe start its helper process
-    if len(sys.argv) > 1 and sys.argv[1].lower() == "statspack":
-        statspack_cli(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1].lower() == "stationbook":
-        stationbook_cli(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1].lower() == "reorder":
-        reorder_cli(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1].lower() == "timetable":
-        timetable_cli(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1].lower() == "section4":
-        section4_cli(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1].lower() == "berthing":
-        berthing_cli(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1].lower() == "selftest":
-        selftest_cli(sys.argv[2:])
-    elif len(sys.argv) > 1:
-        cli(sys.argv[1:])
-    else:
-        from cwn_compare.gui import main
-        main()
+    main(sys.argv[1:])
