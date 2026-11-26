@@ -216,7 +216,9 @@ def _write_stay(blk: Block, p: Placed, units: Units, placed: List[Placed]):
             else:
                 row[fin] = Cell(units.label(s.fleet, coupled_in) + (" Berth" if first_in else ""), colour)
             if n == nights[-1]:
-                if d is not None:
+                # Friday night is shown twice (pairs 0 and 7): a stay that began before Saturday and leaves after
+                # Friday night is shown leaving once, in the second Friday pair, not also in the week-opening one
+                if d is not None and not (n == 4 and s.first_night != 4 and pair == 0):
                     text = units.label(s.fleet, coupled_out) + (f" {_end_text(d)}{suffix}" if first_out else "")
                     row[sta] = Cell(text, colour, d.stp, STP_FILL if d.stp else "")
             else:

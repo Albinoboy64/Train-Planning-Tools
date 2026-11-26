@@ -23,6 +23,8 @@ DAY_WIDTH = 17.0
 ROW_HEIGHT = 15.0
 MIN_ROWS = 3                    # rows in every berth's box, at least
 LONG_NOTE = 40                  # a note longer than this goes on its own full-width row under the location
+OTHER_PREFIX = "Other - "          # the label of a berth made for a location that is not on the chart's sheets
+WIDE_LABEL_CAP = 80.0           # column A's widest, for the 'Other - ...' labels and the counts headings
 LONG_DATA_NOTE = 18             # ... and a note in the day columns longer than this (it would spill over the boxes)
 
 
@@ -60,7 +62,7 @@ def write(layout: Layout, path: str, cover: Callable[[str], str] = lambda t: t,
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     _cover(wb.create_sheet(layout.cover_name[:31] or "Cover"), layout.cover, cover, legend)
-    widths = _siding_widths(layout)
+    widths = _siding_widths(layout, counts)
     for sheet in layout.sheets:
         ws = wb.create_sheet(sheet.name[:31])
         if isinstance(sheet, DepotSheet):
@@ -115,22 +117,34 @@ def _cover(ws, rows: List[CoverRow], rewrite: Callable[[str], str], legend: Sequ
     ws.sheet_view.showGridLines = False
 
 
-def _siding_widths(layout: Layout) -> Tuple[float, float]:
+def _siding_widths(layout: Layout, counts: bool = False) -> Tuple[float, float]:
     """Columns A and B (siding, capacity) one width on every sheet: wide enough for the longest label or short
-    note."""
+    note. The 'Other - ...' berth labels and, with `counts`, the 'Unit counts - <location>' headings are long and
+    sit beside column B, so they may widen column A further than ordinary labels do (up to WIDE_LABEL_CAP)."""
     a = b = 0
+    wide = 0
     for sheet in layout.sheets:
         if not isinstance(sheet, GridSheet):
             continue
         for blk in sheet.blocks:
-            a = max(a, len(blk.label))
+            if blk.label.startswith(OTHER_PREFIX):
+                wide = max(wide, len(blk.label))
+            else:
+                a = max(a, len(blk.label))
             b = max(b, len(blk.capacity))
             for na, nb in blk.notes.values():
                 if len(na) <= LONG_NOTE:
                     a = max(a, len(na))
                 if len(nb) <= LONG_NOTE:
                     b = max(b, len(nb))
-    return max(14.0, min(a * 1.15 + 3, 30.0)), max(10.0, min(b * 1.15 + 3, 18.0))
+        if counts:
+            for sec in sorted({blk.section for blk in sheet.blocks}):
+                name = sheet.sections[sec] if sec < len(sheet.sections) else ""
+                wide = max(wide, len(f"{COUNTS_HEAD} \u2013 {name}" if name else COUNTS_HEAD))
+    a_width = max(14.0, min(a * 1.15 + 3, 30.0))
+    if wide:
+        a_width = max(a_width, min(wide * 1.15 + 3, WIDE_LABEL_CAP))
+    return a_width, max(10.0, min(b * 1.15 + 3, 18.0))
 
 
 def _short_notes(blk: Block) -> Tuple[List[Tuple[str, str]], List[str]]:

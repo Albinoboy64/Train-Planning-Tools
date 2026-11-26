@@ -2020,37 +2020,12 @@ class App(tk.Tk):
             return
         self._show_days(set(), "Reading which days the CWNs cover...")
 
-        def one(path):
-            try:
-                mtime = os.path.getmtime(path)
-            except OSError:
-                return None
-            hit = self.cwn_days.get(path)
-            if hit and hit[0] == mtime:
-                return hit
-            from .days import read_days
-            try:
-                if os.path.getsize(path) < 3 * 1024 * 1024:          # small: quicker than a helper process
-                    days, assumed = read_days(path)
-                    return (mtime, days, assumed)
-                from concurrent.futures import ProcessPoolExecutor
-                from multiprocessing import get_context
-                with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as ex:
-                    days, assumed = ex.submit(read_days, path).result()
-            except Exception:
-                try:
-                    days, assumed = read_days(path)          # helper process unavailable: read here
-                except Exception:
-                    return None
-            return (mtime, days, assumed)
-
         def work():
-            found = {}
-            for p in paths:
-                try:
-                    found[p] = one(p)
-                except Exception:
-                    found[p] = None
+            from .days import read_days_cached
+            try:
+                found = read_days_cached(paths, self.cwn_days)
+            except Exception:
+                found = {p: None for p in paths}
             self.q.put(("days", token, found))
         threading.Thread(target=work, daemon=True).start()
         self.pump.kick()

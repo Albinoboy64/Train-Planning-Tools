@@ -121,6 +121,7 @@ A multi-day CWN often lists the day variants of the same train (for example 1A23
   * **Also when only the diagram numbers differ**: the DIAG cell shows the diagram used on most days with a **▾**; click it to see each day's diagram (e.g. *WSX: 549*, *WO: 549A*). A diagram used by one variant keeps that variant's own code.
   * **Also when they berth for the same next working**: variants whose berth lines lead to the same train next day (e.g. *Berth HE317 05.17TO* on MO, *...05.17WO* on TO, *...05.17ThO* on WO, *...05.17FO* on ThO) become one, and the berth line's day code covers them all: *Berth HE317 05.17TWThFO*. A variant berthing for a different next working (another time or train, e.g. *Berth HE317 04.49SO* on FO) stays separate.
   * **... also when that next working's diagram number differs**: berthing for the same next working on a different diagram (HE317 one day, HE318 another) still merges; the berth line shows the diagram for most days with a **▾** (*Berth HE317 ▾ 05.17TWThFO*), and clicking it lists each one with its next-day days.
+* On the command line the three extra options only refine `--merge`, so `--merge-diagrams` and `--merge-berths` need `--merge`, and `--merge-berth-diagrams` needs `--merge-berths`; a flag that would be ignored stops the run with a message, before the CWN is read.
 * Only the variants of the same train swap places, within the rows they already used, so every other train stays exactly where it was. Rows move whole: values, formatting, row heights, notes and coupled-unit rows. Links from other tabs are re-pointed to the rows' new positions. Nothing else is changed or removed.
 * A tab with merged cells or formulas among its trains is left as it was (moving rows could break them), and the log says so.
 * **A comparison CWN made by this app can be put in order too.** Its highlights, struck-through previous values and change notes move with their rows; variants merge only if their changes are shown exactly the same way, so no highlighted change is hidden. The comparison data inside it is kept, so it can still have rounds added (a new round is laid out like its updated CWN, so put that in order again afterwards).
@@ -389,6 +390,15 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.28.2** - small fixes
+* **Berthing chart**: a unit that arrived before Saturday and leaves after Friday night is now shown leaving once, in the last SAT START column, instead of also in the first one. Column A is now wide enough for the *Other - ...* berth names and the *Unit counts - ...* headings.
+* **CWN files**: an `.xlsb` workbook is checked for an oversized or booby-trapped archive before it is opened, as `.xlsx` files already were.
+* **Choosing CWNs**: the days a CWN covers are read for every large CWN in one helper process, not one each, so choosing two big CWNs is quicker to settle.
+* **Section 4 rules**: rebuilding the built-in Section 4 rule set now also writes its small summary file, so the header can still say which rules are in use.
+* **Section 4 check**: running the check again on an unchanged timetable XML reuses the XML already read.
+* **Command line**: `reorder` stops with a message when `--merge-diagrams` or `--merge-berths` is given without `--merge`, or `--merge-berth-diagrams` without `--merge-berths`.
+* **Updates**: a new version saved to Downloads goes to wherever Windows keeps that folder, even when it has been moved or renamed.
 
 **3.28.1** - Section 4 and TPR comparisons follow the real 2027 V4 documents
 * **Section 4**: each route's **NOTES** and **Timetable Construction Notes** (and other text outside the possession tables) are now compared; possession rows are paired by section number, night **and what is blocked**, so a section with several possessions a night no longer mis-pairs after an insertion; the issue's version and date are shown for information.

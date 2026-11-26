@@ -216,9 +216,8 @@ def download_target(rel: Release) -> str:
     exe = running_exe()
     if exe and can_replace_in_place():
         return exe + ".new"
-    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
-    folder = downloads if os.path.isdir(downloads) else tempfile.gettempdir()
-    return os.path.join(folder, f"TrainPlanningTools-{rel.version or 'latest'}.exe")
+    from rstools.fsutil import downloads_dir          # where Windows keeps it, even when moved or renamed
+    return os.path.join(downloads_dir(), f"TrainPlanningTools-{rel.version or 'latest'}.exe")
 
 
 def _fresh_env() -> dict:

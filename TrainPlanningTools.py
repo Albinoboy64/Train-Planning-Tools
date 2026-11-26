@@ -191,6 +191,7 @@ def reorder_cli(argv):
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     a = _local_out(ap, ap.parse_args(argv))
     try:
+        _reorder_flags(a)                                  # checked before the CWN is read
         from cwn_compare.reorder import MergeRules
         res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print, merge=a.merge,
                           rules=MergeRules(a.merge_diagrams, a.merge_berths, a.merge_berths and a.merge_berth_diagrams))
@@ -199,6 +200,16 @@ def reorder_cli(argv):
         sys.exit(1)
     if res["trains"]:
         print(f"{res['trains']} train(s) on {res['tabs']} tab(s) had their day variants put in order.")
+
+
+def _reorder_flags(a):
+    """The --merge-* flags checked up front: each one that only refines another needs it, so a flag that would be
+    ignored is an error instead. Raises ReorderError (reported by the caller); nothing here ends the process."""
+    from cwn_compare.reorder import ReorderError
+    if a.merge_berth_diagrams and not a.merge_berths:
+        raise ReorderError("--merge-berth-diagrams goes with --merge-berths (and --merge): add them, or leave it out.")
+    if (a.merge_diagrams or a.merge_berths) and not a.merge:
+        raise ReorderError("--merge-diagrams and --merge-berths go with --merge: add --merge, or leave them out.")
 
 
 def statspack_cli(argv):

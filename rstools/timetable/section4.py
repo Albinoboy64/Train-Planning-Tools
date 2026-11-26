@@ -760,7 +760,7 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
               progress=lambda f, m: None, log=lambda m: None):
     """Read the XML and the Section 4 PDF(s) - or, with no PDFs, the Section 4 rule set in use (Options > Rules and
     reference data) - check, and save the report. Returns (path, result, statement, plan start date)."""
-    from rstools.stationbook import StationBookError, read_plan
+    from rstools.stationbook import StationBookError, _plan_of
     from rstools import naming, rules
     if pdfs:
         progress(0.05, "Reading the Section 4 PDF(s)...")
@@ -779,7 +779,7 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
     progress(0.4, "Reading the Attune XML...")
     log(f"Reading {os.path.basename(xml)}")
     try:
-        plan = read_plan(xml)
+        plan = _plan_of(xml)                        # kept while the file is unchanged: a repeat check is quicker
     except StationBookError as exc:
         raise Section4Error(str(exc))
     progress(0.6, "Checking...")

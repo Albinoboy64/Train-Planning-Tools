@@ -71,6 +71,8 @@ def load_any(path: str, read_only: bool = False, rich_text: bool = False, progre
         if ext == ".xls":
             return _load_xls(path)
         if ext == ".xlsb":
+            from rstools.fsutil import check_office_file
+            check_office_file(path)     # an .xlsb is a zip too: the same 'zip bomb' limits as .xlsx
             return _load_xlsb(path)
     except LoadError:
         raise

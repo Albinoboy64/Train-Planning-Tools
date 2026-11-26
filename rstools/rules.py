@@ -226,9 +226,15 @@ def _write_gz(path: str, data: dict):
 def build_builtin_set(pdfs: Sequence[str], out: str = BUILT_IN_S4_FILE, log=print) -> dict:
     """Make the built-in Section 4 rule set shipped with the app from Network Rail's Section 4 PDFs (run when
     building a release with new rules: python -m rstools.rules PDF...)."""
+    from rstools.fsutil import write_json
     data, summary = _read_set(BUILT_IN_S4, pdfs, log)
     data["info"] = summary
     _write_gz(out, data)
+    # the small summary beside it (name, dates, files) so the header need not unpack every possession; its
+    # gz_size ties it to this exact file (see _builtin_summary)
+    info_path = out[:-len(".json.gz")] + ".info.json" if out.endswith(".json.gz") else out + ".info.json"
+    if not write_json(info_path, {"gz_size": os.path.getsize(out), "info": summary, "files": data["files"]}):
+        log(f"WARNING: {info_path} could not be written, so the rule set's header summary is unavailable.")
     _builtin_cache.clear()
     return summary
 

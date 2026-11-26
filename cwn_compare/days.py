@@ -11,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
-from typing import Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .model import CWNModel, SheetModel, _day_tokens
 
@@ -142,3 +142,60 @@ def read_days(path: str) -> Tuple[List[int], bool]:
         model = load_model(path)
     days, assumed = coverage(model, path)
     return sorted(days), assumed
+
+
+LARGE_CWN = 3 * 1024 * 1024         # a CWN this big is read in a helper process (smaller: quicker to read here)
+
+
+def _read_here(path: str, mtime: float) -> Optional[tuple]:
+    try:
+        days, assumed = read_days(path)
+    except Exception:
+        return None
+    return (mtime, days, assumed)
+
+
+def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str, Optional[tuple]]:
+    """The days each CWN covers: {path: (modified time, days, assumed?)}, or None for a file that cannot be read.
+    `cache` holds earlier results (a file is read again only when it has changed). Small files are read here; all
+    the large ones go to ONE helper process (starting one takes a moment, so not one per file), with every file
+    sent before any result is waited for. If the helper process cannot be used, or a file's job fails, that file is
+    read here instead."""
+    found: Dict[str, Optional[tuple]] = {}
+    large: List[Tuple[str, float]] = []
+    for path in paths:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            found[path] = None
+            continue
+        hit = cache.get(path)
+        if hit and hit[0] == mtime:
+            found[path] = hit
+            continue
+        try:
+            big = os.path.getsize(path) >= LARGE_CWN
+        except OSError:
+            big = False
+        if big:
+            large.append((path, mtime))
+        else:
+            found[path] = _read_here(path, mtime)
+    if large:
+        try:
+            from concurrent.futures import ProcessPoolExecutor
+            from multiprocessing import get_context
+            with ProcessPoolExecutor(max_workers=len(large), mp_context=get_context("spawn")) as pool:
+                jobs = [(path, mtime, pool.submit(read_days, path)) for path, mtime in large]
+                for path, mtime, job in jobs:
+                    try:
+                        days, assumed = job.result()
+                        found[path] = (mtime, days, assumed)
+                    except Exception:
+                        pass                                    # read below, here
+        except Exception:
+            pass                                                # no helper process: read them here
+        for path, mtime in large:
+            if path not in found:
+                found[path] = _read_here(path, mtime)
+    return {path: found[path] for path in paths}

@@ -361,3 +361,112 @@ def test_built_in_default_layout(data, monkeypatch):
         assert all(not b.units for s in again.sheets for b in s.blocks)
     finally:
         L._default_cache.clear()
+
+
+# --------------------------------------------------------------------------- departures on Friday night, label widths
+def _stay(first_night, nights, depart=True):
+    """A stay that arrives at 23+30 on `first_night` and leaves at 0500 `nights` nights later."""
+    from rstools.berthing.stays import End, Stay
+    arrive = End(first_night, 23 * 3600 + 30 * 60, "5A01XX", "1", True, False, (0, "1"), [])
+    leave = End((first_night + nights) % 7, 5 * 3600, "2B02XX", "1", False, False, (0, "2"), []) if depart else None
+    return Stay("BI1", "387/3", "BRGHTN", "1", first_night, nights, arrive, leave)
+
+
+def _written(first_night, nights, depart=True):
+    """The 16 cells of the stay's row as the chart writer fills them (index = column, 0 = FRI FINISH)."""
+    from rstools.berthing.chart import Placed, Units, _write_stay
+    from rstools.berthing.layout import Block
+    blk = Block("Plat 1")
+    p = Placed(_stay(first_night, nights, depart), 0, 0)
+    _write_stay(blk, p, Units(), [p])
+    return blk.units[0]
+
+
+def _where(row, text):
+    return [i for i, cell in enumerate(row) if cell is not None and text in cell.text]
+
+
+def test_a_stay_ending_on_friday_night_leaves_once_not_in_both_friday_pairs():
+    """Friday night is shown twice (columns 0-1 and 14-15). A stay that began before Saturday and leaves after
+    Friday night shows its departure only at the end of the week, not also in the week-opening SAT START."""
+    thursday = _written(3, 2)                              # Thursday night, then Friday night: leaves Saturday
+    assert _where(thursday, "0500") == [15] and thursday[1] is None
+    assert _where(thursday, "23+30") == [12]               # arrival intact (Thursday FINISH)
+    assert thursday[13].text.endswith("Berth") and thursday[14].text.endswith("Berth")
+    saturday = _written(5, 7)                              # a whole week: Saturday night to Friday night
+    assert _where(saturday, "0500") == [15] and saturday[1] is None
+    tuesday_start = _written(1, 4)                         # Tuesday to Friday night
+    assert _where(tuesday_start, "0500") == [15]
+
+
+def test_departures_elsewhere_are_unchanged():
+    """Only the doubled Friday departure moved: a stay that starts on Friday still shows in both Friday pairs, and
+    stays that end on any other night write one departure as before."""
+    friday = _written(4, 1)
+    assert _where(friday, "23+30") == [0, 14] and _where(friday, "0500") == [1, 15]
+    weekend = _written(4, 3)                               # Friday, Saturday, Sunday night
+    assert _where(weekend, "23+30") == [0, 14] and _where(weekend, "0500") == [5]
+    assert _where(_written(1, 2), "0500") == [11]          # Tuesday night, then Wednesday night
+    one = _written(3, 1)                                   # a single Thursday night
+    assert _where(one, "23+30") == [12] and _where(one, "0500") == [13]
+    assert _where(one, "Berth") == [] and one[0] is None and one[14] is None
+    unknown = _written(3, 2, depart=False)                 # the XML does not say what it works next
+    assert _where(unknown, "0500") == [] and unknown[1] is None and unknown[15] is None
+
+
+def _old_width(labels, capacity=()):
+    """Column A's width as it was calculated before the 'Other - ' / counts labels were handled."""
+    a = max([len(x) for x in labels] + [0])
+    b = max([len(x) for x in capacity] + [0])
+    return max(14.0, min(a * 1.15 + 3, 30.0)), max(10.0, min(b * 1.15 + 3, 18.0))
+
+
+def _layout(blocks, sections=()):
+    from rstools.berthing.layout import GridSheet, Layout
+    return Layout("", sheets=[GridSheet("Sheet", blocks=list(blocks), sections=list(sections))])
+
+
+def test_siding_widths_are_unchanged_without_other_or_counts_labels():
+    from rstools.berthing.layout import Block
+    from rstools.berthing.writer import _siding_widths
+    for labels in (["Plat 1"], ["Plat 1", "Up Horsham Siding"], ["A very long ordinary label that is clipped here"],
+                   ["x" * 70]):
+        layout = _layout([Block(label, "12") for label in labels])
+        assert _siding_widths(layout) == _old_width(labels, ["12"] * len(labels)), labels
+        # with counts on, the plain 'Unit counts' heading (no location named) must fit too; nothing else changes
+        assert _siding_widths(layout, counts=True)[0] == max(_siding_widths(layout)[0], len("Unit counts") * 1.15 + 3)
+        assert _siding_widths(layout, counts=True)[1] == _siding_widths(layout)[1]
+
+
+def test_other_labels_and_counts_headings_are_not_clipped_beside_column_b():
+    from rstools.berthing.layout import COUNTS_HEAD, Block
+    from rstools.berthing.writer import WIDE_LABEL_CAP, _siding_widths
+    other = "Other - HORSHAM platform/road 2 (no platform)"
+    layout = _layout([Block("Plat 1", "12"), Block(other, "")])
+    a, b = _siding_widths(layout)
+    assert a >= len(other) * 1.15 + 3 > 30 and a == min(len(other) * 1.15 + 3, WIDE_LABEL_CAP)
+    assert b == _old_width(["Plat 1"], ["12"])[1]                                  # column B as before
+    far = _layout([Block("Other - " + "X" * 80)])
+    assert _siding_widths(far)[0] == WIDE_LABEL_CAP                               # never wider than the cap
+    heading = f"{COUNTS_HEAD} – Three Bridges Up Siding North and Tilgate"
+    sections = ["Three Bridges Up Siding North and Tilgate"]
+    plain = _layout([Block("Plat 1", "12")], sections)
+    assert _siding_widths(plain)[0] == _old_width(["Plat 1"])[0]                 # counts off: heading ignored
+    assert _siding_widths(plain, counts=True)[0] == min(len(heading) * 1.15 + 3, WIDE_LABEL_CAP)
+    assert _siding_widths(plain, counts=True)[0] >= len(heading) * 1.15 + 3
+
+
+def test_chart_column_a_fits_the_counts_heading_and_other_label(tmp_path):
+    from rstools.berthing import writer
+    from rstools.berthing.layout import COUNTS_HEAD, Block
+    other = "Other - HORSHAM platform/road 2 (no platform)"
+    name = "Three Bridges Up Siding North and Tilgate"
+    layout = _layout([Block("Plat 1", "12", section=0), Block(other, "", section=0)], [name])
+    narrow, wide = str(tmp_path / "narrow.xlsx"), str(tmp_path / "wide.xlsx")
+    writer.write(layout, narrow)
+    writer.write(layout, wide, counts=True)
+    plain_a = openpyxl.load_workbook(narrow)["Sheet"].column_dimensions["A"].width
+    counts_a = openpyxl.load_workbook(wide)["Sheet"].column_dimensions["A"].width
+    heading = f"{COUNTS_HEAD} – {name}"
+    assert plain_a >= len(other) * 1.15 + 3                    # the 'Other - ' label always fits now
+    assert counts_a >= len(heading) * 1.15 + 3 and counts_a >= plain_a
