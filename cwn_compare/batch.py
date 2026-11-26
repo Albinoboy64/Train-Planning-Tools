@@ -21,6 +21,7 @@ _SEPARATORS = re.compile(r"[_\-]+")
 _NOISE = re.compile(
     r"\b(?:version|ver|v)\s*\.?\s*\d+(?:\.\d+)*[a-z]?\b"                  # v2, v1.2, V1_2, Version 3
     r"|\b(?:proof|draft|issue|iss|rev|p|d)\s*\.?\s*\d+(?:\.\d+)*[a-z]?\b"  # Proof 2, Issue 2a, rev2, P2, D12
+    r"|\b(?:supplement|supp)\s*(?:no\.?)?\s*\d+\b"                         # Supp 1, Supplement No 2
     r"|\b(?:final|copy|new|old|updated|original|amended|cwn)\b"
     r"|\(\d+\)",                                                         # Windows' ' (1)' copies
     re.I)

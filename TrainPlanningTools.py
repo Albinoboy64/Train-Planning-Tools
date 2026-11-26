@@ -563,6 +563,29 @@ def berthing_cli(argv):
         print("Saved:", res.report)
 
 
+def workings_berthing_cli(argv):
+    from cwn_compare.workings_berthing import WorkingsError, add_berthing
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools workings-berthing",
+                                 description="Save a copy of platform workings (Victoria, London Bridge or "
+                                             "Brighton) with each day's Berthing Arrangements made from its trains")
+    ap.add_argument("--workings", required=True, help="the platform workings (.xlsx)")
+    ap.add_argument("--xml", nargs="*", default=[], help="optional Attune XML(s): gives the siding road each "
+                                                         "unit stands on")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
+    ap.add_argument("--name", default="", help="output file name, without .xlsx")
+    a = _local_out(ap, ap.parse_args(argv))
+    for path in [a.workings, *a.xml]:
+        if not os.path.isfile(path):
+            ap.error(f"this file could not be found: {path}")
+    try:
+        res = add_berthing(a.workings, a.xml, a.out, a.name, log=print)
+    except WorkingsError as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+    print(res.summary)
+    print("Saved:", res.chart)
+
+
 def selftest_cli(argv):
     """Checks the packaged exe (used by the build): its fast PDF reader reads an Attune print, the built-in
     Section 4 rule set is inside it, and a window opens with drag and drop (the tkdnd files bundled must match the
@@ -607,7 +630,8 @@ def selftest_cli(argv):
         root.destroy()
 
 
-COMMANDS = ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "selftest")
+COMMANDS = ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "workings-berthing",
+            "selftest")
 
 
 def main(argv):
@@ -615,7 +639,7 @@ def main(argv):
     first = argv[0].lower() if argv else ""
     runners = {"statspack": statspack_cli, "stationbook": stationbook_cli, "reorder": reorder_cli,
                "timetable": timetable_cli, "section4": section4_cli, "berthing": berthing_cli,
-               "selftest": selftest_cli}
+               "workings-berthing": workings_berthing_cli, "selftest": selftest_cli}
     if first in runners:
         runners[first](argv[1:])
     elif argv and not argv[0].startswith("-"):

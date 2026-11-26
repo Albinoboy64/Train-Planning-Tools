@@ -54,7 +54,7 @@ Files can be dropped on any tab. Dropped on a file box (or its label or *Browse*
 
 | Step | What to do |
 |---|---|
-| Task | Choose the task from the **Task** list at the top. The list has a heading for each group - **CWNs**, **Berthing charts**, **Station books** - and the tasks in the order the work goes. Only what the chosen task needs is shown below. |
+| Task | Choose the task from the **Task** list at the top. The list has a heading for each group - **CWNs and platform workings**, **Berthing charts**, **Station books** - and the tasks in the order the work goes. Only what the chosen task needs is shown below. |
 | 1. Input | **Compare two CWNs**, **Add a new round to an earlier comparison CWN** or **Compare two folders of CWNs (batch)**, then the **Original CWN** and the **Updated CWN** (in the same section), either with *Browse* or by **dragging and dropping** the files onto this section. If you drop both files at once, the older file becomes the original. Use *Swap* if they end up the wrong way round. In "add a new round" mode, the first file is a comparison CWN that this app made earlier. The same **Input** section holds the one-file tools: **Put each train's day variants in order (one CWN)** ([see below](#putting-day-variants-in-order)) and the **Station Working Book** ([see below](#station-working-book-tracs-rs-layout)), with their own box and drop area. |
 | 2. Output | **Full CWN with changes highlighted and noted** (previous values struck through, change notes and cancelled trains put back, as set under *3. Changes to Include*), **Full CWN with new or changed items highlighted only** (the updated CWN as it is, with anything new or changed highlighted and no original versions: no previous values, notes or cancelled trains, which are still in the change report), or **ACWN** (amended trains only, with unchanged trains and unchanged tabs removed). Pick the highlight colour, the output folder (blank: Downloads) and the output name. If you leave the name blank, today's date and the two CWN names are used, e.g. `19-11-2026 Proof 1 vs Proof 2`. *Keep links between tabs* keeps the clickable headcode links; it's off by default because they make the file much slower to open in Excel. |
 | 3. Changes to Include | For each change type, choose whether it is **shown in the CWN**, whether the **previous value / note** is shown, and whether it is **included in the report** |
@@ -169,6 +169,18 @@ Under *Berthing charts* on the Stock Tools tab (drop XMLs and charts on that box
 Each row is one unit's stay: its arrival in the night's **FINISH** column and its departure in the next **START** column (`02+02` an empty move, `0500` a passenger train), **Berth** on any day it stays put, and **RP** when it leaves as the rear portion of another train, attached to by a unit that moved onto it that day. Coupled units sit on consecutive rows in brackets, front first, with the time on the first row; the latest arrival is at the top. 387/2 (Gatwick Express) are in red, 387/3 (Southern) in green, and Thameslink 700s end `TLK`. The depot sheet (Lovers Walk) lists each unit type's arrivals and departures in time order.
 
 Which XML location each berth is comes from the **berth list** (*Edit berth locations...*): sheet, berth as written on the chart, TIPLOC and the platform or road codes Attune uses (e.g. Brighton *Plat 7* = BRGHTN 7 / 7F, Eastbourne *No 3 Siding* = EBOUSID S3). Units berthing on a platform or road the sheet has no berth for are listed at the bottom of that sheet, and everything that needs checking is on the chart's **Notes** sheet. Command line: `TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] [--layout CHART.xlsx] [--counts]`. The built-in layout can be remade from a newer chart with `python -m rstools.berthing.layout CHART.xlsx` (for a new release).
+
+### Platform workings
+
+The platform workings sent to Victoria, London Bridge and Brighton (one workbook per station: a Cover and a tab for each day, with the Thameslink trains at London Bridge and Brighton) work in the same tasks as CWNs:
+
+* **Compare two CWNs or platform workings**, **Compare two folders (batch)** and **Add a new round to an earlier comparison** read them by their headings (Train, Time, Ln, Plat, Destination, cars, Stock, Op, Time, From, Pos, Ln, Due, Train). Trains are matched by headcode within each day's tab. As well as the changes listed above, a change of **line** (Ln), **number of cars** or **operator** (Op) is reported, and so is each line of a day's **Berthing Arrangements** (Platform 14, NO 2 CARRIAGE SIDING ...), shown highlighted with the old text struck through. The cover's *Updates highlighted in ...* line names the colour of each round. *Days to check* picks day tabs. Supplement numbers (*Supp 1*, *Supplement No 2*) are ignored when folders are paired.
+* **Add berthing arrangements to platform workings** makes the *Berthing Arrangements* section under each day, which the CWN export does not make. Choose the workings (and, optionally, the Attune XML); a copy is saved as `... (berthing added).xlsx`, and the file itself is not touched.
+  * **Platforms**: every unit that berths at a platform (the *Berth BI151 05.50TO (3)* lines) is added up by platform and by the train it works next, e.g. *12 377 for 05 50 TO*. Platforms 15 and 15F are one platform; longest wait first. The next day's tab is checked: the train must leave that platform from *Berth* (if the berthed unit leaves as the rear portion it reads *for RP 06 20 TO*), and a unit berthed for more than a night is added from the tab it leaves on. Anything that does not match is in the log as *CHECK*.
+  * **Sidings** (Victoria and Battersea Pier carriage sidings, Brighton Wall Siding): units stand there from when they arrive until a train takes them out, carried across the days of the week; each is matched to the first train that leaves the siding (*8 377 for 05+28 TO*), looking on to the days after if none leaves the next day. The working does not say which road (No 1 / No 2, Rec / 2) a unit is on: give the **Attune XML** and the road comes from it; without one, groups are put on the roads in order and the log says *check the road*.
+  * **Wording** follows each station: Victoria writes Sunday as *SUN*, London Bridge adds *TLK* to 700s (*8 700 TLK for 09 10 SuO*) and joins two lines on a platform with *&*, Brighton leaves *TLK* out. Platforms and sidings with nothing on them say *EMPTY*.
+  * If a tab already has a hand-made section, it is replaced and every line that differs is in the log (*DIFFERENT: Monday Platform 14: was ..., now ...*), so the hand-made lines can be checked.
+  * Command line: `workings-berthing --workings WORKINGS.xlsx [--xml PLAN.xml ...] [--out FOLDER] [--name NAME]`.
 
 ### Add new comparisons to previously generated comparison CWN
 
@@ -411,6 +423,11 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.34.0** - platform workings: compare, colours, rounds and automatic berthing arrangements
+* **Platform workings** (Victoria, London Bridge, Brighton) can be compared, put in colours and added to by rounds in the CWN tasks, as single files or folders. Line, number of cars and operator changes are reported, and so are the lines of each day's berthing arrangements. Supplement numbers are ignored when folders are paired, and *Days to check* picks day tabs.
+* **Add berthing arrangements to platform workings** (new task, and `workings-berthing` on the command line): makes each day's *Berthing Arrangements* from the trains in the workings, checks the next day's tab, and follows units in the sidings from arrival to the train that takes them out. The siding road can come from an Attune XML. A hand-made section is replaced and the differences are logged.
+* Merged cells below the trains (the berthing section at Victoria) now move with their rows when a comparison inserts rows.
 
 **3.33.1** - fixes from the 3.33.0 review
 * **Stats Pack**: the *Task* box is no longer blank when the app starts, and the frames are numbered 1, 2, 3... with no gap when *Options* is hidden.
@@ -974,12 +991,15 @@ TrainPlanningTools.exe section4 --xml PLAN.xml [--pdf SECTION4.pdf ...] [--vpt O
                [--out FOLDER] [--name NAME] [--format xlsx|pdf|docx]                   (Section 4 check)
 TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]           (the same, older form)
 TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" --merge OTHER_OPERATOR.xml|.vpt
+TrainPlanningTools.exe workings-berthing --workings WORKINGS.xlsx [--xml PLAN.xml ...] [--out FOLDER] [--name NAME]   (berthing arrangements for platform workings)
+TrainPlanningTools.exe --original OLD_WORKINGS.xlsx --updated NEW_WORKINGS.xlsx    (platform workings are compared like CWNs)
 ```
 
 ## For developers
 
 * Source code is in `cwn_compare/`:
-  * `model.py` parses CWN tabs into train entries, driven by the column headings.
+  * `model.py` parses CWN tabs into train entries, driven by the column headings (platform workings too, with the berthing section kept apart from the trains).
+  * `workings_berthing.py` makes the berthing arrangements of platform workings.
   * `compare.py` matches trains and classifies changes.
   * `writer.py` highlights the output, adds struck-through values and builds the ACWN.
   * `report.py` builds the change report.

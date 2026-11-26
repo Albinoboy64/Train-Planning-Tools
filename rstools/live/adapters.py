@@ -208,8 +208,32 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
                 state, status = SAME, "No change"
             items.append(LiveItem(f"{sk}|{blk.key}|{'o' if n is None else 'n'}", title, blk.label(), state, status,
                                   rows, [c.description for c in mine], len(items)))
+        if so and sn and (so.footer or sn.footer):
+            _footer_item(items, sk, title, so, sn, by_block)
     return LiveResult(f"{os.path.basename(orig)}  vs  {os.path.basename(upd)}",
                       ["Field", "Original", "Updated"], items, warnings)
+
+
+def _footer_item(items: List[LiveItem], sk: str, title: str, so, sn, by_block):
+    """Platform workings: a day's berthing arrangements as one entry, a row per platform or siding."""
+    old = {e["label"].casefold(): e for e in so.footer}
+    new = {e["label"].casefold(): e for e in sn.footer}
+    changed = {c.target_key.casefold(): c for c in _footer_changes(by_block, sk)}
+    rows = []
+    for k, e in new.items():
+        if "berthing arrangements" in k:
+            continue
+        o = old.get(k)
+        rows.append(LiveRow([e["label"], o["text"] if o else "", e["text"]], CHANGED if k in changed else SAME))
+    head = next((e["label"] for e in sn.footer if "berthing arrangements" in e["label"].casefold()),
+                f"{title} berthing arrangements")
+    items.append(LiveItem(f"{sk}|footer|n", title, head.rstrip(":- "), CHANGED if changed else SAME,
+                          "Berthing arrangements changed" if changed else "No change", rows,
+                          [c.description for c in changed.values()], len(items)))
+
+
+def _footer_changes(by_block, sk):
+    return [c for k, v in by_block.items() if k[0] == sk for c in v if c.target == "footer"]
 
 
 # --------------------------------------------------------------------------- timetables (all three kinds)

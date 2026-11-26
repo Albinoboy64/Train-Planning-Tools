@@ -296,9 +296,43 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
 
         if so and sn:
             _compare_forms(ctx, so, sn, pair_map)
+            _compare_footer(ctx, so, sn)
         changes.extend(_dedupe(ctx.out))
     changes.sort(key=lambda c: (c.sheet_title.upper(), c.sort_time if c.sort_time is not None else 9999))
     return changes
+
+
+def _footer_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _compare_footer(ctx: _Ctx, so: SheetModel, sn: SheetModel):
+    """Platform workings: the berthing arrangements below the trains, line by line (Platform 14, ...)."""
+    old = {e["label"].casefold(): e for e in so.footer}
+    new = {e["label"].casefold(): e for e in sn.footer}
+    title = next((e["label"].split(" Berthing")[0] for e in sn.footer if "berthing arrangements" in
+                  e["label"].casefold()), ctx.title)
+    for k, e in new.items():
+        if "berthing arrangements" in k:
+            continue
+        was = old.get(k)
+        if was is not None and _footer_text(was["text"]) == _footer_text(e["text"]):
+            continue
+        if was is None and not e["text"]:
+            continue
+        desc = (f"{title} berthing - {e['label']}: changed from {_show(was['text'] if was else '')} to "
+                f"{_show(e['text'])}" if was is not None else f"{title} berthing - {e['label']}: added - {e['text']}")
+        ctx.out.append(Change(category="BERTHING", sheet=ctx.sheet, sheet_title=ctx.title,
+                              block_key="FOOTER|" + e["label"], train=f"{title} berthing: {e['label']}",
+                              field="footer", target="footer", target_key=e["label"],
+                              old=was["text"] if was else "", new=e["text"], description=desc, sort_time=10000))
+    for k, was in old.items():
+        if k not in new and "berthing arrangements" not in k and was["text"]:
+            ctx.out.append(Change(category="BERTHING", sheet=ctx.sheet, sheet_title=ctx.title,
+                                  block_key="FOOTER|" + was["label"], train=f"{title} berthing: {was['label']}",
+                                  field="footer", target="footer", target_key=was["label"], old=was["text"],
+                                  new="", description=f"{title} berthing - {was['label']}: no longer shown "
+                                  f"(was {was['text']})", sort_time=10000))
 
 
 def _dedupe(out: List[Change]) -> List[Change]:
@@ -323,7 +357,7 @@ def _compare_pair(ctx: _Ctx, o: Block, n: Block, mode: str = "same"):
     def diff(f):
         return f in nm and ctx.differs(f, om.get(f, ""), nm.get(f, ""))
 
-    simple = [("time", "TIME"), ("plat", "PLATFORM"), ("days", "DAYS"),
+    simple = [("time", "TIME"), ("plat", "PLATFORM"), ("line", "PLATFORM"), ("days", "DAYS"),
               ("dest", "BERTHING" if n.is_berth else "LOCATION"), ("loc", "LOCATION")]
     for f, cat in simple:
         if not diff(f) or (f == "days" and ignore_days):
@@ -346,7 +380,8 @@ def _compare_pair(ctx: _Ctx, o: Block, n: Block, mode: str = "same"):
         ctx.add("FORMATION", n, "in_id", "main", orw.get("in_id", ""), nrw.get("in_id", ""),
                 f"{lbl}: now formed from {now} (previously formed from {was})",
                 note=f"Amended: previously formed from {was}")
-    for f, cat in (("dep", "TIME"), ("inwards", "TIME"), ("from", "LOCATION"), ("fp", "FORMATION")):
+    for f, cat in (("dep", "TIME"), ("inwards", "TIME"), ("from", "LOCATION"), ("fp", "FORMATION"),
+                   ("in_line", "PLATFORM")):
         if diff(f):
             ctx.add("FORMATION" if inbound_changed else cat, n, f, "main", orw.get(f, ""), nrw.get(f, ""),
                     f"{lbl}: {_fl(f)} changed from {_show(orw.get(f))} to {_show(nrw.get(f))}")
@@ -375,11 +410,19 @@ def _align_units(ou: List[UnitRow], nu: List[UnitRow]):
     return pairs, lo[k:], ln[k:]
 
 
+def _unit_key(blk: Block, u: UnitRow) -> str:
+    """How a unit row is found again: its diagram number, or (platform workings have none) its position."""
+    if u.diag:
+        return u.diag
+    return "#%d" % next((i for i, x in enumerate(blk.units) if x.row == u.row), 0)
+
+
 def _compare_units(ctx: _Ctx, o: Block, n: Block, lbl: str):
     pairs, removed, added = _align_units(o.units, n.units)
     for v, u in pairs:
-        tk = u.diag
-        checks = [("unit", "unit", "STOCK"), ("am", "am", "BERTHING"), ("pm", "pm", "BERTHING")]
+        tk = _unit_key(n, u)
+        checks = [("unit", "unit", "STOCK"), ("cars", "cars", "STOCK"), ("op", "op", "STOCK"),
+                  ("am", "am", "BERTHING"), ("pm", "pm", "BERTHING")]
         if v.row != o.start_row and u.row != n.start_row:
             checks.append(("dest", "portion", "BERTHING" if n.is_berth else "LOCATION"))
         for f, attr, cat in checks:
@@ -398,14 +441,16 @@ def _compare_units(ctx: _Ctx, o: Block, n: Block, lbl: str):
                         f"{lbl}: unit now comes from {now} (previously {was})",
                         target_key=tk, note=f"Amended: unit previously from {was}")
             for f, attr, cat in (("dep", "dep", "TIME"), ("inwards", "inwards", "TIME"),
-                                 ("from", "frm", "LOCATION"), ("fp", "fp", "FORMATION")):
+                                 ("from", "frm", "LOCATION"), ("fp", "fp", "FORMATION"),
+                                 ("in_line", "in_line", "PLATFORM")):
                 if f in u.raw and ctx.differs(attr, getattr(v, attr), getattr(u, attr)):
                     ov, nv = v.raw.get(f, ""), u.raw.get(f, "")
                     ctx.add("FORMATION" if in_changed else cat, n, f, "unit", ov, nv,
                             f"{lbl}: {_fl(f)} changed from {_show(ov)} to {_show(nv)}", target_key=tk)
     for u in added:
         ctx.add("STOCK", n, "unit", "unit", "", u.raw.get("unit", ""),
-                f"{lbl}: unit added - {u.raw.get('unit', '').strip('()')}", target_key=u.diag, kind="add_row")
+                f"{lbl}: unit added - {u.raw.get('unit', '').strip('()')}", target_key=_unit_key(n, u),
+                kind="add_row")
     for v in removed:
         ctx.add("STOCK", n, "unit", "block_end", v.raw.get("unit", ""), "",
                 f"{lbl}: unit removed - {v.raw.get('unit', '').strip('()')}",

@@ -54,6 +54,9 @@ def resolve_row(c: Change, blk: Optional[Block]) -> Optional[int]:
     if blk is None:
         return None
     if c.target == "unit":
+        if c.target_key.startswith("#") and c.target_key[1:].isdigit():      # a unit with no diagram number
+            i = int(c.target_key[1:])
+            return blk.units[i].row if i < len(blk.units) else None
         for u in blk.units:
             if u.diag == c.target_key:
                 return u.row
@@ -84,6 +87,7 @@ class _SheetOps:
         self.changed_blocks: Set[str] = set()
         self.notes: Dict[int, List[tuple]] = defaultdict(list)    # row -> [(note, colour)]
         self.rounds: List[tuple] = []   # (round, colour) of applied changes
+        self.footer_changed = False
 
     def cell(self, r, c):
         return self.cells.setdefault((r, c), {"fill": None, "old": [], "cur": None, "seen": set()})
@@ -136,6 +140,8 @@ def apply_changes(wb, model: CWNModel, changes: List[Change], opts: Options,
                 for b in sm.blocks:
                     if not acwn or b.key in ops.changed_blocks:
                         keep.update(range(b.start_row, b.end_row + 1))
+                if ops.footer_changed or only_blocks:        # the berthing arrangements stay with their trains
+                    keep.update(e["r"] for e in sm.footer)
             row_maps[ws.title] = _rebuild(ws, sm, keep, ops.inserts, orig_heights)
         if opts.highlight_tabs and ops.rounds:
             ws.sheet_properties.tabColor = "FF" + max(ops.rounds)[1][-6:].upper()
@@ -170,6 +176,18 @@ def _apply_one(c: Change, ops: _SheetOps, blocks: Dict[str, Block], opts: Option
         after = _anchor_row(c, sm, blocks)
         ops.inserts[after].append({"type": "rows", "rows": c.rows, "colour": colour,
                                    "template": max(after, sm.header_row + 1)})
+        return True
+
+    if c.target == "footer":                 # a line of the platform workings' berthing arrangements
+        entry = next((e for e in sm.footer if e["label"] == c.target_key), None)
+        if entry is None or not c.new:
+            return False
+        st = ops.cell(entry["r"], entry["col"])
+        st["fill"] = colour
+        st["cur"] = c.new
+        if show_old and c.old and c.old != c.new:
+            st["old"].append(c.old)
+        ops.footer_changed = True
         return True
 
     blk = blocks.get(c.block_key)
@@ -303,6 +321,9 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
     max_row, data_cols = data_extent(ws)          # not formatting that runs on past the data
     max_row = max(max_row, hr)
     mc = max(data_cols, sm.max_col + 1)
+    merged = [(m.min_row, m.max_row, m.min_col, m.max_col) for m in list(ws.merged_cells.ranges) if m.min_row > hr]
+    for mr in merged:                              # (platform workings: merged label cells) moved with their rows
+        ws.unmerge_cells(start_row=mr[0], end_row=mr[1], start_column=mr[2], end_column=mr[3])
     snap = {}
     for r in range(hr + 1, max_row + 1):
         cells = []
@@ -358,6 +379,10 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
             ws.row_dimensions[t].height = tmpl_h
             t += 1
 
+    for r0, r1, c0, c1 in merged:
+        a, b = row_map.get(r0), row_map.get(r1)
+        if a is not None and b is not None and (a, c0) != (b, c1):
+            ws.merge_cells(start_row=a, end_row=b, start_column=c0, end_column=c1)
     if t <= max_row:
         ws.delete_rows(t, max_row - t + 1)
     for r in range(t, max_row + 1):

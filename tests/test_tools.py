@@ -1303,7 +1303,8 @@ def test_command_line_unknown_command_and_help(capsys):
         cli.main(["statpack", "--xml", "x.xml"])
     err = capsys.readouterr().err
     assert caught.value.code == 2 and "unknown command 'statpack'" in err
-    for name in ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "selftest"):
+    for name in ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "workings-berthing",
+                 "selftest"):
         assert name in err
     with pytest.raises(SystemExit) as caught:
         cli.main(["--help"])

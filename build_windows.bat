@@ -67,7 +67,7 @@ python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=
 python -c "import sys; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')" || goto :failed
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_compare as t; [os.makedirs('smoke/' + d, exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make('smoke/bo/' + n + ' Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make('smoke/bu/' + n + ' Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')" || goto :failed
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp wk_berth) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
 for %%f in (sp.pdf units.docx berth_cmp.xlsx) do if exist smoke\%%f del smoke\%%f
 if exist "smoke\K_D26 Consolidated TT Comparison.xlsx" del "smoke\K_D26 Consolidated TT Comparison.xlsx"
 if exist "smoke\berth_cmp - Change Report.xlsx" del "smoke\berth_cmp - Change Report.xlsx"
@@ -86,6 +86,9 @@ start /wait "" dist\TrainPlanningTools.exe --original-folder smoke\bo --updated 
 start /wait "" dist\TrainPlanningTools.exe reorder smoke\multi.xlsx --out smoke --name reordered
 start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\berth.xml --counts --issue Smoke --out smoke --name berth_default
 start /wait "" dist\TrainPlanningTools.exe berthing --compare smoke\berth_layout.xlsx smoke\berth.xlsx --out smoke --name berth_cmp
+python -c "import sys; sys.path.insert(0, 'tests'); import workings_fixture as w; w.make_smoke('smoke')" || goto :failed
+start /wait "" dist\TrainPlanningTools.exe workings-berthing --workings smoke\wk_a.xlsx --out smoke --name wk_berth
+start /wait "" dist\TrainPlanningTools.exe --original smoke\wk_a.xlsx --updated smoke\wk_b.xlsx --out smoke --name wk_cmp
 for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp) do if not exist smoke\%%f.xlsx (
     echo The built exe did not produce smoke\%%f.xlsx.
     goto :failed
@@ -100,6 +103,10 @@ if not exist "smoke\K_D26 Consolidated TT Comparison.xlsx" (
 )
 if not exist "smoke\berth_cmp - Change Report.xlsx" (
     echo The built exe did not compare two berthing charts.
+    goto :failed
+)
+if not exist "smoke\wk_cmp - Change Report.xlsx" (
+    echo The built exe did not compare two platform workings.
     goto :failed
 )
 python -c "import glob; n = [p for p in glob.glob('smoke/bout/*Proof*.xlsx') if 'Change Report' not in p]; raise SystemExit(0 if len(n) == 2 else 1)" || (

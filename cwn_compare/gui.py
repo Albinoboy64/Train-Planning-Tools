@@ -47,6 +47,11 @@ BERTH_MODES = {
                     [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml")],
                     "Add changes to chart", "Remakes a berthing chart from an updated Attune XML and highlights "
                     "what changed since the original XML."),
+    "work_berth": ("Add berthing arrangements to platform workings",
+                   [("Platform workings:", "xlsx"), ("Attune XML for siding roads (optional):", "xml")],
+                   "Add berthing arrangements", "Saves a copy of platform workings (Victoria, London Bridge or "
+                   "Brighton) with each day's Berthing Arrangements made from the trains: what stands at each "
+                   "platform and siding at the end of the day, and the train it works next."),
     "berth_compare": ("Compare two berthing charts", [("Older chart:", "xlsx"), ("Newer chart:", "xlsx")],
                       "Compare charts", "Compares two berthing charts and highlights the differences in the newer "
                       "one."),
@@ -55,10 +60,11 @@ BERTH_MODES = {
 
 # every task of the Stock Tools tab, grouped, each group in the order the work goes: (mode, wording)
 STOCK_GROUPS = [
-    ("CWNs", [("compare", "Compare two CWNs"),
-              ("batch", "Compare two folders of CWNs (batch)"),
-              ("cumulative", "Add a new round to an earlier comparison CWN"),
-              ("reorder", "Put each train's day variants in order (one CWN)")]),
+    ("CWNs and platform workings", [("compare", "Compare two CWNs or platform workings"),
+                                    ("batch", "Compare two folders of CWNs or workings (batch)"),
+                                    ("cumulative", "Add a new round to an earlier comparison"),
+                                    ("work_berth", BERTH_MODES["work_berth"][0]),
+                                    ("reorder", "Put each train's day variants in order (one CWN)")]),
     ("Berthing charts", [(mode, BERTH_MODES[mode][0]) for mode in ("berth_make", "berth_round", "berth_compare")]),
     ("Station books", [("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")]),
 ]
@@ -1280,10 +1286,11 @@ class App(tk.Tk):
         self.berth_issue_entry = ttk.Entry(bf, textvariable=self.berth_issue, width=18)
         self.berth_issue_entry.grid(row=4, column=1, sticky="w", padx=4, pady=(6, 0))
         self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
-        ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths).grid(row=4, column=2,
-                                                                                    pady=(6, 0))
+        self.berth_edit_btn = ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths)
+        self.berth_edit_btn.grid(row=4, column=2, pady=(6, 0))
         self.berth_counts = tk.BooleanVar(value=False)
-        counts_cb = ttk.Checkbutton(bf, text="Show unit counts for each siding location", variable=self.berth_counts)
+        counts_cb = self.berth_counts_cb = ttk.Checkbutton(
+            bf, text="Show unit counts for each siding location", variable=self.berth_counts)
         counts_cb.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
         Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): the number "
                            "of units of each type every night's FINISH and START, and the cars, shown in red where "
@@ -1301,6 +1308,8 @@ class App(tk.Tk):
         on = mode in ("berth_make", "berth_round")
         for w in (self.berth_issue_lbl, self.berth_issue_entry):
             (w.grid if on else w.grid_remove)()
+        for w in (self.berth_edit_btn, self.berth_counts_cb):          # chart-only options
+            (w.grid_remove if mode == "work_berth" else w.grid)()
 
     def _browse_berth(self, mode: str, i: int):
         label, kind = BERTH_MODES[mode][1][i]
@@ -1367,7 +1376,8 @@ class App(tk.Tk):
         saved.save()
         self.opts = saved
         self._start()
-        self.status.configure(text="Working on the berthing chart...")
+        self.status.configure(text="Working on the platform workings..." if mode == "work_berth"
+                              else "Working on the berthing chart...")
         split = lambda text: [p.strip() for p in text.split(";") if p.strip()]
         log = lambda m: self.q.put(("log", m))
         prog = lambda f, m: self.q.put(("prog", f, m))
@@ -1375,8 +1385,12 @@ class App(tk.Tk):
         def work():
             from rstools.berthing import engine
             from rstools.berthing.xmlread import BerthingError
+            from .workings_berthing import WorkingsError
             try:
-                if mode == "berth_make":
+                if mode == "work_berth":
+                    from .workings_berthing import add_berthing
+                    res = add_berthing(files[0], [p for p in files[1:2] if p], o.output_dir, o.output_name, log)
+                elif mode == "berth_make":
                     res = engine.generate([p for p in files[:2] if p], files[2], o.output_dir, o.output_name,
                                           o.berth_issue, log, counts=o.berth_counts, progress=prog)
                 elif mode == "berth_round":
@@ -1387,7 +1401,7 @@ class App(tk.Tk):
                     res = engine.compare_charts(files[0], files[1], o.colour, o.output_dir, o.output_name, log,
                                                 counts=o.berth_counts, progress=prog)
                 self.q.put(("berth_done", res))
-            except BerthingError as exc:
+            except (BerthingError, WorkingsError) as exc:
                 self.q.put(("error", str(exc)))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
@@ -1599,6 +1613,9 @@ class App(tk.Tk):
             elif mode == "berth_round":
                 stem = os.path.splitext(os.path.basename(files[0]))[0] if files[0] else "chart name"
                 name = f"{stem} - {issue}" if issue else f"{stem} updated"
+            elif mode == "work_berth":
+                stem = os.path.splitext(os.path.basename(files[0]))[0] if files[0] else "workings name"
+                name = f"{stem} (berthing added)"
             else:
                 name = default_name(files[0], files[1])
             self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save to "
@@ -1700,7 +1717,8 @@ class App(tk.Tk):
         (self.cats_frame.grid_remove if single else self.cats_frame.grid)()
         self.run_btn.configure(text=BERTH_MODES[mode][2] if berth else "Put variants in order" if reorder
                                else "Make station working book" if station else "Run comparison")
-        self.open_cwn.configure(text="Open berthing chart" if berth else "Open tidied CWN" if reorder
+        self.open_cwn.configure(text="Open platform workings" if mode == "work_berth" else
+                                "Open berthing chart" if berth else "Open tidied CWN" if reorder
                                 else "Open station working book" if station else "Open output CWN")
         (self.open_rep.grid if not single or mode in ("berth_round", "berth_compare") else self.open_rep.grid_remove)()
         self.run_frame.configure(text="3. Run" if single else "4. Run")
@@ -1736,8 +1754,9 @@ class App(tk.Tk):
                                      "on a file's row to replace it.")
         self.util_hint.configure(text="Tip: drag and drop a CWN (day variants in order) or an Attune XML (station "
                                       "working book) onto this box.")
-        self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts onto this box. Leave "
-                                       "'Layout from chart' blank to use the app's built-in layout.")
+        self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts (or platform workings) "
+                                       "onto this box. For a chart, leave 'Layout from chart' blank to use the "
+                                       "app's built-in layout.")
 
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""
@@ -2352,13 +2371,14 @@ class App(tk.Tk):
                     for w in res.warnings:
                         self._append_log("WARNING: " + w)
                     self._append_log(res.summary)
-                    self.notify_done("Berthing chart ready", res.summary)
+                    self.notify_done("Platform workings ready" if res.chart.endswith("(berthing added).xlsx")
+                                     else "Berthing chart ready", res.summary)
                     self.open_outputs([res.chart])
                     from rstools.fsutil import excel_warning
                     warn = excel_warning([res.chart, res.report])
                     notes = list(res.warnings) + ([warn] if warn else [])
                     (messagebox.showwarning if notes else messagebox.showinfo)(
-                        APP_NAME, f"{res.summary}\n\nChart: {res.chart}" + (f"\nReport: {res.report}" if res.report
+                        APP_NAME, f"{res.summary}\n\nSaved: {res.chart}" + (f"\nReport: {res.report}" if res.report
                                                                             else "")
                         + "".join(f"\n\n{w}" for w in notes[:4])
                         + ("\n\n(More in the run log and on the chart's Notes sheet.)" if len(notes) > 4 else ""))

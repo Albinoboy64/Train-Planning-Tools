@@ -204,6 +204,11 @@ jobs:
           if (!(Test-Path smoke\berth_default.xlsx)) { throw "exe did not make a berthing chart in its built-in layout" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp' -Wait -PassThru
           if (!(Test-Path "smoke\berth_cmp - Change Report.xlsx")) { throw "exe did not compare two berthing charts" }
+          python -c "import sys; sys.path.insert(0,'tests'); import workings_fixture as w; w.make_smoke('smoke')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'workings-berthing','--workings','smoke\wk_a.xlsx','--out','smoke','--name','wk_berth' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\wk_berth.xlsx)) { throw "exe did not add berthing arrangements to platform workings" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\wk_a.xlsx','--updated','smoke\wk_b.xlsx','--out','smoke','--name','wk_cmp' -Wait -PassThru
+          if (!(Test-Path "smoke\wk_cmp - Change Report.xlsx")) { throw "exe did not compare two platform workings" }
 
       - name: Package
         shell: pwsh

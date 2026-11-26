@@ -50,6 +50,11 @@ FIELD_LABELS = {
     "inwards": "Inwards arrival time",
     "in_id": "Inward headcode",
     "loc": "Start/Call/Pass",
+    "cars": "Number of cars",
+    "op": "Operator",
+    "line": "Line",
+    "in_line": "Inward line",
+    "footer": "Berthing arrangements",
     "note": "Note",
     "portion": "Portion destination",
     "nw": "Next-day working",
@@ -202,6 +207,9 @@ class UnitRow:
     fp: str
     inwards: str
     raw: Dict[str, str] = field(default_factory=dict)   # display values of the row
+    cars: str = ""     # platform workings: number of cars, operator, inward line
+    op: str = ""
+    in_line: str = ""
 
 
 @dataclass
@@ -240,6 +248,7 @@ class SheetModel:
     cols: Dict[str, int]        # logical field -> 1-based column
     max_col: int
     blocks: List[Block]
+    footer: List[dict] = field(default_factory=list)   # platform workings: the berthing arrangements below the trains
     _by_key: Optional[Dict[str, Block]] = field(default=None, repr=False, compare=False)
 
     def block_by_key(self) -> Dict[str, Block]:
@@ -269,10 +278,35 @@ class CWNModel:
 # --------------------------------------------------------------------------- #
 # Header detection
 # --------------------------------------------------------------------------- #
+def _workings_header(caps: List[str]) -> Optional[Dict[str, int]]:
+    """Columns of a platform workings sheet (Train / Time / Ln / Plat / Destination / cars / Stock / Op /
+    Time / From / Pos / Ln / Due / Train), or None when the row is not that heading row."""
+    if not {"TRAIN", "DUE", "STOCK", "PLAT"} <= set(caps):
+        return None
+    pos = {cap: [i for i, c in enumerate(caps, start=1) if c == cap] for cap in set(caps) if cap}
+    cols: Dict[str, int] = {"id": pos["TRAIN"][0], "plat": pos["PLAT"][0], "unit": pos["STOCK"][0],
+                            "inwards": pos["DUE"][0]}
+    if len(pos["TRAIN"]) > 1:
+        cols["in_id"] = pos["TRAIN"][-1]
+    for cap, names in (("TIME", ("time", "dep")), ("LN", ("line", "in_line"))):
+        for name, ci in zip(names, pos.get(cap, [])):
+            cols[name] = ci
+    for cap, name in (("DESTINATION", "dest"), ("OP", "op"), ("FROM", "from"), ("POS", "fp")):
+        if cap in pos:
+            cols[name] = pos[cap][0]
+    s = cols["unit"]
+    if s > 1 and not caps[s - 2] and (s - 1) not in cols.values():      # the unlabelled column holds the cars
+        cols["cars"] = s - 1
+    return cols
+
+
 def find_header(rows) -> Optional[tuple]:
     """rows: the first rows of a sheet as value tuples. Returns (header_row, cols, max_col)."""
     for idx, row in enumerate(rows):
         caps = [cell_text(v).upper() for v in row]
+        wcols = _workings_header(caps)
+        if wcols:
+            return idx + 1, wcols, max(wcols.values())
         id_cols = [ci for ci, cap in enumerate(caps, start=1) if cap in HEADER_SYNONYMS["id"]]
         if not id_cols or not any(c in caps for c in HEADER_SYNONYMS["time"]):
             continue
@@ -383,6 +417,20 @@ def _style_of(cell) -> dict:
         return {"b": False, "i": False, "fill": None}
 
 
+_DAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def _footer_entry(r: int, vals) -> Optional[dict]:
+    """One line of a platform workings 'Berthing Arrangements' section: its label ('Platform 14') and text
+    ('8 387 for 05 05 TO'), with the columns they are in."""
+    found = [(i + 1, cell_text(v)) for i, v in enumerate(vals) if cell_text(v)]
+    if not found:
+        return None
+    (lc, label), rest = found[0], found[1:]
+    return {"r": r, "label": label, "lcol": lc, "col": rest[0][0] if rest else lc + 1,
+            "text": " ".join(t for _c, t in rest)}
+
+
 def parse_sheet(ws) -> Optional[SheetModel]:
     head_rows = list(ws.iter_rows(min_row=1, max_row=15, values_only=True))
     found = find_header(head_rows)
@@ -392,14 +440,26 @@ def parse_sheet(ws) -> Optional[SheetModel]:
     id_i = cols["id"] - 1
     check = [c - 1 for f, c in cols.items() if f != "loc"]
     specs = []
+    footer: List[dict] = []
+    in_footer = False
     for r, cells in enumerate(ws.iter_rows(min_row=header_row + 1, max_col=max_col), start=header_row + 1):
         vals = [c.value for c in cells]
+        first = cell_text(next((v for v in vals if cell_text(v)), "")).casefold()
+        if first.startswith(_DAY_NAMES) and "berthing arrangements" in first:
+            in_footer = True
+        if in_footer:
+            entry = _footer_entry(r, vals)
+            if entry:
+                footer.append(entry)
+            continue
         if not any(i < len(vals) and vals[i] not in (None, "") and cell_text(vals[i]) for i in check):
             continue
         spec = {"r": r, "v": [_spec_value(v) for v in vals]}
         spec.update(_style_of(cells[id_i]) if id_i < len(cells) else {"b": False, "i": False, "fill": None})
         specs.append(spec)
-    return build_sheet(ws.title, header_row, cols, max_col, specs)
+    sm = build_sheet(ws.title, header_row, cols, max_col, specs)
+    sm.footer = footer
+    return sm
 
 
 def build_sheet(title: str, header_row: int, cols: Dict[str, int], max_col: int,
@@ -450,7 +510,7 @@ def _display_row(vals: dict, text: dict, out_ecs: bool) -> dict:
 
 def _normalise(d: dict) -> dict:
     n = {f: v.casefold() for f, v in d.items()}
-    for f in ("unit", "diag"):
+    for f in ("unit", "diag", "cars"):
         if f in n:
             n[f] = norm_bracket(n[f])
     if "days" in n:
@@ -484,7 +544,8 @@ def _build_block(sheet: str, group: dict) -> Block:
                 row=r, unit=n.get("unit", ""), am=n.get("am", ""), pm=n.get("pm", ""),
                 diag=n.get("diag", ""), portion="" if (i == 0 or dest_is_nw) else n.get("dest", ""),
                 in_id=n.get("in_id", ""), dep=n.get("dep", ""), frm=n.get("from", ""),
-                fp=n.get("fp", ""), inwards=n.get("inwards", ""), raw=d))
+                fp=n.get("fp", ""), inwards=n.get("inwards", ""), raw=d,
+                cars=n.get("cars", ""), op=n.get("op", ""), in_line=n.get("in_line", "")))
         elif i > 0 and not dest_is_nw:
             note = dest or " ".join(x for f, x in d.items() if f != "loc" and x)
             if is_next_working(note):
@@ -513,7 +574,7 @@ def _build_block(sheet: str, group: dict) -> Block:
 def model_to_dict(m: CWNModel) -> dict:
     return {"v": 2, "other": m.other_sheets, "hint": m.day_hint, "sheets": [{
         "key": sh.key, "title": sh.title, "header_row": sh.header_row, "cols": sh.cols,
-        "max_col": sh.max_col, "rows": [spec for b in sh.blocks for spec in b.rows],
+        "max_col": sh.max_col, "rows": [spec for b in sh.blocks for spec in b.rows], "footer": sh.footer,
     } for sh in m.sheets.values()]}
 
 
@@ -526,6 +587,7 @@ def model_from_dict(d: dict) -> CWNModel:
         sm = build_sheet(s["title"], s["header_row"], {k: int(v) for k, v in s["cols"].items()},
                          s["max_col"], s["rows"])
         sm.key = s["key"]
+        sm.footer = list(s.get("footer", []))
         for b in sm.blocks:
             b.sheet = sm.key
         sheets[sm.key] = sm

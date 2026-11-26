@@ -24,7 +24,7 @@ from .xlsxfix import save_workbook
 
 NOTHING_LEFT = ("No tabs are left to compare: every tab that could be read in one CWN could not be read in the "
                 "other (see the warnings). Open the damaged file in Excel, save it and run again.")
-NO_TABS = "No CWN location tabs (with an ID / TIME heading row) were found in {}."
+NO_TABS = "No CWN or platform workings location tabs (with an ID / TIME heading row) were found in {}."
 
 
 class RunError(Exception):
@@ -94,6 +94,34 @@ def _save(fn, path):
         hint = ("\n\nThe folder path is very long. Choose a shorter 'Save to folder' (e.g. Documents) and run "
                 "again." if len(os.path.abspath(path)) > 240 else "")
         raise RunError(f"Cannot save {path}\n{exc.strerror or exc}{hint}")
+
+
+def _colour_word(hex_colour: str) -> str:
+    from cwn_compare.options import PRESET_COLOURS
+    h = hex_colour.upper()[-6:]
+    return next((n for n, v in PRESET_COLOURS.items() if v.upper() == h), "#" + h)
+
+
+def _workings_finish(wb, model: CWNModel, full: Optional[CWNModel], rounds: list, opts: Options):
+    """Platform workings only: tabs of days that were not chosen are left out, and the cover's 'UPDATES
+    HIGHLIGHTED IN <colour>' line names the colours of the rounds."""
+    from .days import sheet_day
+    if not any(sheet_day(sh) is not None for sh in model.sheets.values()):
+        return
+    if full is not None:
+        for key, sh in full.sheets.items():
+            if key not in model.sheets and sheet_day(sh) is not None and sh.title in wb.sheetnames:
+                wb.remove(wb[sh.title])
+    words = list(dict.fromkeys(_colour_word(r["colour"]) for r in rounds))
+    for ws in wb.worksheets:
+        if ws.title in {sh.title for sh in model.sheets.values()}:
+            continue
+        for row in ws.iter_rows(max_row=40):
+            for cell in row:
+                v = cell.value
+                if isinstance(v, str) and re.match(r"(?i)^\s*updates highlighted in\b", v):
+                    text = "Updates highlighted in " + " and ".join(w.lower() for w in words)
+                    cell.value = text.upper() if v.strip().isupper() else text
 
 
 def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
@@ -212,6 +240,10 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
         sm = m_new.sheets.get(c.sheet)
         if sm is None:
             continue
+        if c.target == "footer":                      # a berthing arrangements line of platform workings
+            if any(e["label"] == c.target_key for e in sm.footer):
+                kept_prev.append(c)
+            continue
         present = c.block_key in sm.block_by_key()
         if (c.kind == "remove_block") != present:     # skip re-instated trains and vanished ones
             kept_prev.append(c)
@@ -229,6 +261,7 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
         "original": os.path.basename(opts.original), "updated": os.path.basename(opts.updated),
         "days": day_label(opts.days) if opts.days else "",
     }]
+    _workings_finish(wb_new, m_new, full_new, rounds, opts)
     write_meta(wb_new, {"rounds": rounds, "baseline": model_to_dict(m_new),
                         "changes": [c.to_dict() for c in all_changes]})
     if acwn and not summary:

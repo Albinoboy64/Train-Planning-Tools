@@ -54,9 +54,21 @@ def _codes(model: CWNModel) -> List[str]:
     return [b.days for sh in model.sheets.values() for b in sh.blocks if b.days]
 
 
+# platform workings have one tab per day ('MO', 'TO', ..., 'SO', 'SuO') and no DAYS column
+SHEET_DAYS = {"MO": 0, "TO": 1, "WO": 2, "THO": 3, "FO": 4, "SO": 5, "SUO": 6}
+
+
+def sheet_day(sm: SheetModel) -> Optional[int]:
+    """The day of a platform workings tab, else None."""
+    return SHEET_DAYS.get(sm.key) if "cars" in sm.cols else None
+
+
 def coverage(model: CWNModel, path: str = "") -> Tuple[Set[int], bool]:
     """(days the CWN covers, whether that had to be assumed). Assumed means neither the wording nor
     the DAYS codes say which days it is for; every day is then offered."""
+    tab_days = {d for d in map(sheet_day, model.sheets.values()) if d is not None}
+    if tab_days:
+        return tab_days, False
     found: Set[int] = set()
     name = os.path.splitext(os.path.basename(path or ""))[0]
     text = " ".join([model.day_hint, name.replace("_", " ")])
@@ -97,9 +109,12 @@ def filter_model(model: CWNModel, chosen: Iterable[int], base: Optional[Set[int]
     base = set(base) if base is not None else coverage(model)[0]
     sheets = {}
     for key, sh in model.sheets.items():
+        d = sheet_day(sh)
+        if d is not None and d not in chosen:                # platform workings: a tab is a day
+            continue
         kept = [dataclasses.replace(b, order=i)            # copies: the original model is left as it was
                 for i, b in enumerate(b for b in sh.blocks if block_days(b.days, base) & chosen)]
-        sheets[key] = SheetModel(sh.key, sh.title, sh.header_row, sh.cols, sh.max_col, kept)
+        sheets[key] = SheetModel(sh.key, sh.title, sh.header_row, sh.cols, sh.max_col, kept, sh.footer)
     return CWNModel(sheets, model.other_sheets, list(model.warnings), model.day_hint)
 
 
