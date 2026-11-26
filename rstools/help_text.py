@@ -31,8 +31,11 @@ TIPS = {
     "Compare two folders of CWNs (batch)": "Compare every CWN in one folder with its partner in another folder "
                                            "(paired by file name).",
     "CWN:": "The multi-day CWN. It is not changed - a copy is saved.",
-    "1. CWN comparison": "Choose the comparison, then its files. CWNs or folders dropped on this box go here.",
-    "Utilities": "Tools that take their own files. Files dropped on this box go here.",
+    "1. Input": "The files for the chosen task. Files dropped on this box (or anywhere on the tab) go to the "
+                "right place.",
+    "Our VPT (optional, for running lines):": "A VPT of the same timetable: its running lines settle clashes where "
+        "only some lines are blocked.",
+    "Other operators' VPT(s) (optional):": "VPT exports from other operators: their trains are checked too.",
     "Section 4 check: trains in Network Rail's standard possession times": "Check the Attune XML against the "
         "Engineering Access Statement Section 4: every train running through a section during one of its "
         "possessions.",
@@ -73,7 +76,6 @@ TIPS = {
     "Reset to defaults": "Switch every change type back on.",
     "Highlight only (no old values)": "Mark changes without showing the previous values struck through.",
     # ---------------------------------------------------------------- berthing charts
-    "Berthing Charts": "Files dropped on this box go here.",
     "Make a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
         "sidings, laid out like a chart you choose. A new chart has no highlights.",
     "Add a round of changes to a berthing chart": "Remakes the chart from the updated XML. Cells that differ from the "

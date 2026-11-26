@@ -76,11 +76,11 @@ def _date(text: str) -> str:
     return f"{text[6:8]}/{text[4:6]}/{text[:4]}" if len(text) == 8 and text.isdigit() else ""
 
 
-def read_vpt(path: str) -> List[PrintTrain]:
-    """The trains of a VPT file (see the module text)."""
+def _records(path: str):
+    """(file header fields, [01 train header fields], {path id: [04 leg fields]}) of a VPT file."""
     from rstools.fsutil import long_path
-    from .base import load_tiplocs
     name = os.path.basename(path)
+    top: List[str] = []
     heads: List[List[str]] = []
     legs: Dict[str, List[List[str]]] = defaultdict(list)
     try:
@@ -88,6 +88,7 @@ def read_vpt(path: str) -> List[PrintTrain]:
             first = fh.readline()
             if not first.startswith("00," + HEADER):
                 raise PrintError(f"'{name}' is not an Attune Voyager plan train export (.vpt).")
+            top = first.rstrip("\r\n").split(",")
             for line in fh:
                 rec = line.rstrip("\r\n").split(",")
                 kind = rec[0]
@@ -97,8 +98,71 @@ def read_vpt(path: str) -> List[PrintTrain]:
                     legs[rec[1]].append(rec)
     except OSError as exc:
         raise PrintError(f"'{name}' could not be read ({exc}).")
+    return top, heads, legs
+
+
+def read_vpt(path: str) -> List[PrintTrain]:
+    """The trains of a VPT file (see the module text)."""
+    from .base import load_tiplocs
+    name = os.path.basename(path)
+    _top, heads, legs = _records(path)
     names = load_tiplocs()
     return [t for t in (_train(h, legs.get(h[6], []), names, name) for h in heads) if t.calls]
+
+
+def _iso(text: str) -> str:
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}" if len(text) == 8 and text.isdigit() else ""
+
+
+def read_plan(path: str):
+    """A VPT as a stationbook.Plan: its trains (calls, working times, platforms, days, dates and the line each
+    leg runs on) but no unit diagrams. Used for another operator's trains in a station book or a Section 4
+    check, and for the running lines of a Section 4 check."""
+    from rstools.stationbook import Call as PlanCall, Plan, Train
+    from .base import load_tiplocs
+    top, heads, legs = _records(path)
+    names = load_tiplocs()
+    trains: Dict[str, List] = defaultdict(list)
+    for h in heads:
+        rows = sorted(legs.get(h[6], []), key=lambda r: int(r[2] or 0))
+        t = Train(h[1].strip(), set(days_from_bits(int(h[13] or 0))), h[3].strip() or "L",
+                  valid_from=_iso(h[2]), valid_until=_iso(h[12]))
+        pending: Optional[PlanCall] = None
+        arrival: Optional[int] = None
+        for r in rows:
+            frm, to = r[3].strip(), r[4].strip()
+            start, end = int(r[11] or 0), int(r[9] or 0)
+            stop = r[26].strip() == "S"
+            if frm == to:
+                if pending is not None and r[19].strip():
+                    pending.plat = r[19].strip()
+                continue
+            if pending is None:
+                pending = PlanCall(frm, None, None, None, None, "", stop, stop)
+                arrival = None
+            c = pending
+            c.dep = start
+            if not stop:
+                c.arr = None
+            elif arrival is not None:
+                c.arr = arrival
+            c.stops = c.passenger = stop
+            if r[19].strip():
+                c.plat = r[19].strip()
+            t.calls.append(c)
+            if r[21].strip():
+                t.lines[len(t.calls)] = r[21].strip()       # the leg into the next call
+            pending = PlanCall(to, None, None, None, None, "", True, True)
+            arrival = end
+        if pending is not None and arrival is not None and t.calls:
+            pending.arr, pending.stops, pending.passenger = arrival, True, True
+            t.calls.append(pending)
+        if t.calls:
+            trains[t.id].append(t)
+    locations = dict(names)
+    op = top[4].strip() if len(top) > 4 else ""
+    return Plan(path, _iso(top[5]) if len(top) > 5 else "", locations, dict(trains), [],
+                _iso(top[6]) if len(top) > 6 else "", op)
 
 
 def _train(h: List[str], rows: List[List[str]], names: Dict[str, str], source: str) -> PrintTrain:

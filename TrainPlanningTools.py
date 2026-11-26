@@ -7,7 +7,7 @@ Command-line use:
     TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days FO   (Friday trains only)
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
-                                       [--sheets SX,SO,Su] [--merge-xml OTHER_OPERATOR.xml ...]
+                                       [--sheets SX,SO,Su] [--merge OTHER_OPERATOR.xml|.vpt ...]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge ...] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
@@ -27,7 +27,8 @@ Command-line use:
     TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
     TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
-    TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]
+    TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...] [--vpt OURS.vpt]
+                                     [--other-vpt OTHER.vpt ...]
     TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...] [--highlight-pdfs]
     TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...] [--highlight-pdfs]
 """
@@ -134,8 +135,8 @@ def stationbook_cli(argv):
     ap.add_argument("--services", default="Thameslink and Great Northern services only", help="for the title")
     ap.add_argument("--label", default="", help="sheet name before SX / SO / Su (default: station (operator))")
     ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
-    ap.add_argument("--merge-xml", nargs="+", default=[], metavar="XML",
-                    help="other operators' Attune XML(s) whose trains are merged into the book")
+    ap.add_argument("--merge", "--merge-xml", nargs="+", default=[], metavar="XML",
+                    help="other operators' Attune XML(s) or VPT(s) whose trains are merged into the book")
     ap.add_argument("--name", default="", help="output name")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     a = _local_out(ap, ap.parse_args(argv))
@@ -144,7 +145,7 @@ def stationbook_cli(argv):
         try:
             results = make_books(a.xml, entries, a.out, a.operator, a.timetable, a.services,
                                  [s.strip() for s in a.sheets.split(",") if s.strip()], log=print,
-                                 merge_xml=a.merge_xml)
+                                 merge_xml=a.merge)
         except StationBookError as exc:
             print("ERROR: " + str(exc))
             sys.exit(1)
@@ -156,7 +157,7 @@ def stationbook_cli(argv):
     try:
         path, warnings, summary = make_book(a.xml, a.station, a.out, a.name, a.operator, a.timetable, a.services,
                                             a.label, a.platforms, [s.strip() for s in a.sheets.split(",") if s.strip()],
-                                            log=print, merge_xml=a.merge_xml)
+                                            log=print, merge_xml=a.merge)
     except StationBookError as exc:
         print("ERROR: " + str(exc))
         sys.exit(1)
@@ -384,6 +385,10 @@ def timetable_cli(argv):
     ap.add_argument("--check", help="timetable workbook (GTR or Network Rail layout) to check")
     ap.add_argument("--nr", help="Network Rail timetable workbook (the reference)")
     ap.add_argument("--vs", nargs="+", help="updated train print(s) or train list")
+    ap.add_argument("--vpt", metavar="VPT", help="with --s4-check: a VPT of the same timetable, whose running lines "
+                                                 "settle clashes where only some lines are blocked")
+    ap.add_argument("--other-vpt", nargs="+", default=[], metavar="VPT",
+                    help="with --s4-check: other operators' VPT(s), whose trains are checked too")
     ap.add_argument("--s4", nargs="+", default=[], help="Section 4 PDF(s): for --s4-check, or the original set "
                                                         "compared with --vs-s4")
     ap.add_argument("--vs-s4", nargs="+", default=[], help="updated Section 4 PDF(s), compared with --s4")
@@ -407,6 +412,8 @@ def timetable_cli(argv):
         ap.error("--vs-s4 needs --s4 (the original Section 4 PDFs) and no other comparison")
     if a.vs_tpr and not a.tpr:
         ap.error("--vs-tpr is used with --tpr")
+    if (a.vpt or a.other_vpt) and not a.s4_check:
+        ap.error("--vpt and --other-vpt are used with --s4-check")
     if a.s4 and not (a.s4_check or a.s4_compare):
         ap.error("--s4 is used with --s4-check or --vs-s4")
     if a.highlight_pdfs and not (a.s4_compare or a.tpr):
@@ -452,14 +459,20 @@ def _section4_cli(a):
         missing = [p for p in a.s4 if not os.path.isfile(p)]
         if missing:
             raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
-        path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print)
+        from rstools.timetable.vpt import is_vpt
+        bad = [p for p in ([a.vpt] if a.vpt else []) + list(a.other_vpt) if not (os.path.isfile(p) and is_vpt(p))]
+        if bad:
+            raise Section4Error("These are not Attune VPT exports (.vpt):\n" + "\n".join(bad))
+        path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print,
+                                          vpt=a.vpt or "", others=a.other_vpt)
     except (Section4Error, TimetableRunError) as exc:
         print("ERROR:", exc)
         sys.exit(1)
     for w in st.warnings + res.warnings:
         print("WARNING:", w)
     print(f"{res.trains} train(s) in a possession window; {len(res.clashes)} clash(es), {len(res.exempt)} lifted "
-          f"by the remarks, {len(res.skipped)} train(s) not checked")
+          f"by the remarks, {len(res.skipped)} train(s) not checked"
+          + (f"; {res.by_line} settled by the VPT's running lines" if res.by_line else ""))
     print("Saved:", path)
 
 

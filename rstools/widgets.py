@@ -259,3 +259,46 @@ class Progress:
     def _draw(self, f: float):
         self._shown = f
         self.bar["value"] = f
+
+
+class TaskBox(ttk.Combobox):
+    """A read-only drop-down of tasks in groups: a heading line (`-- Group --`) for each group, its tasks indented
+    below. Choosing a heading chooses that group's first task. The tasks are identified by their mode key, so
+    saved settings do not depend on the wording or order of the list.
+
+        box = TaskBox(parent, [("CWNs", [("compare", "Compare two CWNs"), ...]), ...])
+        box.picked()    # the mode just chosen (a heading counts as its group's first task), else None
+        box.show(mode)  # select that task's line
+    """
+    INDENT = "   "
+
+    def __init__(self, master, groups, **kw):
+        self.groups = [(g, list(tasks)) for g, tasks in groups]
+        self.lines: list = []                  # (text, mode or None for a heading, first mode of its group)
+        for group, tasks in self.groups:
+            if group:
+                self.lines.append((f"── {group} ──", None, tasks[0][0]))
+            for mode, label in tasks:
+                self.lines.append((self.INDENT * bool(group) + label, mode, mode))
+        kw.setdefault("state", "readonly")
+        super().__init__(master, values=[t for t, _m, _f in self.lines], **kw)
+
+    @property
+    def tasks(self) -> list:
+        """Every (mode, label), in list order."""
+        return [(m, lab) for _g, tasks in self.groups for m, lab in tasks]
+
+    def label_of(self, mode: str) -> str:
+        return next((t for t, m, _f in self.lines if m == mode), "")
+
+    def picked(self):
+        """The mode of the line chosen (the group's first task for a heading), else None."""
+        i = self.current()
+        if not 0 <= i < len(self.lines):
+            return None
+        return self.lines[i][2]
+
+    def show(self, mode: str):
+        text = self.label_of(mode)
+        if text and self.get() != text:
+            self.set(text)

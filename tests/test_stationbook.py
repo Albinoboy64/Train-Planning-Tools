@@ -214,3 +214,24 @@ def test_station_names_network_rail_and_attune():
     assert st.find("London Victoria (Central)") == {"VICTRIC"} and st.find("London Victoria (Eastern)") == {"VICTRIE"}
     assert st.find("St Leonards Warrior Square") == {"STLNRWS"} and st.find("Loughborough Junction") == {"LBGHJN"}
     assert st.find("London King’s Cross") == {"KNGX"} and st.find("Kensington Olympia") == {"KENOLYM"}
+
+
+def test_other_operator_vpt_merged(monkeypatch):
+    """Another operator's VPT adds its trains to the book (marked with its operator, stock blank, working times)."""
+    import openpyxl
+    from test_timetable import write_vpt
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("LOCALAPPDATA", d)
+    x, vpt = os.path.join(d, "plan.xml"), os.path.join(d, "other.vpt")
+    write_late_xml(x)
+    write_vpt(vpt, [dict(id="9Z99XX", start="20261213", end="20270514", bits=2,
+                         points=[dict(tip="AAA", dep=23 * 3600 + 30 * 60, plat="2"),
+                                 dict(tip="BBB", arr=23 * 3600 + 50 * 60)])])
+    text = open(vpt, encoding="latin-1").read().replace("20270516,20271211", "20261213,20270514", 1)
+    open(vpt, "w", encoding="latin-1", newline="").write(text)
+    plan = SB.read_plan(vpt)
+    assert plan.operator == "AA" and plan.trains["9Z99XX"][0].calls[0].plat == "2"
+    path, warnings, _s = SB.make_book(x, "Alpha", d, operator="GTR(TLGN)", day_types=["MO"], merge_xml=[vpt])
+    rows = [str(r[1].value) for r in openpyxl.load_workbook(path).active.iter_rows(min_row=2)]
+    assert any(v.startswith("9Z99XX") and v.endswith("[AA]") for v in rows)
+    assert any("VPT" in w for w in warnings)

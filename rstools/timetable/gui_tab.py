@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
-from rstools.widgets import Progress, Tooltip, local_folder_box
+from rstools.widgets import Progress, TaskBox, Tooltip, local_folder_box
 from rstools.branding import APP_NAME, settings_dir
 from rstools.naming import file_label
 from rstools.fsutil import output_folder, write_json
@@ -68,8 +68,17 @@ NOTES = {
 }
 SEP = " ; "
 S4 = "section4"                 # Utilities: the Section 4 possession check
+TASK_GROUPS = [          # the Task list: each group in the order the work goes
+    ("Timetable checks", [("timetables", MODE_TEXT["timetables"][0]), ("print_tt", MODE_TEXT["print_tt"][0]),
+                          ("list_tt", MODE_TEXT["list_tt"][0])]),
+    ("Train prints and lists", [("prints", MODE_TEXT["prints"][0]), ("lists", MODE_TEXT["lists"][0])]),
+    ("Section 4 and Planning Rules", [(S4, "Section 4 check: trains in Network Rail's standard possession times"),
+                                      ("s4docs", MODE_TEXT["s4docs"][0]), ("tprs", MODE_TEXT["tprs"][0])]),
+]
 S4_NOTE = ("Lists every train that runs through a section during one of its Section 4 possessions. The XML has no "
-           "running lines, so where only some lines are blocked the report says to check the line used.")
+           "running lines, so where only some lines are blocked the report says to check the line used - unless you "
+           "add a VPT of the same timetable, which gives the line each train runs on. Other operators' VPTs add "
+           "their trains to the check.")
 
 
 def is_section4(path: str) -> bool:
@@ -142,8 +151,6 @@ class TimetableTab(ttk.Frame):
         self.columnconfigure(0, weight=1, minsize=520)
         self.columnconfigure(1, weight=1, minsize=470)
         self.rowconfigure(2, weight=1)
-        ttk.Label(self, text="Timing Tools", style="Head.TLabel").grid(row=0, column=0, columnspan=2,
-                                                                              sticky="w")
         theme.tip(ttk.Label(self, text="Checks a timetable against the Network Rail timetable, Attune train prints or "
                                        "a train list, compares train prints or train lists, and checks the timetable "
                                        "against Section 4 possessions.", style="Small.TLabel", wraplength=1000,
@@ -155,18 +162,19 @@ class TimetableTab(ttk.Frame):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
 
-        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. Timetable Comparison", padding=8)
-        mf.grid(row=0, column=0, sticky="ew")
-        mf.columnconfigure(1, weight=1)
         self.mode = tk.StringVar(value="timetables")
-        self.tasks = sorted([(key, text) for key, (text, _btn) in MODE_TEXT.items()] + [
-            (S4, "Section 4 check: trains in Network Rail's standard possession times")],
-            key=lambda t: t[1].casefold())
-        ttk.Label(mf, text="Task:").grid(row=0, column=0, sticky="w")
-        self.task_box = ttk.Combobox(mf, state="readonly", values=[t for _k, t in self.tasks])
-        self.task_box.grid(row=0, column=1, columnspan=3, sticky="ew", padx=4)
+        task = ttk.Frame(left)                           # the task: one drop-down; only its inputs are shown below
+        task.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        task.columnconfigure(1, weight=1)
+        ttk.Label(task, text="Task:", font="AppBold").grid(row=0, column=0, padx=(0, 6))
+        self.task_box = TaskBox(task, TASK_GROUPS)
+        self.tasks = self.task_box.tasks
+        self.task_box.grid(row=0, column=1, sticky="ew")
         self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
         self.mode.trace_add("write", lambda *_a: self._task_shown())
+        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
+        mf.grid(row=1, column=0, sticky="ew")
+        mf.columnconfigure(1, weight=1)
         self.vars = {"a": tk.StringVar(), "b": tk.StringVar()}
         self.rows, self.clear_btns = {}, {}
         for r, key in enumerate(self.vars, start=1):
@@ -207,32 +215,35 @@ class TimetableTab(ttk.Frame):
         self._cmp_widgets = [w for w in mf.grid_slaves() if int(w.grid_info()["row"]) >= 1]
 
         # --- utilities: the Section 4 possession check (Attune XML + Network Rail's Section 4 PDFs)
-        uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
-        uf.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        uf = self.util_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
+        uf.grid(row=1, column=0, sticky="ew")
         uf.columnconfigure(1, weight=1)
-        self.s4_vars = {"xml": tk.StringVar(), "pdf": tk.StringVar()}
+        self.s4_vars = {"xml": tk.StringVar(), "pdf": tk.StringVar(), "vpt": tk.StringVar(),
+                        "others": tk.StringVar()}
         self.s4_boxes = {}
-        for r, (key, text) in enumerate((("xml", "Attune XML:"), ("pdf", "Section 4 PDF(s):")), start=1):
-            ttk.Label(uf, text=text).grid(row=r, column=0, sticky="w", pady=(6, 0) if r == 1 else 2)
+        rows = (("xml", "Attune XML:", "Browse..."), ("pdf", "Section 4 PDF(s):", "Add..."),
+                ("vpt", "Our VPT (optional, for running lines):", "Browse..."),
+                ("others", "Other operators' VPT(s) (optional):", "Add..."))
+        for r, (key, text, btn) in enumerate(rows, start=1):
+            pad = (6, 0) if r == 1 else 2
+            ttk.Label(uf, text=text).grid(row=r, column=0, sticky="w", pady=pad)
             box = self.app.file_box(uf, self.s4_vars[key], f"s4_{key}")
-            box.grid(row=r, column=1, sticky="ew", padx=4, pady=(6, 0) if r == 1 else 2)
+            box.grid(row=r, column=1, sticky="ew", padx=4, pady=pad)
             box.bind("<FocusIn>", lambda _e: self._pick_section("util"), add="+")
             self.s4_boxes[key] = box
-            ttk.Button(uf, text="Browse..." if key == "xml" else "Add...",
-                       command=lambda k=key: self._browse_s4(k)).grid(row=r, column=2,
-                                                                     pady=(6, 0) if r == 1 else 2)
-            if key == "pdf":
-                ttk.Button(uf, text="Clear", width=6, command=lambda: self.s4_vars["pdf"].set("")).grid(
+            ttk.Button(uf, text=btn, command=lambda k=key: self._browse_s4(k)).grid(row=r, column=2, pady=pad)
+            if key in ("pdf", "others", "vpt"):
+                ttk.Button(uf, text="Clear", width=6, command=lambda k=key: self.s4_vars[k].set("")).grid(
                     row=r, column=3, padx=(4, 0), pady=2)
             self.s4_vars[key].trace_add("write", lambda *_a: self._update_name_hint())
         self.s4_set = theme.collapse_empty(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480,
                                                      justify="left"))
-        self.s4_set.grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.s4_set.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.s4_note = theme.tip(ttk.Label(uf, text=S4_NOTE, style="Small.TLabel", wraplength=480, justify="left"),
                                  "About this check")
-        self.s4_note.grid(row=5, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        self.s4_note.grid(row=6, column=0, columnspan=4, sticky="w", pady=(6, 0))
         self.s4_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
-        self.s4_hint.grid(row=6, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.s4_hint.grid(row=7, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.s4_vars["pdf"].trace_add("write", lambda *_a: self.show_rule_set())
         self.show_rule_set()
         self._last_cmp = "timetables"
@@ -305,7 +316,8 @@ class TimetableTab(ttk.Frame):
         self._add_drop_target(self)
         self.dnd_hint.configure(text="Tip: drag and drop the files onto this box or anywhere on the tab - the "
                                      "comparison and boxes are picked from the files.")
-        self.s4_hint.configure(text="Tip: drag and drop the Attune XML and the Section 4 PDF(s) onto this box.")
+        self.s4_hint.configure(text="Tip: drag and drop the Attune XML, the Section 4 PDF(s) and any VPT(s) onto this "
+                                    "box - each goes to the right row.")
 
     def _add_drop_target(self, widget, util=False):
         if not self._dnd or isinstance(widget, tk.Text):
@@ -323,7 +335,7 @@ class TimetableTab(ttk.Frame):
     def _on_drop(self, event, key=None, util=False):
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data) if os.path.isfile(p)]
         xmls = [p for p in paths if p.lower().endswith(".xml")]
-        if util or xmls:
+        if util or xmls or (self.mode.get() == S4 and any(p.lower().endswith(".vpt") for p in paths)):
             self.place_section4(paths)
         elif paths and all(p.lower().endswith(".pdf") for p in paths):
             def sniff():                           # opening PDFs takes a moment: not on the window's thread
@@ -342,10 +354,16 @@ class TimetableTab(ttk.Frame):
         """The Attune XML and Section 4 PDFs into the Section 4 check's boxes."""
         xmls = [p for p in paths if p.lower().endswith(".xml")]
         pdfs = [p for p in paths if p.lower().endswith(".pdf")]
-        if not xmls and not pdfs:
-            messagebox.showwarning(TITLE, "Drop the Attune XML (.xml) and Network Rail's Section 4 PDF(s).")
+        vpts = [p for p in paths if p.lower().endswith(".vpt")]
+        if not xmls and not pdfs and not vpts:
+            messagebox.showwarning(TITLE, "Drop the Attune XML (.xml), Network Rail's Section 4 PDF(s) and any VPT(s).")
             return
         self._set_mode(S4)
+        if vpts:                         # the first goes in "Our VPT" when it is empty, the rest are other operators'
+            if not self.s4_vars["vpt"].get().strip():
+                self.s4_vars["vpt"].set(vpts.pop(0))
+            if vpts:
+                self.s4_vars["others"].set(self._join(self.s4_vars["others"].get(), vpts))
         if xmls:
             self.s4_vars["xml"].set(xmls[0])
         if pdfs:
@@ -504,14 +522,13 @@ class TimetableTab(ttk.Frame):
         self._update_name_hint()
 
     def _task_picked(self, _event=None):
-        index = self.task_box.current()
-        if 0 <= index < len(self.tasks):
-            self._set_mode(self.tasks[index][0])
+        mode = self.task_box.picked()
+        if mode:
+            self._set_mode(mode)
+        self._task_shown()                      # a group heading chosen: show its first task
 
     def _task_shown(self):
-        label = dict(self.tasks).get(self.mode.get(), self.tasks[0][1])
-        if self.task_box.get() != label:
-            self.task_box.set(label)
+        self.task_box.show(self.mode.get())
 
     def _update_name_hint(self):
         mode = self.mode.get()
@@ -556,6 +573,15 @@ class TimetableTab(ttk.Frame):
             if chosen:
                 self.s4_vars["xml"].set(os.path.normpath(chosen))
                 self._last_dir = os.path.dirname(chosen)
+        elif key in ("vpt", "others"):
+            many = key == "others"
+            ask = filedialog.askopenfilenames if many else filedialog.askopenfilename
+            chosen = ask(parent=self, title="Attune VPT export" + ("s" if many else ""), initialdir=start,
+                         filetypes=[("Attune VPT export", "*.vpt"), ("All files", "*.*")])
+            if chosen:
+                paths = [os.path.normpath(p) for p in (chosen if many else [chosen])]
+                self.s4_vars[key].set(self._join(self.s4_vars[key].get(), paths) if many else paths[0])
+                self._last_dir = os.path.dirname(paths[0])
         else:
             chosen = filedialog.askopenfilenames(parent=self, title="Section 4 PDF(s)", initialdir=start,
                                                  filetypes=[("PDF", "*.pdf"), ("All files", "*.*")])
@@ -603,6 +629,7 @@ class TimetableTab(ttk.Frame):
     def get_state(self) -> dict:
         return {"mode": self.mode.get(), "a": self.vars["a"].get(), "b": self.vars["b"].get(),
                 "s4_xml": self.s4_vars["xml"].get(), "s4_pdf": self.s4_vars["pdf"].get(),
+                "s4_vpt": self.s4_vars["vpt"].get(), "s4_others": self.s4_vars["others"].get(),
                 "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get(), "output_name": self.out_name.get(),
                 "passenger_only": self.pax_var.get()}
 
@@ -611,7 +638,7 @@ class TimetableTab(ttk.Frame):
             self._set_mode(s["mode"])
         for key in ("a", "b"):
             self.vars[key].set(s.get(key, "") if isinstance(s.get(key), str) else "")
-        for key in ("xml", "pdf"):
+        for key in ("xml", "pdf", "vpt", "others"):
             v = s.get(f"s4_{key}", "")
             self.s4_vars[key].set(v if isinstance(v, str) else "")
         if s.get("fmt") in ("xlsx", "pdf", "docx"):
@@ -623,7 +650,8 @@ class TimetableTab(ttk.Frame):
     @staticmethod
     def files_in_state(s: dict) -> list:
         if s.get("mode") == S4:
-            return split_paths(s.get("s4_xml", "")) + split_paths(s.get("s4_pdf", ""))
+            return (split_paths(s.get("s4_xml", "")) + split_paths(s.get("s4_pdf", ""))
+                    + split_paths(s.get("s4_vpt", "")) + split_paths(s.get("s4_others", "")))
         return split_paths(s.get("a", "")) + split_paths(s.get("b", ""))
 
     # ---------------------------------------------------------------- run
@@ -697,6 +725,13 @@ class TimetableTab(ttk.Frame):
         bad = [p for p in pdfs if not p.lower().endswith(".pdf")]
         if bad:
             return messagebox.showwarning(TITLE, f"The Section 4 file(s) should be PDFs:\n{bad[0]}")
+        vpt = self.s4_vars["vpt"].get().strip().strip('"')
+        others = split_paths(self.s4_vars["others"].get())
+        for p in ([vpt] if vpt else []) + others:
+            if not os.path.isfile(p):
+                return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}")
+            if not p.lower().endswith(".vpt"):
+                return messagebox.showwarning(TITLE, f"The VPT should be a .vpt file:\n{p}")
         out_dir = output_folder(self.out_dir.get())
         name = re.sub(r'[<>:"/\\|?*]', "-", self.out_name.get().strip()).strip(" .")
         self.app.add_recent("s4_xml", xml)
@@ -705,7 +740,7 @@ class TimetableTab(ttk.Frame):
         self._save_settings()
         self.app.save_app_settings()
         self._begin()
-        threading.Thread(target=self._work_section4, args=(xml, pdfs, out_dir, name, self.fmt_var.get()),
+        threading.Thread(target=self._work_section4, args=(xml, pdfs, out_dir, name, self.fmt_var.get(), vpt, others),
                          daemon=True).start()
         self.app.pump.kick()
 
@@ -721,12 +756,12 @@ class TimetableTab(ttk.Frame):
         self._started = time.monotonic()
         self.app.set_busy(True)
 
-    def _work_section4(self, xml, pdfs, out_dir, name, fmt):
+    def _work_section4(self, xml, pdfs, out_dir, name, fmt, vpt="", others=()):
         from .section4 import Section4Error, run_check
         try:
-            path, res, st, start = run_check(xml, pdfs, out_dir, name, fmt,
-                                      progress=lambda f, m: self.q.put(("prog", f, m)),
-                                      log=lambda m: self.q.put(("log", m, None)))
+            path, res, st, start = run_check(xml, pdfs, out_dir, name, fmt, vpt=vpt, others=others,
+                                             progress=lambda f, m: self.q.put(("prog", f, m)),
+                                             log=lambda m: self.q.put(("log", m, None)))
             every = sum(1 for c in res.clashes if c.all_lines)
             lines = [f"{len(st.possessions)} possession row(s) read; {res.checked} checked against the XML "
                      f"(periods: {', '.join(p.name for p in res.periods) or 'none'})."]
@@ -734,6 +769,8 @@ class TimetableTab(ttk.Frame):
             summary = (f"{res.trains} train(s) run in a Section 4 possession window: {every} clash(es) where every "
                        f"line is blocked, {len(res.clashes) - every} where only some lines are (check the line "
                        "used)." if res.clashes else "No train runs in a Section 4 possession window.")
+            if res.by_line:
+                summary += f" {res.by_line} clash(es) settled by the running lines in the VPT."
             if res.exempt or res.skipped:
                 summary += (f" {len(res.exempt)} clash(es) lifted by the remarks; {len(res.skipped)} train(s) "
                             "not checked (runs as required / MAINT).")

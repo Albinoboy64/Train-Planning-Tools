@@ -118,6 +118,8 @@ jobs:
           if (!(Test-Path smoke\tprcmp.xlsx)) { throw "exe did not compare two sets of TPR documents" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--out','smoke','--name','s4check' -Wait -PassThru
           if (!(Test-Path smoke\s4check.xlsx)) { throw "exe did not run the Section 4 check" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--vpt','smoke\v1.vpt','--other-vpt','smoke\v2.vpt','--out','smoke','--name','s4check_vpt' -Wait -PassThru
+          if (!(Test-Path smoke\s4check_vpt.xlsx)) { throw "exe did not run the Section 4 check with VPTs" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_late_xml('smoke/late.xml'); t.write_late_xml('smoke/other.xml', operator='XC')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\late.xml','--station','Alpha','--merge-xml','smoke\other.xml','--out','smoke','--name','swb_merged' -Wait -PassThru
           if (!(Test-Path smoke\swb_merged.xlsx)) { throw "exe did not make a station book with another operator merged in" }

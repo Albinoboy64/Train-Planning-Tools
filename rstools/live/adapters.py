@@ -23,11 +23,21 @@ MODES = {
     "list_tt": "Timing Tools: Attune train list against a timetable",
     "prints": "Timing Tools: two sets of train prints or VPT exports",
     "lists": "Timing Tools: two Attune train lists",
-    "s4check": "Timing Tools: Section 4 check (Attune XML)",
+    "s4check": "Timing Tools: Section 4 check (Attune XML, optional VPTs)",
     "s4docs": "Timing Tools: two sets of Section 4 documents",
     "tprs": "Timing Tools: two sets of Timetable Planning Rules",
 }
-MODES = dict(sorted(MODES.items(), key=lambda kv: kv[1].casefold()))        # the Compare list, A-Z
+MODE_GROUPS = [        # the Task list: a group for each tab, its tasks in the order of that tab's own list
+    ("Stock Tools", [("cwn", "Two CWNs"), ("berthing", "Two berthing charts")]),
+    ("Stats Pack", [("sp_plans", "Two plans (XML + TRENT print each)"), ("sp_packs", "Two stats pack files"),
+                    ("units", "Unit reports, two plans")]),
+    ("Timing Tools", [("timetables", "GTR timetable against Network Rail"),
+                      ("print_tt", "Train prints against a timetable"),
+                      ("list_tt", "Attune train list against a timetable"),
+                      ("prints", "Two sets of train prints or VPT exports"), ("lists", "Two Attune train lists"),
+                      ("s4check", "Section 4 check (Attune XML, optional VPTs)"),
+                      ("s4docs", "Two sets of Section 4 documents"), ("tprs", "Two sets of Timetable Planning Rules")]),
+]
 Log = Callable[[str], None]
 
 
@@ -45,7 +55,8 @@ def compute(mode: str, files: Dict[str, List[str]], days: Optional[Sequence[int]
     if mode == "sp_plans":
         return stats_plans(files["xa"][0], " ; ".join(files["ta"]), files["xb"][0], " ; ".join(files["tb"]), log)
     if mode == "s4check":
-        return section4_check(files["xa"][0], files.get("a", []), log)
+        return section4_check(files["xa"][0], files.get("a", []), log, (files.get("xb") or [""])[0],
+                              files.get("tb", []))
     if mode == "berthing":
         return berthing_charts(files["a"][0], files["b"][0], log)
     if mode == "units":
@@ -462,7 +473,8 @@ def documents(cmp) -> LiveResult:
 
 
 # --------------------------------------------------------------------------- Section 4 check
-def section4_check(xml: str, pdfs: Sequence[str], log: Log) -> LiveResult:
+def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
+                   others: Sequence[str] = ()) -> LiveResult:
     """The trains running in a Section 4 possession window (the same check as Timing Tools), one item per train,
     day and possession; lifted clashes and trains not checked are listed too."""
     from rstools import rules
@@ -481,7 +493,9 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log) -> LiveResult:
         statement = stored
     log(f"Reading {os.path.basename(xml)}")
     (plan,) = read_jobs([(read_plan, xml)])
-    res = check(plan, statement, log)
+    own = read_plan(vpt) if vpt else None
+    theirs = [read_plan(o) for o in others]
+    res = check(plan, statement, log, own, theirs)
     items: List[LiveItem] = []
 
     def rows_of(c) -> List[LiveRow]:
@@ -492,6 +506,8 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log) -> LiveResult:
                 LiveRow(["Possession", c.window.text, f"Runs {DAY_SHORT[c.day]}"], ISSUE if c.all_lines else CHANGED),
                 LiveRow([p.ends[0], "", c.at_a], SAME), LiveRow([p.ends[-1], "", c.at_b], SAME),
                 LiveRow(["Blocked", p.blocked or "-", c.direction or "-"], SAME),
+                *([LiveRow(["Line used (VPT)", c.line, c.line_why], SAME)] if c.line else []),
+                *([LiveRow(["Operator", c.operator, ""], SAME)] if c.operator else []),
                 LiveRow(["Remarks", p.remarks or "-", c.remark or "-"],
                         CHANGED if c.outcome == CHECK else SAME)]
     for group, clashes, exempt in (("Clashes", res.clashes, False), ("Exempt", res.exempt, True)):
@@ -505,8 +521,9 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log) -> LiveResult:
                 state, status = CHANGED, "Some lines: check the line used"
             if not exempt and c.outcome == CHECK:
                 status += " (check remark)"
-            items.append(LiveItem(f"{group}|{p.number}|{p.night}|{c.period.name}|{c.train}|{c.day}", group,
-                                  f"{c.train} {DAY_SHORT[c.day]} - {p.number}", state, status, rows_of(c),
+            items.append(LiveItem(f"{group}|{p.number}|{p.night}|{c.period.name}|{c.operator}|{c.train}|{c.day}", group,
+                                  f"{c.train}{' [' + c.operator + ']' if c.operator else ''} "
+                                  f"{DAY_SHORT[c.day]} - {p.number}", state, status, rows_of(c),
                                   [x for x in (c.remark,) if x], len(items)))
     for train, why in res.skipped:
         items.append(LiveItem(f"Skipped|{train}", "Not checked", train, SAME, why,

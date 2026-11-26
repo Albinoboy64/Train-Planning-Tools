@@ -20,7 +20,7 @@ from rstools import errorlog, theme, updater
 from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.update_dialog import UpdateDialog
-from rstools.widgets import Progress, QueuePump, local_folder_box, ScrollPage, Tooltip
+from rstools.widgets import Progress, QueuePump, ScrollPage, TaskBox, Tooltip, local_folder_box
 
 from . import __version__
 from .compare import CATEGORIES
@@ -53,13 +53,21 @@ BERTH_MODES = {
 }
 
 
-# every task of the Stock Tools tab, in the order of its Task drop-down: (mode, wording)
-STOCK_TASKS = sorted([("compare", "Compare two CWNs"),
-                      ("cumulative", "Add a new round to an earlier comparison CWN"),
-                      ("batch", "Compare two folders of CWNs (batch)"),
-                      ("reorder", "Put each train's day variants in order (one CWN)"),
-                      ("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")
-                      ] + [(mode, spec[0]) for mode, spec in BERTH_MODES.items()], key=lambda t: t[1].casefold())
+# every task of the Stock Tools tab, grouped, each group in the order the work goes: (mode, wording)
+STOCK_GROUPS = [
+    ("CWNs", [("compare", "Compare two CWNs"),
+              ("batch", "Compare two folders of CWNs (batch)"),
+              ("cumulative", "Add a new round to an earlier comparison CWN"),
+              ("reorder", "Put each train's day variants in order (one CWN)")]),
+    ("Berthing charts", [(mode, BERTH_MODES[mode][0]) for mode in ("berth_make", "berth_round", "berth_compare")]),
+    ("Station books", [("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")]),
+]
+CATEGORY_GROUPS = [["CANCELLED", "NEW"],                                  # whole trains
+                   ["DAYS", "LOCATION", "PLATFORM", "TIME"],             # timing and route
+                   ["BERTHING", "FORMATION", "STOCK"],                   # stock and workings
+                   ["NOTES"]]
+assert sorted(k for g in CATEGORY_GROUPS for k in g) == sorted(c[0] for c in CATEGORIES)
+STOCK_TASKS = [task for _group, tasks in STOCK_GROUPS for task in tasks]
 
 OPENABLE = (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".csv", ".txt", ".log")
 
@@ -874,8 +882,6 @@ class App(tk.Tk):
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
 
-        self.heading = ttk.Label(outer, text="Stock Tools", style="Head.TLabel")
-        self.heading.grid(row=0, column=0, columnspan=2, sticky="w")
         self.intro = theme.tip(ttk.Label(outer, text="", style="Small.TLabel"))
         self.intro.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
@@ -893,14 +899,14 @@ class App(tk.Tk):
         task.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         task.columnconfigure(1, weight=1)
         ttk.Label(task, text="Task:", font="AppBold").grid(row=0, column=0, padx=(0, 6))
-        self.task_box = ttk.Combobox(task, state="readonly", values=[label for _m, label in STOCK_TASKS])
+        self.task_box = TaskBox(task, STOCK_GROUPS)
         self.task_box.grid(row=0, column=1, sticky="ew")
         self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
         self.mode.trace_add("write", lambda *_a: self._task_shown())
         self._task_shown()
 
         # --- CWN comparison: its two files
-        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. CWN Comparison", padding=8)
+        mf = self.cmp_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
         mf.grid(row=1, column=0, sticky="ew")
         mf.columnconfigure(1, weight=1)
         self.orig_lbl = ttk.Label(mf, text="Original CWN:")
@@ -928,7 +934,7 @@ class App(tk.Tk):
             w.bind("<FocusIn>", lambda _e: self._pick_section("compare"), add="+")
 
         # --- utilities: day variants in order (a CWN) and station working books (an Attune XML)
-        uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
+        uf = self.util_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
         uf.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         uf.columnconfigure(1, weight=1)
         self.util_lbl = ttk.Label(uf, text="CWN:")
@@ -1101,31 +1107,40 @@ class App(tk.Tk):
                 Tooltip(lab, help_text)
         self.cat_vars = {}
         self.show_old_cbs = []                          # greyed out when the output is 'highlighted only'
-        for r, (key, label, has_old, desc) in enumerate(sorted(CATEGORIES, key=lambda c: c[1].casefold()), start=1):
-            lab = ttk.Label(cf, text=label)
-            lab.grid(row=r, column=0, sticky="w", padx=4)
-            Tooltip(lab, desc)
-            vs = {}
-            for ci, what in enumerate(("cwn", "show_old", "report"), start=1):
-                v = tk.BooleanVar(value=True)
-                cb = ttk.Checkbutton(cf, variable=v)
-                cb.grid(row=r, column=ci)
-                if what == "show_old" and not has_old:
-                    cb.state(["disabled"])
-                    v.set(False)
-                elif what == "show_old":
-                    self.show_old_cbs.append(cb)
-                vs[what] = v
-            self.cat_vars[key] = vs
+        by_key = {c[0]: c for c in CATEGORIES}
+        r = 0
+        for g, keys in enumerate(CATEGORY_GROUPS):          # grouped, each group A-Z, a thin line between groups
+            if g:
+                r += 1
+                ttk.Separator(cf, orient="horizontal").grid(row=r, column=0, columnspan=4, sticky="ew", pady=2)
+            for key in keys:
+                _key, label, has_old, desc = by_key[key]
+                r += 1
+                lab = ttk.Label(cf, text=label)
+                lab.grid(row=r, column=0, sticky="w", padx=4)
+                Tooltip(lab, desc)
+                vs = {}
+                for ci, what in enumerate(("cwn", "show_old", "report"), start=1):
+                    v = tk.BooleanVar(value=True)
+                    cb = ttk.Checkbutton(cf, variable=v)
+                    cb.grid(row=r, column=ci)
+                    if what == "show_old" and not has_old:
+                        cb.state(["disabled"])
+                        v.set(False)
+                    elif what == "show_old":
+                        self.show_old_cbs.append(cb)
+                    vs[what] = v
+                self.cat_vars[key] = vs
+        cat_rows = r
         self.out_type.trace_add("write", lambda *_a: self._out_type_changed())
         self.loose_var = tk.BooleanVar(value=True)
         loose = ttk.Checkbutton(cf, text="Ignore differences only in spacing or punctuation",
                                 variable=self.loose_var)
-        loose.grid(row=len(CATEGORIES) + 2, column=0, columnspan=4, sticky="w", pady=(3, 0))
+        loose.grid(row=cat_rows + 1, column=0, columnspan=4, sticky="w", pady=(3, 0))
         Tooltip(loose, "Destinations, routing and notes that differ only in spaces or punctuation (e.g. "
                         "'(via  Redhill.)' and '(via Redhill)') are not reported.")
         bf = ttk.Frame(cf)
-        bf.grid(row=len(CATEGORIES) + 3, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        bf.grid(row=cat_rows + 2, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Button(bf, text="Reset to defaults", command=self._reset_cats).grid(row=0, column=0)
         ttk.Button(bf, text="Highlight only (no old values)", command=self._highlight_only).grid(
             row=0, column=1, padx=6)
@@ -1169,7 +1184,7 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------ berthing charts
     def _build_berthing(self, left):
-        bf = self.berth_frame = ttk.LabelFrame(left, text="Berthing Charts", padding=8)
+        bf = self.berth_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
         bf.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         bf.columnconfigure(1, weight=1)
         self.berth_vars = {m: [tk.StringVar() for _r in spec[1]] for m, spec in BERTH_MODES.items()}
@@ -1383,7 +1398,7 @@ class App(tk.Tk):
                                                       "services", "label", "merge")}
         rows = (("station", "Station:"), ("platforms", "Platforms (optional):"), ("list", "Several stations:"),
                 ("operator", "Operator:"), ("timetable", "Timetable:"), ("services", "Services:"),
-                ("label", "Sheet name:"), ("merge", "Other operators' XML:"))
+                ("label", "Sheet name:"), ("merge", "Other operators' XML or VPT:"))
         for r, (key, text) in enumerate(rows):
             ttk.Label(sb, text=text).grid(row=r, column=0, sticky="w", pady=1)
             if key == "station":
@@ -1400,8 +1415,9 @@ class App(tk.Tk):
                 elif key == "merge":
                     ttk.Button(sb, text="Add...", command=self._add_book_merge).grid(
                         row=r, column=2, sticky="ew", padx=(4, 0), pady=1)
-                    Tooltip(w, "Attune XMLs from other operators: their trains at the station are merged into "
-                               "the book, marked with the operator. Separate several with ';'.")
+                    Tooltip(w, "Attune XMLs or VPT exports from other operators: their trains at the station are "
+                               "merged into the book, marked with the operator (a VPT has no unit diagrams, so "
+                               "its stock is blank). Separate several with ';'.")
             w.grid(row=r, column=1, sticky="ew", padx=(4, 0), pady=1)
         df = ttk.Frame(sb)
         df.grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1420,8 +1436,10 @@ class App(tk.Tk):
         sb.grid_remove()
 
     def _add_book_merge(self):
-        """Add other operators' Attune XMLs to merge into the station book."""
-        paths = filedialog.askopenfilenames(title="Other operators' Attune XML", filetypes=[("Attune XML", "*.xml")])
+        """Add other operators' Attune XMLs or VPTs to merge into the station book."""
+        paths = filedialog.askopenfilenames(title="Other operators' Attune XML or VPT",
+                                            filetypes=[("Attune XML or VPT", "*.xml *.vpt"), ("Attune XML", "*.xml"),
+                                                       ("Attune VPT export", "*.vpt")])
         if not paths:
             return
         current = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
@@ -1554,16 +1572,15 @@ class App(tk.Tk):
 
     def _task_picked(self, _event=None):
         """A task chosen in the drop-down: the same as picking its radio button used to be."""
-        index = self.task_box.current()
-        if 0 <= index < len(STOCK_TASKS) and STOCK_TASKS[index][0] != self.mode.get():
-            self.mode.set(STOCK_TASKS[index][0])
+        mode = self.task_box.picked()
+        if mode and mode != self.mode.get():
+            self.mode.set(mode)
             self._mode_changed()
+        self._task_shown()                      # a group heading chosen: show its first task
 
     def _task_shown(self):
         """The drop-down shows the current mode (it is set from saved settings, drops and presets as well)."""
-        label = dict(STOCK_TASKS).get(self.mode.get(), STOCK_TASKS[0][1])
-        if self.task_box.get() != label:
-            self.task_box.set(label)
+        self.task_box.show(self.mode.get())
 
     def _pick_section(self, section: str):
         """Typing in (or dropping on) a section's box picks that section, keeping its last mode."""
@@ -1614,7 +1631,7 @@ class App(tk.Tk):
                                 else "Open station working book" if station else "Open output CWN")
         (self.open_rep.grid if not single or mode in ("berth_round", "berth_compare") else self.open_rep.grid_remove)()
         self.run_frame.configure(text="3. Run" if single else "4. Run")
-        self.out_frame.configure(text="2. Stations and output" if station else "2. Output")
+        self.out_frame.configure(text="2. Stations and Output" if station else "2. Output")
         self.intro.configure(text=BERTH_MODES[mode][3] if berth else
                              "Saves a copy of a multi-day CWN with each train's day variants in order. The CWN "
                              "itself is not changed." if reorder else
@@ -1712,6 +1729,12 @@ class App(tk.Tk):
                                   and all(p.lower().endswith((".xml", ".xlsx", ".xlsm")) for p in paths)):
             self._drop_berthing([p for p in paths if os.path.isfile(p)], target)
             return event.action
+        vpts = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".vpt")]
+        if vpts:                                      # VPT exports: other operators' trains for the station book
+            self._set_mode("station")
+            have = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
+            self.book_vars["merge"].set("; ".join(have + [p for p in vpts if p not in have]))
+            return event.action
         folders = [p for p in paths if os.path.isdir(p)]
         xmls = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".xml")]
         files = [p for p in paths if os.path.isfile(p) and os.path.splitext(p)[1].lower() in SUPPORTED_EXT]
@@ -1732,7 +1755,7 @@ class App(tk.Tk):
             return event.action
         if not files:
             messagebox.showwarning(APP_NAME, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb)"
-                                   + (" or an Attune XML (.xml) on the Utilities box." if section is None else "."))
+                                   + (" or an Attune XML (.xml)." if section is None else "."))
             return event.action
         if section is None and target is None and self.mode.get() == "reorder" and len(files) == 1:
             self.util.set(files[0])                   # dropped anywhere while putting variants in order

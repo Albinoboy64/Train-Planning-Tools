@@ -19,6 +19,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from . import s4lines as S4L
+from .s4lines import line_codes, verdict as line_verdict
+from .prints import PrintError
+from .s4remarks import EXEMPT as R_EXEMPT
 from .pdfgrid import (cluster, find_furniture, line_text, lines_of, rect_from_visual, rect_to_visual, segments,
                       text_in, text_runs, to_visual)
 
@@ -454,6 +458,10 @@ class Clash:
     remark: str = ""            # what the remarks mean for this train ('' when there are none)
     outcome: str = ""           # s4remarks.STANDS / CHECK / EXEMPT
     every_line: Optional[bool] = None   # the remarks leave some lines open (else the Blocked text decides)
+    line: str = ""              # the line(s) the train runs on through the section, from a VPT
+    line_verdict: str = ""      # s4lines.BLOCKED / OPEN / UNKNOWN ('' when no VPT line was found)
+    line_why: str = ""
+    operator: str = ""          # another operator's train (from its VPT)
 
     @property
     def all_lines(self) -> bool:
@@ -470,6 +478,8 @@ class CheckResult:
     warnings: List[str]
     exempt: List[Clash] = field(default_factory=list)          # clashes the remarks lift
     skipped: List[Tuple[str, str]] = field(default_factory=list)   # (train, why it was not checked)
+    by_line: int = 0                         # clashes a VPT's running lines settled (blocked or open)
+    other_trains: int = 0                    # trains of other operators checked
 
 
 def maint_trains(plan) -> Set[str]:
@@ -510,8 +520,34 @@ def _alternatives(name: str) -> List[str]:
     return list(dict.fromkeys(o for o in out if o))
 
 
-def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
-    """The trains in `plan` (stationbook.read_plan) running over a Section 4 section in one of its windows."""
+def _times_of(t) -> Dict[str, List[Tuple[int, int]]]:
+    times: Dict[str, List[Tuple[int, int]]] = {}
+    for n, c in enumerate(t.calls):
+        tm = c.dep if c.dep is not None else c.arr
+        if tm is not None:
+            times.setdefault(c.loc, []).append((n, tm // 60))
+    return times
+
+
+def _lines_between(vt, tips_a: Set[str], tips_b: Set[str], minute: int, day: int) -> Optional[List[str]]:
+    """The line codes of the legs of VPT train `vt` between the section's ends, or None when the train is not at
+    the first end at `minute` on `day`."""
+    if day not in vt.days:
+        return None
+    times = _times_of(vt)
+    hit_a = [x for tip in tips_a for x in times.get(tip, []) if (x[1] - minute) % 1440 == 0]
+    hit_b = [x for tip in tips_b for x in times.get(tip, [])]
+    if not hit_a or not hit_b:
+        return None
+    ia = min(hit_a)[0]
+    ib = min(hit_b, key=lambda x: abs(x[0] - ia))[0]
+    return list(line_codes(vt, ia, ib).values())
+
+
+def check(plan, statement: Statement, log=lambda m: None, lines=None, others=()) -> CheckResult:
+    """The trains in `plan` (stationbook.read_plan) running over a Section 4 section in one of its windows.
+    `lines`: the same timetable as a VPT plan, whose running lines settle the clashes where only some lines are
+    blocked. `others`: other operators' VPT plans, whose trains are checked too (marked with their operator)."""
     from rstools.statspack.seats import Stations
     stations = Stations(plan.locations)
     cache: Dict[str, Set[str]] = {}
@@ -544,12 +580,17 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
             if why:
                 skipped[t.id] = why
                 continue
-            times: Dict[str, List[Tuple[int, int]]] = {}
-            for n, c in enumerate(t.calls):
-                tm = c.dep if c.dep is not None else c.arr
-                if tm is not None:
-                    times.setdefault(c.loc, []).append((n, tm // 60))
-            versions.append((t, times))
+            versions.append((t, _times_of(t)))
+    for other in others:                                   # other operators: nothing says RAR or MAINT, all checked
+        op = other.operator or os.path.splitext(os.path.basename(other.path))[0][:12]
+        for vs in other.trains.values():
+            for t in vs:
+                t.operator = op
+                versions.append((t, _times_of(t)))
+    by_id: Dict[str, List[Any]] = {}
+    for vs in (lines.trains.values() if lines is not None else ()):
+        for vt in vs:
+            by_id.setdefault(vt.id, []).append(vt)
     clashes: List[Clash] = []
     found: List[Tuple[int, Any, int]] = []
     not_found: Dict[str, List[str]] = {}
@@ -584,7 +625,14 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
                     for per in pers:
                         if not _valid_in(t, per, start, end):
                             continue
-                        clashes.append(Clash(p, per, w, t.id, day, _when(day, ta), _when(day, tb), direction))
+                        c = Clash(p, per, w, t.id, day, _when(day, ta), _when(day, tb), direction, operator=t.operator)
+                        if not p.every_line:
+                            codes = _vpt_lines(t, by_id, ends, ta, day) if t.operator == "" else \
+                                [x for _i, x in sorted(line_codes(t, ia, ib).items())]
+                            if codes is not None:
+                                c.line_verdict, c.line_why = line_verdict(p.blocked, codes)
+                                c.line = ", ".join(dict.fromkeys(codes))
+                        clashes.append(c)
                         found.append((len(clashes) - 1, t, lo))
     # one row per train, day, possession and period (a train in two windows of the same night once)
     seen, unique = set(), []
@@ -595,6 +643,15 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
             unique.append(i)
     info = {i: (t, lo) for i, t, lo in found}
     kept, exempt = _apply_remarks([clashes[i] for i in unique], [info[i] for i in unique], tips, versions)
+    settled = 0
+    for c in list(kept):                                  # the running lines of a VPT settle some clashes
+        if c.line_verdict == S4L.BLOCKED:
+            c.every_line, settled = True, settled + 1
+            c.remark = (c.remark + "; " if c.remark else "") + c.line_why
+        elif c.line_verdict == S4L.OPEN:
+            kept.remove(c)
+            c.outcome, c.remark, settled = R_EXEMPT, (c.remark + "; " if c.remark else "") + c.line_why, settled + 1
+            exempt.append(c)
     trains = len({c.train for c in kept})
     warnings = []
     if not_found:
@@ -603,7 +660,18 @@ def check(plan, statement: Statement, log=lambda m: None) -> CheckResult:
     if skipped:
         warnings.append(f"{len(skipped)} train(s) were not checked (runs as required and not passenger, or on a "
                         "MAINT diagram) - see 'Skipped'.")
-    return CheckResult(kept, not_found, checked, trains, used, warnings, exempt, sorted(skipped.items()))
+    other_trains = len({(c.operator, c.train) for c in kept if c.operator})
+    return CheckResult(kept, not_found, checked, trains, used, warnings, exempt, sorted(skipped.items()), settled,
+                       other_trains)
+
+
+def _vpt_lines(t, by_id, ends, minute: int, day: int) -> Optional[List[str]]:
+    """The line codes for XML train `t` from our own VPT (None when no VPT train matches it)."""
+    for vt in by_id.get(t.id, []):
+        codes = _lines_between(vt, ends[0], ends[-1], minute, day)
+        if codes is not None:
+            return codes
+    return None
 
 
 def _apply_remarks(clashes: List[Clash], info, tips, versions) -> Tuple[List[Clash], List[Clash]]:
@@ -687,8 +755,8 @@ def _when(day: int, minutes: int) -> str:
 # --------------------------------------------------------------------------- output
 _CLASH_HEAD = ["Clash", "Line of route", "Section", "Between", "Period", "Night", "Possession", "Available",
                "Blocked", "Train", "Train runs", "First place", "Time there", "Second place", "Time there",
-               "Direction", "Remarks", "Remarks for this train"]
-_CLASH_WIDTHS = [20, 28, 9, 34, 16, 10, 24, 14, 30, 9, 8, 22, 10, 22, 10, 9, 40, 50]
+               "Direction", "Remarks", "Remarks for this train", "Line used (VPT)", "Operator"]
+_CLASH_WIDTHS = [20, 28, 9, 34, 16, 10, 24, 14, 30, 9, 8, 22, 10, 22, 10, 9, 40, 50, 16, 14]
 
 
 def clash_row(c: Clash) -> list:
@@ -696,7 +764,7 @@ def clash_row(c: Clash) -> list:
     return ["Every line blocked" if c.all_lines else "Some lines: check the line used", p.route, p.number,
             p.section, c.period.name, p.night, c.window.text, p.available, p.blocked or "-", c.train,
             DAY_SHORT[c.day], p.ends[0], c.at_a, p.ends[-1], c.at_b, c.direction or "-", p.remarks or "-",
-            c.remark or "-"]
+            c.remark or "-", c.line or "-", c.operator or "-"]
 
 
 def _clash_order(c: Clash):
@@ -720,6 +788,8 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                ["...whose remarks need checking by hand", to_check],
                ["Clashes lifted by the remarks (see 'Exempt')", len(result.exempt)],
                ["Trains not checked (see 'Skipped')", len(result.skipped)],
+               ["Clashes settled by the running lines in a VPT", result.by_line],
+               ["Trains of other operators in the clashes", result.other_trains],
                ["Sections with clashes", len(by_section)],
                ["Possession rows checked", result.checked],
                ["Possession rows read", len(statement.possessions)],
@@ -758,6 +828,11 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                           "route), dates, and lines left open. A lifted clash is on 'Exempt' with the reason; a "
                           "remark that needs checking by hand (weeks, other possessions, unknown wording) keeps "
                           "the clash and says so."],
+              ["Running lines (VPT)",
+               "With a VPT of this timetable, a clash where only some lines are blocked is settled by the line the "
+               "train runs on through the section: on a blocked line it stands as an 'every line' clash; on a line "
+               "that is not blocked it is listed on 'Exempt'; where the line is not known it stays 'check the line "
+               "used'. " + S4L.CODE_TEXT],
               ["Not checked", "Trains that run as required (unless they are passenger trains) and trains worked "
                               "by a MAINT diagram (see 'Skipped')."]]
     add_sheet(wb, "What Was Compared", ["Item", "Detail"], audit, [26, 110])
@@ -770,9 +845,10 @@ def _num_key(n: str):
 
 
 def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: str = "xlsx",
-              progress=lambda f, m: None, log=lambda m: None):
+              progress=lambda f, m: None, log=lambda m: None, vpt: str = "", others: Sequence[str] = ()):
     """Read the XML and the Section 4 PDF(s) - or, with no PDFs, the Section 4 rule set in use (Options > Rules and
-    reference data) - check, and save the report. Returns (path, result, statement, plan start date)."""
+    reference data) - check, and save the report. `vpt`: a VPT of the same timetable, for the running lines;
+    `others`: other operators' VPTs, whose trains are checked too. Returns (path, result, statement, plan start)."""
     from rstools.stationbook import StationBookError, _plan_of
     from rstools import naming, rules
     if pdfs:
@@ -795,8 +871,18 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
         plan = _plan_of(xml)                        # kept while the file is unchanged: a repeat check is quicker
     except StationBookError as exc:
         raise Section4Error(str(exc))
+    own, theirs = None, []
+    try:
+        if vpt:
+            log(f"Reading {os.path.basename(vpt)} for the running lines")
+            own = _plan_of(vpt, keep=True)
+        for o in others:
+            log(f"Reading {os.path.basename(o)} (another operator)")
+            theirs.append(_plan_of(o, keep=True))
+    except (StationBookError, PrintError) as exc:
+        raise Section4Error(str(exc))
     progress(0.6, "Checking...")
-    result = check(plan, statement, log)
+    result = check(plan, statement, log, own, theirs)
     stale = rules.coverage_warning(statement, plan.start, plan.end)
     if stale:
         result.warnings.insert(0, stale)

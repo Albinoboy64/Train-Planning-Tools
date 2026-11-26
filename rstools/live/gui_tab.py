@@ -17,7 +17,7 @@ from typing import Dict, List, Tuple
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
-from rstools.widgets import Progress, Tooltip
+from rstools.widgets import Progress, TaskBox, Tooltip
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 
@@ -43,20 +43,23 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
                ("b", "Updated Section 4 PDF(s):", (".pdf",), True)],
     "tprs": [("a", "Original TPR PDF(s):", (".pdf",), True), ("b", "Updated TPR PDF(s):", (".pdf",), True)],
     "s4check": [("xa", "Attune XML:", (".xml",), False),
-                ("a", "Section 4 PDF(s) (blank: the rule set in use):", (".pdf",), True)],
+                ("a", "Section 4 PDF(s) (blank: the rule set in use):", (".pdf",), True),
+                ("xb", "Our VPT (optional, for running lines):", (".vpt",), False),
+                ("tb", "Other operators' VPT(s) (optional):", (".vpt",), True)],
     "berthing": [("a", "Older berthing chart:", _XL, False), ("b", "Newer berthing chart:", _XL, False)],
     "units": [("xa", "Original Attune XML (optional):", (".xml",), False),
               ("ta", "Original TRENT print(s):", (".docx",), True),
               ("xb", "Updated Attune XML (optional):", (".xml",), False),
               ("tb", "Updated TRENT print(s):", (".docx",), True)],
 }
-OPTIONAL = {("s4check", "a"), ("units", "xa"), ("units", "xb")}      # boxes that may be left blank
+OPTIONAL = {("s4check", "a"), ("s4check", "xb"), ("s4check", "tb"),          # boxes that may be left blank
+            ("units", "xa"), ("units", "xb")}
 PASSENGER_MODES = ("cwn", "timetables", "print_tt", "list_tt", "prints")     # where 'passenger times only' applies
 CHECK_MODES = ("timetables", "print_tt", "list_tt", "prints")      # where header / timing differences can be switched
-FILTERS = {"Differences only": DIFF_STATES, "All": None,
-           "Added": (ADDED,), "Changed": (CHANGED,), "Changed since confirmed": "reopened",
-           "Confirmed": "confirmed", "Issues": (ISSUE,), "Not yet confirmed": "unconfirmed",
-           "Paired (check by eye)": (PAIRED,), "Removed / missing": (REMOVED,), "Unchanged": (SAME,),
+FILTERS = {"Differences only": DIFF_STATES, "All": None,                      # then by result, then by progress, A-Z
+           "Added": (ADDED,), "Changed": (CHANGED,), "Issues": (ISSUE,), "Paired (check by eye)": (PAIRED,),
+           "Removed / missing": (REMOVED,), "Unchanged": (SAME,),
+           "Changed since confirmed": "reopened", "Confirmed": "confirmed", "Not yet confirmed": "unconfirmed",
            "Updated by the last refresh": "fresh"}
 TICK = "\u2714"
 MAX_LIST = 20000                    # rows put in the list at once (search or filter to narrow a bigger result)
@@ -99,10 +102,9 @@ class LiveTab(ttk.Frame):
 
     # ------------------------------------------------------------------ UI
     def _build(self):
-        from .adapters import MODES
+        from .adapters import MODE_GROUPS
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)
-        ttk.Label(self, text="Live View", style="Head.TLabel").grid(row=0, column=0, sticky="w")
         theme.tip(ttk.Label(self, text="Browse any comparison train by train: click a train to see it side by side "
                                        "with its match and every difference. Tick 'Refresh when a file is saved' to "
                                        "see changes as you save the files.", style="Small.TLabel", wraplength=1100,
@@ -112,12 +114,12 @@ class LiveTab(ttk.Frame):
         top = ttk.Frame(self)
         top.grid(row=2, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        ttk.Label(top, text="Compare:").grid(row=0, column=0, sticky="w")
-        self.mode_names = dict(MODES)
-        self.mode_box = ttk.Combobox(top, values=list(MODES.values()), state="readonly", width=52)
-        self.mode_box.set(MODES["cwn"])
+        ttk.Label(top, text="Task:", font="AppBold").grid(row=0, column=0, sticky="w")
+        self.mode_box = TaskBox(top, MODE_GROUPS, width=52)
+        self.mode_names = {m: lab for m, lab in self.mode_box.tasks}
+        self.mode_box.show("cwn")
         self.mode_box.grid(row=0, column=1, sticky="w", padx=4, pady=2)
-        self.mode_box.bind("<<ComboboxSelected>>", lambda _e: self._mode_changed())
+        self.mode_box.bind("<<ComboboxSelected>>", lambda _e: (self.mode_box.show(self.mode()), self._mode_changed()))
         self.files_frame = ttk.Frame(top)
         self.files_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.files_frame.columnconfigure(1, weight=1)
@@ -307,8 +309,7 @@ class LiveTab(ttk.Frame):
 
     # ------------------------------------------------------------------ mode and files
     def mode(self) -> str:
-        label = self.mode_box.get()
-        return next(k for k, v in self.mode_names.items() if v == label)
+        return self.mode_box.picked() or "cwn"          # a group heading counts as its first task
 
     def _mode_changed(self):
         mode = self.mode()
@@ -437,7 +438,7 @@ class LiveTab(ttk.Frame):
 
     def set_state(self, s: dict):
         if s.get("mode") in self.mode_names:
-            self.mode_box.set(self.mode_names[s["mode"]])
+            self.mode_box.show(s["mode"])
             self._mode_changed()
         for k, v in (s.get("files") or {}).items():
             if k in self.vars and isinstance(v, str):

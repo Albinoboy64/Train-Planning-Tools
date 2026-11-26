@@ -14,7 +14,7 @@ from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
 from rstools.autocomplete import Suggest
-from rstools.widgets import Progress, local_folder_box
+from rstools.widgets import Progress, TaskBox, local_folder_box
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 from rstools.fsutil import write_json
@@ -38,7 +38,8 @@ MODES = {"create": ("Create a stats pack", "Create stats pack"),
          "packs": ("Compare two stats pack files", "Compare stats packs"),
          "units": ("Unit reports: washes and CETs, depot returns / swaps, captive units, fuel", "Create unit report"),
          "seats": ("Capacity report: by headcode group, corridor or station to station", "Create capacity report")}
-TASK_ORDER = sorted(MODES, key=lambda m: MODES[m][0].casefold())          # the Task list, A-Z
+TASK_GROUPS = [("Stats packs", [(m, MODES[m][0]) for m in ("create", "plans", "packs")]),      # the Task list
+               ("Reports", [(m, MODES[m][0]) for m in ("units", "seats")])]
 FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
          "plans": [("xml_a", "Original XML:"), ("trent_a", "Original TRENT VL29 print(s):"),
                    ("xml_b", "Updated XML:"), ("trent_b", "Updated TRENT VL29 print(s):")],
@@ -109,7 +110,6 @@ class StatsPackTab(ttk.Frame):
         self.columnconfigure(0, weight=1, minsize=520)
         self.columnconfigure(1, weight=1, minsize=470)
         self.rowconfigure(2, weight=1)
-        ttk.Label(self, text="Stats Pack", style="Head.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         theme.tip(ttk.Label(self, text="Stats packs, unit reports and capacity reports from an Attune XML and the "
                                        "TRENT VL29 print.",
                             style="Small.TLabel", wraplength=1000, justify="left")).grid(
@@ -121,22 +121,24 @@ class StatsPackTab(ttk.Frame):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
 
-        # 1. mode
-        mf = ttk.LabelFrame(left, text="1. What to Do", padding=8)
-        mf.grid(row=0, column=0, sticky="ew")
+        # the task: one drop-down; only what the chosen task needs is shown below it
         self.mode = tk.StringVar(value="create")
-        mf.columnconfigure(1, weight=1)
-        ttk.Label(mf, text="Task:").grid(row=0, column=0, sticky="w")
-        self.task_box = ttk.Combobox(mf, state="readonly", values=[MODES[m][0] for m in TASK_ORDER])
-        self.task_box.grid(row=0, column=1, sticky="ew", padx=4)
+        task = ttk.Frame(left)
+        task.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        task.columnconfigure(1, weight=1)
+        ttk.Label(task, text="Task:", font="AppBold").grid(row=0, column=0, padx=(0, 6))
+        self.task_box = TaskBox(task, TASK_GROUPS)
+        self.task_box.grid(row=0, column=1, sticky="ew")
         self.task_box.bind("<<ComboboxSelected>>", self._task_picked)
         self.mode.trace_add("write", lambda *_a: self._task_shown())
-        uf = self.units_frame = ttk.Frame(mf)
-        uf.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        opt = self.opt_frame = ttk.LabelFrame(left, text="2. Options", padding=8)
+        opt.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        uf = self.units_frame = ttk.Frame(opt)
+        uf.grid(row=0, column=0, sticky="w")
         self.unit_vars = {k: tk.BooleanVar(value=True) for k in UNIT_REPORTS}
-        for i, (key, text) in enumerate((("washes", "Washes"), ("cets", "CETs"), ("depots", "Depot returns / swaps"),
-                                         ("captive", "Captive units"), ("fuel", "Fuel check (171s)"))):
-            ttk.Checkbutton(uf, text=text, variable=self.unit_vars[key]).grid(row=i // 2, column=i % 2, sticky="w",
+        for i, (key, text) in enumerate((("washes", "Washes"), ("cets", "CETs"), ("fuel", "Fuel check (171s)"),
+                                         ("depots", "Depot returns / swaps"), ("captive", "Captive units"))):
+            ttk.Checkbutton(uf, text=text, variable=self.unit_vars[key]).grid(row=i // 3, column=i % 3, sticky="w",
                                                                             padx=(0, 10))
         self.two_plans = tk.BooleanVar(value=False)         # unit / capacity reports: compare two timetables
         self.unit_period = tk.StringVar(value="week")
@@ -146,10 +148,10 @@ class StatsPackTab(ttk.Frame):
         ttk.Checkbutton(uf, text="Compare two timetables (original and updated XML + TRENT print)",
                         variable=self.two_plans, command=self._mode_changed).grid(row=6, column=0, columnspan=3,
                                                                                   sticky="w", pady=(2, 0))
-        self._build_seats(mf, 1)
+        self._build_seats(opt, 1)
 
-        # 2. files
-        ff = ttk.LabelFrame(left, text="2. Files", padding=8)
+        # 1. input
+        ff = ttk.LabelFrame(left, text="1. Input", padding=8)
         ff.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ff.columnconfigure(1, weight=1)
         self.vars = {k: tk.StringVar() for k in ("xml_a", "trent_a", "xml_b", "trent_b", "pack_a", "pack_b")}
@@ -169,9 +171,9 @@ class StatsPackTab(ttk.Frame):
         self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.dnd_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-        # 4. output
-        of = ttk.LabelFrame(left, text="4. Output", padding=8)
-        of.grid(row=2, column=0, sticky="ew")
+        # 3. output
+        of = ttk.LabelFrame(left, text="3. Output", padding=8)
+        of.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         of.columnconfigure(1, weight=1)
         fmtf = ttk.Frame(of)
         fmtf.grid(row=9, column=0, columnspan=3, sticky="w", pady=(6, 0))
@@ -223,8 +225,8 @@ class StatsPackTab(ttk.Frame):
         ttk.Button(of, text="Edit fleet data (operator, seats, units, lengths)...", command=self.edit_fleet).grid(
             row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
-        # 3. selection
-        sel = self.sel_frame = ttk.LabelFrame(right, text="3. Days, Operators and Fleets", padding=8)
+        # 4. selection
+        sel = self.sel_frame = ttk.LabelFrame(right, text="4. Days, Operators and Fleets", padding=8)
         sel.grid(row=0, column=0, sticky="nsew")
         sel.columnconfigure(0, weight=1)
         ttk.Label(sel, text="Diagram days:").grid(row=0, column=0, sticky="w")
@@ -532,16 +534,14 @@ class StatsPackTab(ttk.Frame):
 
     # ------------------------------------------------------------ helpers
     def _task_picked(self, _event=None):
-        index = self.task_box.current()
-        modes = TASK_ORDER
-        if 0 <= index < len(modes) and modes[index] != self.mode.get():
-            self.mode.set(modes[index])
+        mode = self.task_box.picked()
+        if mode and mode != self.mode.get():
+            self.mode.set(mode)
             self._mode_changed()
+        self._task_shown()                      # a group heading chosen: show its first task
 
     def _task_shown(self):
-        label = MODES.get(self.mode.get(), next(iter(MODES.values())))[0]
-        if self.task_box.get() != label:
-            self.task_box.set(label)
+        self.task_box.show(self.mode.get())
 
     def _mode_changed(self):
         mode = self.mode.get()
@@ -563,6 +563,7 @@ class StatsPackTab(ttk.Frame):
         self._set_state(self.cmp_frame, mode in ("plans", "packs"))
         (self.units_frame.grid if mode == "units" else self.units_frame.grid_remove)()
         (self.seats_frame.grid if mode == "seats" else self.seats_frame.grid_remove)()
+        (self.opt_frame.grid if mode in ("units", "seats") else self.opt_frame.grid_remove)()
         if mode == "seats":
             self._load_groups()
         self._update_name_hint()

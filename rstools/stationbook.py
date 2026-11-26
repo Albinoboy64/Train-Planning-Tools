@@ -86,6 +86,7 @@ class Train:
     valid_until: str = ""
     rar: str = ""               # how the XML marks it 'runs as required' ('' if it does not)
     operator: str = ""          # another operator's train merged in from its own XML ('' for the book's own)
+    lines: Dict[int, str] = field(default_factory=dict)     # VPT only: call index -> line of the leg ending there
 
     @property
     def passenger(self) -> bool:
@@ -144,7 +145,10 @@ def _unroll(values: List[Optional[int]]) -> List[Optional[int]]:
 
 
 def read_plan(path: str) -> Plan:
-    """Trains, unit diagrams and location names from an Attune diagram XML."""
+    """Trains, unit diagrams and location names from an Attune diagram XML (or the trains of a VPT export)."""
+    if path.lower().endswith(".vpt"):
+        from rstools.timetable.vpt import read_plan as read_vpt_plan
+        return read_vpt_plan(path)
     from rstools.fsutil import long_path
     locations: Dict[str, str] = {}
     trains: Dict[str, List[Train]] = defaultdict(list)
@@ -729,7 +733,12 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         others = []
         for p in merge_xml:
             log(f"Merging {os.path.basename(p)}")
-            others.append(_plan_of(p, keep=True))
+            try:
+                others.append(_plan_of(p, keep=True))
+            except Exception as exc:                  # a VPT that cannot be read (PrintError)
+                if p.lower().endswith(".vpt"):
+                    raise StationBookError(str(exc))
+                raise
         plan = merge_plans(plan, others)
     progress(0.45, f"Finding the trains at {station.strip()}...")
     tips = Stations(plan.locations).find(station.strip())
@@ -756,6 +765,10 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         log(f"{dt}: {len(rows)} row(s)")
         total += len(rows)
         sheets.append((f"{label} {dt}", rows))
+    vpts = [os.path.basename(p) for p in merge_xml if p.lower().endswith(".vpt")]
+    if vpts:
+        warnings.append("Trains from " + ", ".join(vpts) + " come from a VPT, which has no unit diagrams: their "
+                        "stock is blank, and working times are shown where there are no public times.")
     if missing_days:
         warnings.append("The XML has no unit diagrams for " + ", ".join(DAY_NAMES[d] for d in sorted(missing_days))
                         + ", so the stock and inward workings are missing on those days. Export the XML with the "

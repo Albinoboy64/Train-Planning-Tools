@@ -1155,3 +1155,29 @@ def test_every_tab_and_mode_fits_a_small_screen(tmp_path, monkeypatch):
         assert not over, over
     finally:
         app.destroy()
+
+
+def test_task_box_groups_headings_and_picks():
+    """The grouped Task list: a heading line per group, tasks indented under it, a heading picks its group's first
+    task, and every task shows its own line."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from rstools.widgets import TaskBox
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        box = TaskBox(root, [("One", [("a", "Alpha"), ("b", "Beta")]), ("Two", [("c", "Gamma")])])
+        values = list(box.cget("values"))
+        assert values[0].strip("─ ") == "One" and values[1] == "   Alpha" and values[3].strip("─ ") == "Two"
+        assert box.tasks == [("a", "Alpha"), ("b", "Beta"), ("c", "Gamma")]
+        for mode, label in box.tasks:
+            box.show(mode)
+            assert box.picked() == mode and box.get().strip() == label
+        box.set(values[3])                              # the heading of group Two
+        assert box.picked() == "c"
+        box.set(values[0])
+        assert box.picked() == "a"
+    finally:
+        root.destroy()

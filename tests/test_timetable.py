@@ -1191,3 +1191,56 @@ def test_live_vpt_against_vpt_and_print():
         assert [i.status for i in res.items] == ["No change"]
         res = compute("prints", {"a": [pdf], "b": [b]})
         assert [i.status for i in res.items] == ["Timing change"]
+
+
+def test_section4_check_uses_vpt_running_lines_and_other_operators():
+    """A VPT of the timetable gives each train's line: where only the Fast lines are blocked, a train on the Fast line
+    clashes (every line) and one on the Slow line is lifted; another operator's VPT trains are checked and marked."""
+    from datetime import date
+    from rstools import stationbook as SB
+    from rstools.timetable import s4lines as L, section4 as S4
+    assert L.parse_code("DBF") == ("Down", "Fast") and L.parse_code("SL") == ("", "Slow")
+    assert L.parse_code("UML") == ("Up", "Main") and L.parse_code("QL") == ("", "Quarry")
+    assert L.parse_code("9") == ("", "")
+    assert L.verdict("Fast Lines BLOCKED", ["SL"])[0] == L.OPEN
+    assert L.verdict("Fast Lines BLOCKED", ["FL"])[0] == L.BLOCKED
+    assert L.verdict("Fast Lines BLOCKED", ["9"])[0] == L.UNKNOWN
+    assert L.verdict("Fast Lines BLOCKED", [])[0] == L.UNKNOWN
+    assert L.verdict("Down Slow BLOCKED", ["UBS"])[0] == L.OPEN
+    d = tempfile.mkdtemp()
+    x = os.path.join(d, "plan.xml")
+
+    def tr(tid, t1, t2):
+        return (f'<train id="{tid}" daysRun="NNNYYYYNN" planType="L" validFrom="2026-12-13" validUntil="2027-05-15">'
+                f'<leg origin="AAA" dep="{t1}" dest="BBB" arr="{t2}" depPlat="1" arrPlat="1"/></train>')
+    with open(x, "w", encoding="utf-8") as fh:
+        fh.write('<diagramExchange xmlns="http://www.tracsis.com/TTVP_Interface" version="1.0" plantype="L" '
+                 'startdate="2026-12-13" enddate="2027-05-15"><trainList>'
+                 + tr("1A01XX", "01:50:00", "02:10:00") + tr("1A04XX", "01:55:00", "02:15:00")
+                 + tr("1A05XX", "01:57:00", "02:17:00")
+                 + '</trainList><locationList><location tiploc="AAA" longDesc="Alpha"/>'
+                 '<location tiploc="BBB" longDesc="Beta Jn"/></locationList></diagramExchange>')
+
+    def vt(ident, mins, line):
+        return dict(id=ident, start="20261213", end="20270514", bits=60,
+                    points=[dict(tip="AAA", dep=_h(1, mins)), dict(tip="BBB", arr=_h(2, mins - 40 + 20), line=line)])
+    own, other = os.path.join(d, "own.vpt"), os.path.join(d, "other.vpt")
+    write_vpt(own, [vt("1A01XX", 50, "SL"), vt("1A04XX", 55, "FL")])             # 1A05XX is not in the VPT
+    write_vpt(other, [vt("9Z99XX", 52, "FL")])
+    per = S4.Period("Periods A and B", date(2026, 12, 13), date(2027, 2, 14))
+    pos = S4.Possession("XX100 TEST", "Alpha and Beta Junction", "100.1", ("Alpha", "Beta Junction"), "MID WEEK",
+                        [per], S4.parse_windows("0140 T-F to 0350 T-F"), "Fast Lines BLOCKED", "", "t")
+    st = S4.Statement([pos])
+    plain = S4.check(SB.read_plan(x), st)
+    assert {c.train for c in plain.clashes} == {"1A01XX", "1A04XX", "1A05XX"}
+    assert not any(c.all_lines for c in plain.clashes)
+    res = S4.check(SB.read_plan(x), st, lines=SB.read_plan(own), others=[SB.read_plan(other)])
+    by = {c.train: c for c in res.clashes}
+    assert set(by) == {"1A04XX", "1A05XX", "9Z99XX"}                              # 1A01XX (Slow line) lifted
+    assert by["1A04XX"].all_lines and by["1A04XX"].line == "FL" and "Fast line" in by["1A04XX"].remark
+    assert not by["1A05XX"].all_lines and by["1A05XX"].line == ""                 # no VPT train: check the line used
+    assert by["9Z99XX"].all_lines and by["9Z99XX"].operator == "AA"
+    assert {c.train for c in res.exempt} == {"1A01XX"} and "Slow" in res.exempt[0].remark
+    assert res.by_line == 12 and res.other_trains == 1                            # 3 trains x 4 days
+    row = S4.clash_row(by["9Z99XX"])
+    assert row[-2:] == ["FL", "AA"]
