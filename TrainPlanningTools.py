@@ -7,7 +7,7 @@ Command-line use:
     TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days FO   (Friday trains only)
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
-                                       [--sheets SX,SO,Su]
+                                       [--sheets SX,SO,Su] [--merge-xml OTHER_OPERATOR.xml ...]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge ...] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
@@ -22,10 +22,13 @@ Command-line use:
     TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-from Brighton
                                      --capacity-to "London Victoria" --no-standing
     TrainPlanningTools.exe timetable --gtr GTR.xlsx --nr NR.xlsx [--format xlsx|pdf|docx]
-    TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...]
+    TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...] [--passenger-only]
     TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
     TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
+    TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]
+    TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...]
+    TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...]
 """
 import argparse
 import os
@@ -130,6 +133,8 @@ def stationbook_cli(argv):
     ap.add_argument("--services", default="Thameslink and Great Northern services only", help="for the title")
     ap.add_argument("--label", default="", help="sheet name before SX / SO / Su (default: station (operator))")
     ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
+    ap.add_argument("--merge-xml", nargs="+", default=[], metavar="XML",
+                    help="other operators' Attune XML(s) whose trains are merged into the book")
     ap.add_argument("--name", default="", help="output name")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     a = _local_out(ap, ap.parse_args(argv))
@@ -137,7 +142,8 @@ def stationbook_cli(argv):
     if len(entries) > 1:
         try:
             results = make_books(a.xml, entries, a.out, a.operator, a.timetable, a.services,
-                                 [s.strip() for s in a.sheets.split(",") if s.strip()], log=print)
+                                 [s.strip() for s in a.sheets.split(",") if s.strip()], log=print,
+                                 merge_xml=a.merge_xml)
         except StationBookError as exc:
             print("ERROR: " + str(exc))
             sys.exit(1)
@@ -149,7 +155,7 @@ def stationbook_cli(argv):
     try:
         path, warnings, summary = make_book(a.xml, a.station, a.out, a.name, a.operator, a.timetable, a.services,
                                             a.label, a.platforms, [s.strip() for s in a.sheets.split(",") if s.strip()],
-                                            log=print)
+                                            log=print, merge_xml=a.merge_xml)
     except StationBookError as exc:
         print("ERROR: " + str(exc))
         sys.exit(1)
@@ -350,14 +356,45 @@ def timetable_cli(argv):
     g.add_argument("--base-prints", nargs="+", help="Attune Single Train Report print(s) as the reference "
                                                    "(checked against --check)")
     g.add_argument("--base-list", help="Attune train list as the reference (checked against --check)")
+    g.add_argument("--tpr", nargs="+", help="original Timetable Planning Rules PDF(s) (compared with --vs-tpr)")
+    g.add_argument("--s4-check", metavar="XML", help="Section 4 check: the Attune XML to check against the Section 4 "
+                                                     "PDF(s) in --s4 (or the rule set in use)")
     ap.add_argument("--check", help="timetable workbook (GTR or Network Rail layout) to check")
     ap.add_argument("--nr", help="Network Rail timetable workbook (the reference)")
     ap.add_argument("--vs", nargs="+", help="updated train print(s) or train list")
+    ap.add_argument("--s4", nargs="+", default=[], help="Section 4 PDF(s): for --s4-check, or the original set "
+                                                        "compared with --vs-s4")
+    ap.add_argument("--vs-s4", nargs="+", default=[], help="updated Section 4 PDF(s), compared with --s4")
+    ap.add_argument("--vs-tpr", nargs="+", default=[], help="updated TPR PDF(s), compared with --tpr")
+    ap.add_argument("--passenger-only", action="store_true",
+                    help="train prints: leave out passing times and calls without a public time (for prints where "
+                         "one side does not show the intermediate timing points)")
     ap.add_argument("--name", default="", help="output name (default chosen from the inputs)")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
+    argv = list(argv)
+    if "--s4" in argv and "--vs-s4" in argv and not any(x in argv for x in ("--gtr", "--prints", "--lists",
+                                                                             "--base-prints", "--base-list",
+                                                                             "--tpr", "--s4-check")):
+        argv.append("--s4-compare")               # --s4 OLD --vs-s4 NEW: the Section 4 comparison
+    g.add_argument("--s4-compare", action="store_true", help=argparse.SUPPRESS)
     a = _local_out(ap, ap.parse_args(argv))
-    if a.gtr:
+    if a.vs_s4 and not a.s4_compare:
+        ap.error("--vs-s4 needs --s4 (the original Section 4 PDFs) and no other comparison")
+    if a.vs_tpr and not a.tpr:
+        ap.error("--vs-tpr is used with --tpr")
+    if a.s4 and not (a.s4_check or a.s4_compare):
+        ap.error("--s4 is used with --s4-check or --vs-s4")
+    if a.passenger_only and not a.prints:
+        ap.error("--passenger-only is used with --prints")
+    if a.s4_check:
+        _section4_cli(a)
+        return
+    if a.s4_compare:
+        mode, first, second = "s4docs", a.s4, a.vs_s4
+    elif a.tpr:
+        mode, first, second = "tprs", a.tpr, a.vs_tpr
+    elif a.gtr:
         mode, first, second = "timetables", [a.gtr], [a.nr] if a.nr else []
     elif a.base_prints or a.base_list:
         mode = "print_tt" if a.base_prints else "list_tt"
@@ -365,18 +402,38 @@ def timetable_cli(argv):
     else:
         mode, first, second = ("prints", a.prints, a.vs or []) if a.prints else ("lists", [a.lists], a.vs or [])
     if not second:
-        ap.error("--nr is needed with --gtr, --vs with --prints / --lists, and --check with --base-prints / "
-                 "--base-list")
+        ap.error("--nr is needed with --gtr, --vs with --prints / --lists, --check with --base-prints / "
+                 "--base-list, and --vs-tpr with --tpr")
     from rstools.fsutil import output_folder
     out = output_folder(a.out)
     try:
-        res = run(mode, first, second, out, a.name, a.format, log=print)
+        res = run(mode, first, second, out, a.name, a.format, log=print, passenger_only=a.passenger_only)
     except Exception as exc:                 # readable messages from the readers and the engine
         print("ERROR:", exc)
         sys.exit(1)
     for line in res.lines:
         print(line)
     print("Saved:", res.path)
+
+
+def _section4_cli(a):
+    from rstools.timetable.engine import TimetableRunError
+    from rstools.timetable.section4 import Section4Error, run_check
+    try:
+        if not os.path.isfile(a.s4_check):
+            raise Section4Error(f"This file could not be found:\n{a.s4_check}")
+        missing = [p for p in a.s4 if not os.path.isfile(p)]
+        if missing:
+            raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
+        path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print)
+    except (Section4Error, TimetableRunError) as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+    for w in st.warnings + res.warnings:
+        print("WARNING:", w)
+    print(f"{res.trains} train(s) in a possession window; {len(res.clashes)} clash(es), {len(res.exempt)} lifted "
+          f"by the remarks, {len(res.skipped)} train(s) not checked")
+    print("Saved:", path)
 
 
 def berthing_cli(argv):

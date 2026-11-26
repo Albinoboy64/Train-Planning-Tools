@@ -510,9 +510,12 @@ def test_reorder_day_variants():
     wb = openpyxl.load_workbook(src)
     from openpyxl.worksheet.hyperlink import Hyperlink
     wb["VIC"]["A3"].hyperlink = Hyperlink(ref="A3", location="'BTN'!A7")   # links to the MO variant's row
+    for ref in ("I5", "I3"):                                                 # diagram numbers linking away
+        wb["BTN"][ref].hyperlink = Hyperlink(ref=ref, location="'VIC'!A3")
     wb.save(src)
     res = reorder_cwn(src, d)
     out = openpyxl.load_workbook(res["path"])
+    assert out["BTN"]["I3"].hyperlink is None and out["BTN"]["I5"].hyperlink is None   # DIAG clicks stay put
     got = [(r[0], r[1], r[3]) for r in out["BTN"].iter_rows(min_row=3, values_only=True) if r[0] == "2C02BT"]
     assert got == [("2C02BT", "MO", "7"), ("2C02BT", "TWThO", "8"), ("2C02BT", "FO", "9")]
     assert out["BTN"]["F6"].value == "377/3" and out["BTN"]["I6"].value == "312"     # unit row moved with MO

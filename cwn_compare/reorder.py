@@ -561,6 +561,7 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
         progress(1.0, "Nothing to change")
         return {"path": "", "trains": 0, "merged": 0, "tabs": 0, "warnings": warnings, "apart": apart_all}
     _fix_hyperlinks(wb, row_maps, set())
+    _unlink_diagram_cells(wb, model)
     folder = output_folder(out_dir)
     stem = name.strip() or os.path.splitext(os.path.basename(path))[0] + variants_suffix(by_time, merge)
     out = os.path.join(folder, unique_stem(folder, stem, (".xlsx",)) + ".xlsx")
@@ -571,7 +572,21 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
             "apart": apart_all}
 
 
-APART_SHOWN = 300                   # lines of 'kept apart' detail in the log (the rest are counted)
+def _unlink_diagram_cells(wb, model):
+    """Diagram numbers (DIAG / AM / PM) carry no link to another tab: clicking one stays on the cell, so its
+    each-day values can be read (a link would jump away first). Headcode links elsewhere are kept."""
+    from .writer import remove_hyperlinks
+    cols = {sm.title: ({sm.cols[k] for k in ("diag", "am", "pm") if k in sm.cols},
+                       min((b.start_row for b in sm.blocks), default=sm.header_row + 1))
+            for sm in model.sheets.values()}
+
+    def where(title, row, col):
+        hit = cols.get(title)
+        return hit is not None and col in hit[0] and row >= hit[1]
+    remove_hyperlinks(wb, where)
+
+
+APART_SHOWN = 300                  # lines of 'kept apart' detail in the log (the rest are counted)
 
 
 def variants_suffix(by_time: bool, merge: bool) -> str:

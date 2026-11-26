@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
-from rstools.widgets import Progress, local_folder_box
+from rstools.widgets import Progress, Tooltip, local_folder_box
 from rstools.branding import APP_NAME, settings_dir
 from rstools.naming import file_label
 from rstools.fsutil import output_folder, write_json
@@ -25,6 +25,8 @@ MODE_TEXT = {
     "list_tt": ("Attune train list against a timetable", "Check timetable"),
     "prints": ("Two sets of train prints (PDF or Word)", "Compare train prints"),
     "lists": ("Two Attune train list exports (Excel)", "Compare train lists"),
+    "s4docs": ("Two sets of Section 4 documents (PDF)", "Compare Section 4"),
+    "tprs": ("Two sets of Timetable Planning Rules (PDF)", "Compare TPRs"),
 }
 SIDES = {
     "timetables": ("GTR timetable:", "Network Rail timetable:"),
@@ -32,14 +34,18 @@ SIDES = {
     "list_tt": ("Attune train list - reference:", "Timetable to check:"),
     "prints": ("Original train print(s):", "Updated train print(s):"),
     "lists": ("Original Attune train list:", "Updated Attune train list:"),
+    "s4docs": ("Original Section 4 PDF(s):", "Updated Section 4 PDF(s):"),
+    "tprs": ("Original TPR PDF(s):", "Updated TPR PDF(s):"),
 }
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _FT = {_XL: [("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
        _PR: [("Train prints", "*.pdf *.docx"), ("PDF", "*.pdf"), ("Word", "*.docx"), ("All files", "*.*")],
-       _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")]}
+       _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")],
+       (".pdf",): [("PDF", "*.pdf"), ("All files", "*.*")]}
 EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL), "prints": (_PR, _PR),
-        "lists": (_LI, _LI)}                       # accepted file types for the first and second box
-MULTI = {"print_tt": (True, False), "prints": (True, True)}     # boxes that take several files
+        "lists": (_LI, _LI), "s4docs": ((".pdf",), (".pdf",)), "tprs": ((".pdf",), (".pdf",))}
+MULTI = {"print_tt": (True, False), "prints": (True, True), "s4docs": (True, True),     # boxes that take several
+         "tprs": (True, True)}                                                          # files
 NOTES = {
     "timetables": ("Network Rail is the reference: every NR time at a GTR location is checked. Saved in the "
                    "Consolidated TT Comparison template, named after the NR timetable."),
@@ -52,6 +58,10 @@ NOTES = {
                "heading details."),
     "lists": ("Trains are paired by UID and days (or headcode, days and departure time; a retimed train still pairs "
               "when it is the only one left with its headcode, days and origin), and every column is compared."),
+    "s4docs": ("Each possession row is paired by section number and night, and its times, dates, locations, what "
+               "is blocked and the remarks / notes are compared. Page headings and the route title are not."),
+    "tprs": ("Every table row (paired by section, table and first column) and every paragraph is compared. Running "
+             "headers, footers and page numbers are not."),
 }
 SEP = " ; "
 S4 = "section4"                 # Utilities: the Section 4 possession check
@@ -176,6 +186,12 @@ class TimetableTab(ttk.Frame):
         self.note.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
         self.dnd_hint = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.dnd_hint.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.pax_var = tk.BooleanVar(value=False)
+        self.pax_cb = ttk.Checkbutton(mf, text="Passenger times only (leave out passing and working-only times)",
+                                      variable=self.pax_var)
+        self.pax_cb.grid(row=6, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        Tooltip(self.pax_cb, "For prints where one side does not show the intermediate timing points: passing "
+                             "times and calls without a public time are not compared.")
 
         # --- utilities: the Section 4 possession check (Attune XML + Network Rail's Section 4 PDFs)
         uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
@@ -344,6 +360,16 @@ class TimetableTab(ttk.Frame):
                 if not many and len(fits) > 1:
                     self.status.configure(text="That box takes one file - the first was used.")
                 return
+        if mode in ("s4docs", "tprs") and all(p.lower().endswith(".pdf") for p in paths):
+            files = sorted(paths, key=os.path.getmtime)         # older file(s) are the original
+            if len(files) >= 2:
+                half = len(files) // 2
+                self.vars["a"].set(SEP.join(files[:half]))
+                self.vars["b"].set(SEP.join(files[half:]))
+            else:
+                empty = [k for k in ("a", "b") if not self.vars[k].get().strip()]
+                self.vars[(empty or ["b"])[0]].set(files[0])
+            return
         kinds = {p: sniff_timetable(p) for p in sheets}
         tts = sorted((p for p in sheets if kinds[p]), key=lambda p: kinds[p] != "gtr")      # GTR first
         lists = [p for p in sheets if not kinds[p]]
@@ -443,6 +469,7 @@ class TimetableTab(ttk.Frame):
             if current and not all(p.lower().endswith(EXTS[cmp][side]) for p in split_paths(current)):
                 self.vars[key].set("")
         self.note.configure(text=NOTES[cmp])
+        (self.pax_cb.grid if cmp == "prints" else self.pax_cb.grid_remove)()
         self.run_btn.configure(text="Check Section 4" if util else MODE_TEXT[cmp][1])
         if not self.running:
             self.status.configure(text="Ready - press F5 or Ctrl+Enter to run")
@@ -526,17 +553,20 @@ class TimetableTab(ttk.Frame):
             self.out_dir.set(s["output_dir"])
         if isinstance(s.get("last_dir"), str):
             self._last_dir = s["last_dir"]
+        if isinstance(s.get("passenger_only"), bool):
+            self.pax_var.set(s["passenger_only"])
 
     def _save_settings(self):
         s = {"mode": self.mode.get(), "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get().strip(),
-             "last_dir": self._last_dir}
+             "last_dir": self._last_dir, "passenger_only": self.pax_var.get()}
         write_json(_settings_path(), s)
 
     # ------------------------------------------------------------ saved comparisons
     def get_state(self) -> dict:
         return {"mode": self.mode.get(), "a": self.vars["a"].get(), "b": self.vars["b"].get(),
                 "s4_xml": self.s4_vars["xml"].get(), "s4_pdf": self.s4_vars["pdf"].get(),
-                "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get(), "output_name": self.out_name.get()}
+                "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get(), "output_name": self.out_name.get(),
+                "passenger_only": self.pax_var.get()}
 
     def set_state(self, s: dict):
         if s.get("mode") in MODES or s.get("mode") == S4:
@@ -550,6 +580,7 @@ class TimetableTab(ttk.Frame):
             self.fmt_var.set(s["fmt"])
         self.out_dir.set(s.get("output_dir", "") if isinstance(s.get("output_dir"), str) else "")
         self.out_name.set(s.get("output_name", "") if isinstance(s.get("output_name"), str) else "")
+        self.pax_var.set(s.get("passenger_only") is True)
 
     @staticmethod
     def files_in_state(s: dict) -> list:
@@ -604,8 +635,8 @@ class TimetableTab(ttk.Frame):
         self.progress.begin()
         self._started = time.monotonic()
         self.app.set_busy(True)
-        threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get()),
-                         daemon=True).start()
+        threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get(),
+                                                  mode == "prints" and self.pax_var.get()), daemon=True).start()
         self.app.pump.kick()
 
     def _run_section4(self):
@@ -656,23 +687,27 @@ class TimetableTab(ttk.Frame):
             path, res, st, start = run_check(xml, pdfs, out_dir, name, fmt,
                                       progress=lambda f, m: self.q.put(("prog", f, m)),
                                       log=lambda m: self.q.put(("log", m, None)))
-            every = sum(1 for c in res.clashes if c.possession.every_line)
+            every = sum(1 for c in res.clashes if c.all_lines)
             lines = [f"{len(st.possessions)} possession row(s) read; {res.checked} checked against the XML "
                      f"(periods: {', '.join(p.name for p in res.periods) or 'none'})."]
             lines += [f"WARNING: {w}" for w in st.warnings + res.warnings]
             summary = (f"{res.trains} train(s) run in a Section 4 possession window: {every} clash(es) where every "
                        f"line is blocked, {len(res.clashes) - every} where only some lines are (check the line "
                        "used)." if res.clashes else "No train runs in a Section 4 possession window.")
+            if res.exempt or res.skipped:
+                summary += (f" {len(res.exempt)} clash(es) lifted by the remarks; {len(res.skipped)} train(s) "
+                            "not checked (runs as required / MAINT).")
             self.q.put(("s4done", path, lines, summary, len(st.warnings + res.warnings), start))
         except (Section4Error, TimetableRunError) as exc:
             self.q.put(("error", str(exc)))
         except Exception as exc:
             self.q.put(("error", errorlog.describe(exc)))
 
-    def _work(self, mode, first, second, out_dir, name, fmt):
+    def _work(self, mode, first, second, out_dir, name, fmt, passenger_only=False):
         try:
             res = run(mode, first, second, out_dir, name, fmt, progress=lambda f, m: self.q.put(("prog", f, m)),
-                      log=lambda m: self.q.put(("log", m, "warn" if m.startswith("WARNING") else None)))
+                      log=lambda m: self.q.put(("log", m, "warn" if m.startswith("WARNING") else None)),
+                      passenger_only=passenger_only)
             self.q.put(("done", res))
         except TimetableRunError as exc:
             self.q.put(("error", str(exc)))
@@ -699,7 +734,8 @@ class TimetableTab(ttk.Frame):
                     self._append(item[1], item[2])
                 elif item[0] == "dropped":
                     _k, paths, key, s4 = item
-                    (self.place_section4(paths) if s4 else self.place_files(paths, key))
+                    (self.place_section4(paths) if s4 and self.mode.get() != "s4docs"
+                     else self.place_files(paths, key))
                 elif item[0] == "done":
                     res = item[1]
                     self._finish(True)

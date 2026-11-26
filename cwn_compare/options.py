@@ -46,6 +46,7 @@ class Options:
     book_timetable: str = ""
     book_services: str = "Thameslink and Great Northern services only"
     book_label: str = ""
+    book_merge: str = ""             # other operators' Attune XMLs merged into the book ('a.xml; b.xml')
     book_days: List[str] = field(default_factory=lambda: ["SX", "SO", "Su"])
     berth_files: Dict[str, List[str]] = field(default_factory=dict)   # berthing chart mode -> its file boxes
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
@@ -65,6 +66,7 @@ class Options:
     theme: str = "system"            # light | dark | contrast | system (follow Windows)
     text_size: str = "normal"        # small | normal | large | xlarge
     live_details_open: bool = True   # Live View: train-detail rows of train prints shown (unfolded)
+    live_passenger_only: bool = False    # Live View: passing / one-sided intermediate times hidden
     check_updates: bool = True       # look for a newer release on GitHub when the app starts
     notify_done: bool = True         # flash the taskbar and show a notice when a run ends in the background
     saved: Dict[str, dict] = field(default_factory=dict)     # saved comparisons: name -> {tab, state}

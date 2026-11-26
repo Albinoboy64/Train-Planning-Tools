@@ -393,7 +393,9 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
                           [[w] for w in warnings] + [[
                               "Days: " + ", ".join(DAY_NAMES[d] for d in days) + ". Depots: locations named "
                               "T&RSMD, TMD, EMUD, Depot, Shed or Traincare, plus the depot list (Options > Edit "
-                              "depot list)."]]))
+                              "depot list). Units stabling at Lovers Walk, Stewarts Lane or Selhurst end their "
+                              "cycle there unless the XML or TRENT print names their next working (never "
+                              "inferred), as those depots form whatever is needed the next day."]]))
     return reports, warnings
 
 

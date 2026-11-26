@@ -105,6 +105,18 @@ jobs:
           python -c "import sys; sys.path.insert(0,'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--base-prints','smoke\attune.pdf','--check','smoke\tt_check.xlsx','--out','smoke','--name','print_tt' -Wait -PassThru
           if (!(Test-Path smoke\print_tt.xlsx)) { throw "exe did not produce a print-against-timetable comparison" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--passenger-only','--out','smoke','--name','prints_pax' -Wait -PassThru
+          if (!(Test-Path smoke\prints_pax.xlsx)) { throw "exe did not produce a passenger-times-only print comparison" }
+          python -c "import sys, os; sys.path.insert(0,'tests'); import test_timetable as t; t.write_rule_docs(os.path.abspath('smoke')); t.write_s4_xml('smoke/s4plan.xml')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--out','smoke','--name','s4cmp' -Wait -PassThru
+          if (!(Test-Path smoke\s4cmp.xlsx)) { throw "exe did not compare two sets of Section 4 documents" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--tpr','smoke\tpr_old.pdf','--vs-tpr','smoke\tpr_new.pdf','--out','smoke','--name','tprcmp' -Wait -PassThru
+          if (!(Test-Path smoke\tprcmp.xlsx)) { throw "exe did not compare two sets of TPR documents" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--out','smoke','--name','s4check' -Wait -PassThru
+          if (!(Test-Path smoke\s4check.xlsx)) { throw "exe did not run the Section 4 check" }
+          python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_late_xml('smoke/late.xml'); t.write_late_xml('smoke/other.xml', operator='XC')"
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\late.xml','--station','Alpha','--merge-xml','smoke\other.xml','--out','smoke','--name','swb_merged' -Wait -PassThru
+          if (!(Test-Path smoke\swb_merged.xlsx)) { throw "exe did not make a station book with another operator merged in" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'selftest','smoke\attune.pdf' -Wait -PassThru -NoNewWindow
           if ($p.ExitCode -ne 0) { throw "the exe could not read an Attune print with PDFium, find its built-in Section 4 rules or berthing layout, or open a window with drag and drop" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_compare as t; [os.makedirs(f'smoke/{d}', exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make(f'smoke/bo/{n} Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make(f'smoke/bu/{n} Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]"

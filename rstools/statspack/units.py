@@ -202,6 +202,20 @@ def _closeness(a: str, b: str, depots: Optional["Depots"]) -> Optional[int]:
     return 2 if len(a) >= 4 and a[:4] == b[:4] else None
 
 
+# Depots that do whatever the units need: a unit stabling here could form anything the next day, so its cycle
+# ends here unless the XML or TRENT print names its next working (never inferred)
+CYCLE_END_DEPOTS = frozenset({"Lovers Walk", "Stewarts Lane", "Selhurst"})
+_CYCLE_END_TIPLOCS = frozenset({"LOVRSWS", "STWTTMD", "STWTBS", "SLHRSTD", "SLHRSTF", "SLHDGUL", "SLHDSRX",
+                                "SLHDTRB", "SLHDYRD"})
+
+
+def ends_cycle(loc: str, depots: Optional["Depots"]) -> bool:
+    """True where a unit's cycle ends rather than being inferred onwards (Lovers Walk, Stewarts Lane, Selhurst)."""
+    if depots is not None:
+        return depots.depot_of(loc) in CYCLE_END_DEPOTS
+    return loc.upper() in _CYCLE_END_TIPLOCS
+
+
 def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[int],
                  depots: Optional["Depots"] = None):
     """Link the chosen days' diagrams into units. Returns ([UnitWeek], {day: [DayDiagram]}, warnings)."""
@@ -237,6 +251,7 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
     for src, target in clashes:
         holder = holder_of.get(target)
         if (holder is not None and src not in succ and holder not in pred
+                and not ends_cycle(node[src].end_loc, depots)
                 and order[src[0]] < order[holder[0]] and node[src].fleet == node[holder].fleet
                 and _closeness(node[src].end_loc, node[holder].start_loc, depots) in (0, 1)):
             succ[src] = (holder, "inferred")
@@ -269,7 +284,7 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
     inferred = 0
     for i, d in enumerate(days[:-1]):
         later = days[i + 1:]
-        open_ends = [x for x in per_day[d] if (d, x.key) not in succ
+        open_ends = [x for x in per_day[d] if (d, x.key) not in succ and not ends_cycle(x.end_loc, depots)
                      and (d not in covered or (d, x.key) in stabled or (d, x.key) not in links)]
         for tier in (0, 1, 2):                      # exact place first, then same depot, then same area
             for x in sorted(open_ends, key=lambda x: x.end_min):

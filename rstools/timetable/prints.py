@@ -475,6 +475,24 @@ class PrintComparison:
     removed: List[PrintTrain]
     changes: List[PrintChange]
     warnings: List[str]
+    passenger_only: bool = False        # passing and working-only times left out (see passenger_calls)
+
+
+def has_public(*trains: Optional["PrintTrain"]) -> bool:
+    """The prints show public times (Attune Single Train Report), so a call without one is not for passengers."""
+    return any(k.startswith("pub_") and v for t in trains if t is not None for c in t.calls for k, v in c.times.items())
+
+
+def is_passenger_call(c: "Call", public: bool) -> bool:
+    """A call passengers see: with a public time where the prints show them; otherwise any call that is not only a
+    passing time."""
+    if public:
+        return any(c.times.get(k) for k in ("pub_arr", "pub_dep"))
+    return any(v for k, v in c.times.items() if k != "pass")
+
+
+def passenger_calls(t: Optional["PrintTrain"], public: bool) -> List["Call"]:
+    return [c for c in t.calls if is_passenger_call(c, public)] if t is not None else []
 
 
 def _pair(orig: List[PrintTrain], upd: List[PrintTrain]):
@@ -522,8 +540,14 @@ def _fmt_times(c: Call) -> str:
     return ", ".join(f"{_TIME_NAMES.get(role, role).lower()} {t}" for role, t in c.times.items())
 
 
-def _compare_pair(a: PrintTrain, b: PrintTrain) -> List[PrintChange]:
+def _compare_pair(a: PrintTrain, b: PrintTrain, passenger_only: bool = False) -> List[PrintChange]:
+    """The differences between two paired trains. `passenger_only`: passing times and calls with no public time
+    are left out (one print may not show the intermediate timing points)."""
     out: List[PrintChange] = []
+    calls_a, calls_b = a.calls, b.calls
+    if passenger_only:
+        public = has_public(a, b)
+        calls_a, calls_b = passenger_calls(a, public), passenger_calls(b, public)
     label = a.label() if a.label() == b.label() else f"{a.label()} / {b.label()}"
     days = a.days if a.days == b.days else f"{a.days} / {b.days}".strip(" /")
     for key in dict.fromkeys(list(a.info) + list(b.info)):
@@ -534,11 +558,13 @@ def _compare_pair(a: PrintTrain, b: PrintTrain) -> List[PrintChange]:
     if ha or hb:
         out.append(PrintChange(label, days, "(train details)", "Train details changed", "\n".join(ha) or "-",
                                "\n".join(hb) or "-"))
-    sm = difflib.SequenceMatcher(None, [c.key for c in a.calls], [c.key for c in b.calls], autojunk=False)
+    sm = difflib.SequenceMatcher(None, [c.key for c in calls_a], [c.key for c in calls_b], autojunk=False)
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == "equal":
-            for ca, cb in zip(a.calls[i1:i2], b.calls[j1:j2]):
+            for ca, cb in zip(calls_a[i1:i2], calls_b[j1:j2]):
                 for role in dict.fromkeys(list(ca.times) + list(cb.times)):
+                    if passenger_only and role == "pass":
+                        continue
                     ta, tb = ca.times.get(role, ""), cb.times.get(role, "")
                     if ta != tb:
                         name = _TIME_NAMES.get(role.rstrip("0123456789"), "Time")
@@ -555,9 +581,9 @@ def _compare_pair(a: PrintTrain, b: PrintTrain) -> List[PrintChange]:
                     out.append(PrintChange(label, days, ca.loc, "Call details changed (platform, line, activity...)",
                                            ca.details or "-", cb.details or "-"))
             continue
-        for ca in a.calls[i1:i2]:
+        for ca in calls_a[i1:i2]:
             out.append(PrintChange(label, days, ca.loc, "Location removed", _fmt_times(ca), "-"))
-        for cb in b.calls[j1:j2]:
+        for cb in calls_b[j1:j2]:
             out.append(PrintChange(label, days, cb.loc, "Location added", "-", _fmt_times(cb)))
     return out
 
@@ -652,7 +678,8 @@ def _location_rows(ca: Optional[Call], cb: Optional[Call]) -> List[Tuple[List[st
     return out
 
 
-def side_by_side(a: Optional[PrintTrain], b: Optional[PrintTrain]) -> List[Tuple[List[str], str]]:
+def side_by_side(a: Optional[PrintTrain], b: Optional[PrintTrain],
+                 passenger_only: bool = False) -> List[Tuple[List[str], str]]:
     """A train from each set of prints laid out like the timetable comparison - one row per location
     and time, both prints' times side by side - with the print's own details (public times, platform,
     line, activity codes, dwell, allowances) and the train's details (days run, IDs, dates...) on top.
@@ -663,28 +690,50 @@ def side_by_side(a: Optional[PrintTrain], b: Optional[PrintTrain]) -> List[Tuple
         rows.append(([name, "", va, vb, "", "", "", "", "", "",
                       "" if state == "muted" else "Changed"], state))
     calls_a, calls_b = (a.calls if a else []), (b.calls if b else [])
+    if passenger_only:
+        public = has_public(a, b)
+        calls_a, calls_b = passenger_calls(a, public), passenger_calls(b, public)
     sm = difflib.SequenceMatcher(None, [c.key for c in calls_a], [c.key for c in calls_b], autojunk=False)
+    calls: List[Tuple[List[str], str]] = []
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == "equal":
             for ca, cb in zip(calls_a[i1:i2], calls_b[j1:j2]):
-                rows += _location_rows(ca, cb)
+                calls += _location_rows(ca, cb)
             continue
         for ca in calls_a[i1:i2]:
-            rows += _location_rows(ca, None)
+            calls += _location_rows(ca, None)
         for cb in calls_b[j1:j2]:
-            rows += _location_rows(None, cb)
-    return rows
+            calls += _location_rows(None, cb)
+    if passenger_only:
+        calls = _without_passes(calls)
+    return rows + calls
 
 
-def compare_prints(original: List[PrintTrain], updated: List[PrintTrain], warnings: Iterable[str] = ()):
+def _without_passes(rows: List[Tuple[List[str], str]]) -> List[Tuple[List[str], str]]:
+    """Location rows without their 'Pass' lines (the location name moves to the next line of the location)."""
+    out: List[Tuple[List[str], str]] = []
+    carry = ""
+    for cells, state in rows:
+        if cells[1] == "Pass":
+            carry = cells[0] or carry
+            continue
+        if carry and not cells[0]:
+            cells = [carry] + cells[1:]
+        carry = ""
+        out.append((cells, state))
+    return out
+
+
+def compare_prints(original: List[PrintTrain], updated: List[PrintTrain], warnings: Iterable[str] = (),
+                   passenger_only: bool = False):
     pairs, added, removed = _pair(original, updated)
     pairs.sort(key=lambda p: (p[0].source, p[0].page, p[0].first_time, p[0].headcode))
     changes, counted = [], []
     for a, b, how in pairs:
-        found = _compare_pair(a, b)
+        found = _compare_pair(a, b, passenger_only)
         changes.extend(found)
         counted.append((a, b, how, len(found)))
-    return PrintComparison(original, updated, counted, added, removed, changes, list(warnings))
+    return PrintComparison(original, updated, counted, added, removed, changes, list(warnings), passenger_only)
 
 
 def build_workbook(cmp: PrintComparison):
@@ -717,7 +766,7 @@ def build_workbook(cmp: PrintComparison):
     for a, b, title in blocks:
         fills[len(side)] = "info"
         side.append([title] + [""] * (len(SIDE_COLUMNS) - 1))
-        for cells, state in side_by_side(a, b):
+        for cells, state in side_by_side(a, b, cmp.passenger_only):
             if state in shade:
                 fills[len(side)] = shade[state]
             side.append(cells)
@@ -735,6 +784,10 @@ def build_workbook(cmp: PrintComparison):
               [[a.label(), b.label(), how, n, f"{a.source} p{a.page}", f"{b.source} p{b.page}"]
                for a, b, how, n in cmp.pairs],
               [16, 16, 30, 10, 30, 30], center=[4])
-    if cmp.warnings:
-        add_sheet(wb, "Notes", ["Note"], [[w] for w in cmp.warnings], [110])
+    notes = list(cmp.warnings)
+    if cmp.passenger_only:
+        notes.insert(0, "Passenger times only: passing times and calls without a public time (timing points, "
+                        "working-only stops) were left out of the comparison.")
+    if notes:
+        add_sheet(wb, "Notes", ["Note"], [[w] for w in notes], [110])
     return wb
