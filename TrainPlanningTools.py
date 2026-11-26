@@ -22,7 +22,7 @@ Command-line use:
     TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --capacity-from Brighton
                                      --capacity-to "London Victoria" --no-standing
     TrainPlanningTools.exe timetable --gtr GTR.xlsx --nr NR.xlsx [--format xlsx|pdf|docx]
-    TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...]
+    TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.pdf ...] --vs NEW.pdf [NEW2.docx ...] [--passenger-only]
     TrainPlanningTools.exe timetable --lists OLD.xlsx --vs NEW.xlsx
     TrainPlanningTools.exe timetable --base-prints PRINT.pdf [...] --check TIMETABLE.xlsx
     TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.xlsx
@@ -366,6 +366,9 @@ def timetable_cli(argv):
                                                         "compared with --vs-s4")
     ap.add_argument("--vs-s4", nargs="+", default=[], help="updated Section 4 PDF(s), compared with --s4")
     ap.add_argument("--vs-tpr", nargs="+", default=[], help="updated TPR PDF(s), compared with --tpr")
+    ap.add_argument("--passenger-only", action="store_true",
+                    help="train prints: leave out passing times and calls without a public time (for prints where "
+                         "one side does not show the intermediate timing points)")
     ap.add_argument("--name", default="", help="output name (default chosen from the inputs)")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
@@ -382,6 +385,8 @@ def timetable_cli(argv):
         ap.error("--vs-tpr is used with --tpr")
     if a.s4 and not (a.s4_check or a.s4_compare):
         ap.error("--s4 is used with --s4-check or --vs-s4")
+    if a.passenger_only and not a.prints:
+        ap.error("--passenger-only is used with --prints")
     if a.s4_check:
         _section4_cli(a)
         return
@@ -402,7 +407,7 @@ def timetable_cli(argv):
     from rstools.fsutil import output_folder
     out = output_folder(a.out)
     try:
-        res = run(mode, first, second, out, a.name, a.format, log=print)
+        res = run(mode, first, second, out, a.name, a.format, log=print, passenger_only=a.passenger_only)
     except Exception as exc:                 # readable messages from the readers and the engine
         print("ERROR:", exc)
         sys.exit(1)

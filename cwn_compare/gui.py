@@ -30,7 +30,7 @@ from .meta import is_comparison_output, read_meta_file
 from .options import Options, PRESET_COLOURS, default_categories, default_name
 
 APP_WIDE = ("last_tab", "theme", "text_size", "recent", "check_updates", "github_token", "notify_done", "saved",
-            "live_details_open")
+            "live_details_open", "live_passenger_only")
 TAB_NAMES = ("Stock Tools", "Stats Pack", "Timing Tools", "Live View")
 REPORT_FORMATS = {"xlsx": "Excel", "pdf": "PDF", "docx": "Word"}
 ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

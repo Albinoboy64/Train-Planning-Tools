@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
-from rstools.widgets import Progress, local_folder_box
+from rstools.widgets import Progress, Tooltip, local_folder_box
 from rstools.branding import APP_NAME, settings_dir
 from rstools.naming import file_label
 from rstools.fsutil import output_folder, write_json
@@ -186,6 +186,12 @@ class TimetableTab(ttk.Frame):
         self.note.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
         self.dnd_hint = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
         self.dnd_hint.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        self.pax_var = tk.BooleanVar(value=False)
+        self.pax_cb = ttk.Checkbutton(mf, text="Passenger times only (leave out passing and working-only times)",
+                                      variable=self.pax_var)
+        self.pax_cb.grid(row=6, column=0, columnspan=4, sticky="w", pady=(4, 0))
+        Tooltip(self.pax_cb, "For prints where one side does not show the intermediate timing points: passing "
+                             "times and calls without a public time are not compared.")
 
         # --- utilities: the Section 4 possession check (Attune XML + Network Rail's Section 4 PDFs)
         uf = self.util_frame = ttk.LabelFrame(left, text="Utilities", padding=8)
@@ -463,6 +469,7 @@ class TimetableTab(ttk.Frame):
             if current and not all(p.lower().endswith(EXTS[cmp][side]) for p in split_paths(current)):
                 self.vars[key].set("")
         self.note.configure(text=NOTES[cmp])
+        (self.pax_cb.grid if cmp == "prints" else self.pax_cb.grid_remove)()
         self.run_btn.configure(text="Check Section 4" if util else MODE_TEXT[cmp][1])
         if not self.running:
             self.status.configure(text="Ready - press F5 or Ctrl+Enter to run")
@@ -546,17 +553,20 @@ class TimetableTab(ttk.Frame):
             self.out_dir.set(s["output_dir"])
         if isinstance(s.get("last_dir"), str):
             self._last_dir = s["last_dir"]
+        if isinstance(s.get("passenger_only"), bool):
+            self.pax_var.set(s["passenger_only"])
 
     def _save_settings(self):
         s = {"mode": self.mode.get(), "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get().strip(),
-             "last_dir": self._last_dir}
+             "last_dir": self._last_dir, "passenger_only": self.pax_var.get()}
         write_json(_settings_path(), s)
 
     # ------------------------------------------------------------ saved comparisons
     def get_state(self) -> dict:
         return {"mode": self.mode.get(), "a": self.vars["a"].get(), "b": self.vars["b"].get(),
                 "s4_xml": self.s4_vars["xml"].get(), "s4_pdf": self.s4_vars["pdf"].get(),
-                "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get(), "output_name": self.out_name.get()}
+                "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get(), "output_name": self.out_name.get(),
+                "passenger_only": self.pax_var.get()}
 
     def set_state(self, s: dict):
         if s.get("mode") in MODES or s.get("mode") == S4:
@@ -570,6 +580,7 @@ class TimetableTab(ttk.Frame):
             self.fmt_var.set(s["fmt"])
         self.out_dir.set(s.get("output_dir", "") if isinstance(s.get("output_dir"), str) else "")
         self.out_name.set(s.get("output_name", "") if isinstance(s.get("output_name"), str) else "")
+        self.pax_var.set(s.get("passenger_only") is True)
 
     @staticmethod
     def files_in_state(s: dict) -> list:
@@ -624,8 +635,8 @@ class TimetableTab(ttk.Frame):
         self.progress.begin()
         self._started = time.monotonic()
         self.app.set_busy(True)
-        threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get()),
-                         daemon=True).start()
+        threading.Thread(target=self._work, args=(mode, sides["a"], sides["b"], out_dir, name, self.fmt_var.get(),
+                                                  mode == "prints" and self.pax_var.get()), daemon=True).start()
         self.app.pump.kick()
 
     def _run_section4(self):
@@ -692,10 +703,11 @@ class TimetableTab(ttk.Frame):
         except Exception as exc:
             self.q.put(("error", errorlog.describe(exc)))
 
-    def _work(self, mode, first, second, out_dir, name, fmt):
+    def _work(self, mode, first, second, out_dir, name, fmt, passenger_only=False):
         try:
             res = run(mode, first, second, out_dir, name, fmt, progress=lambda f, m: self.q.put(("prog", f, m)),
-                      log=lambda m: self.q.put(("log", m, "warn" if m.startswith("WARNING") else None)))
+                      log=lambda m: self.q.put(("log", m, "warn" if m.startswith("WARNING") else None)),
+                      passenger_only=passenger_only)
             self.q.put(("done", res))
         except TimetableRunError as exc:
             self.q.put(("error", str(exc)))

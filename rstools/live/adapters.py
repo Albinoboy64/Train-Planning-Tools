@@ -21,26 +21,42 @@ MODES = {
     "list_tt": "Timetable: Attune train list against a timetable",
     "prints": "Timetable: two sets of train prints",
     "lists": "Timetable: two Attune train lists",
+    "s4docs": "Timing Tools: two sets of Section 4 documents",
+    "tprs": "Timing Tools: two sets of Timetable Planning Rules",
+    "s4check": "Timing Tools: Section 4 check (Attune XML)",
+    "berthing": "Stock Tools: two berthing charts",
+    "units": "Stats Pack: unit reports, two plans",
 }
 Log = Callable[[str], None]
 
 
 def compute(mode: str, files: Dict[str, List[str]], days: Optional[Sequence[int]] = None,
-            log: Log = lambda m: None) -> LiveResult:
-    """files: box key -> paths (see the Live tab's FILES)."""
+            log: Log = lambda m: None, passenger_only: bool = False, loose: bool = True) -> LiveResult:
+    """files: box key -> paths (see the Live tab's FILES). passenger_only: leave out passing times and times shown
+    in one file only (intermediate timing points). loose: CWN text compared ignoring spacing and punctuation, as
+    the Stock Tools option 'Ignore spacing' (on by default)."""
     if mode == "cwn":
-        return cwn(files["a"][0], files["b"][0], days, log)
+        return cwn(files["a"][0], files["b"][0], days, log, passenger_only, loose)
     if mode == "sp_packs":
         return stats_packs(files["a"][0], files["b"][0], log)
     if mode == "sp_plans":
         return stats_plans(files["xa"][0], " ; ".join(files["ta"]), files["xb"][0], " ; ".join(files["tb"]), log)
+    if mode == "s4check":
+        return section4_check(files["xa"][0], files.get("a", []), log)
+    if mode == "berthing":
+        return berthing_charts(files["a"][0], files["b"][0], log)
+    if mode == "units":
+        return unit_plans((files.get("xa") or [""])[0], " ; ".join(files["ta"]), (files.get("xb") or [""])[0],
+                          " ; ".join(files["tb"]), log)
     from rstools.timetable.engine import compare_files
-    cmp = compare_files(mode, files["a"], files["b"], log=log)
+    cmp = compare_files(mode, files["a"], files["b"], log=log, passenger_only=passenger_only)
     if mode == "prints":
         return prints(cmp)
     if mode == "lists":
         return lists(cmp)
-    return timetables(cmp)
+    if mode in ("s4docs", "tprs"):
+        return documents(cmp)
+    return timetables(cmp, passenger_only)
 
 
 def _same(a: str, b: str) -> bool:
@@ -85,7 +101,13 @@ def _unit_text(u) -> str:
     return "  ".join(str(p) for p in parts if p)
 
 
-def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log) -> LiveResult:
+def _passes(blk) -> bool:
+    """The train only passes this location tab (Start/Call/Pass column 'p')."""
+    return blk is None or str(blk.raw.get("loc", "") or "").strip().lower().startswith("p")
+
+
+def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_only: bool = False,
+        loose: bool = True) -> LiveResult:
     from cwn_compare.compare import compare_models, match_blocks
     from cwn_compare.days import coverage, filter_model, label as day_label
     from cwn_compare.model import FIELD_LABELS
@@ -109,7 +131,9 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log) -> LiveRes
         full_old, full_new = m_old, m_new
         m_old, m_new = filter_model(m_old, days, b_old), filter_model(m_new, days, b_new)
         warnings.append(f"Showing the trains running on {day_label(days)} only.")
-    changes = compare_models(m_old, m_new, full_old=full_old, full_new=full_new)
+    changes = compare_models(m_old, m_new, full_old=full_old, full_new=full_new, loose=loose)
+    if passenger_only:
+        warnings.append("Passenger times only: trains that only pass a location are left out of that tab.")
     by_block = defaultdict(list)
     for c in changes:
         by_block[(c.sheet, c.block_key, c.kind in ("remove_block",))].append(c)
@@ -124,13 +148,13 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log) -> LiveRes
         entries.sort(key=lambda e: ((e[1] or e[0]).order if e[1] else 10 ** 6 + e[0].order))
         for o, n in entries:
             blk = n or o
+            if passenger_only and _passes(o) and _passes(n):
+                continue
             mine = by_block.get((sk, blk.key, n is None), [])
             fields_changed = {c.field for c in mine if c.target == "main"}
             other_changed = any(c.target != "main" for c in mine)
             rows: List[LiveRow] = []
             for f in cols:
-                if f == "loc":
-                    continue
                 a = o.raw.get(f, "") if o else ""
                 b = n.raw.get(f, "") if n else ""
                 if not a and not b:
@@ -175,7 +199,7 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log) -> LiveRes
 
 
 # --------------------------------------------------------------------------- timetables (all three kinds)
-def timetables(cmp) -> LiveResult:
+def timetables(cmp, passenger_only: bool = False) -> LiveResult:
     from rstools.timetable.compare import ISSUE_TIME
     B, O = cmp.base_label, cmp.other_label
     items: List[LiveItem] = []
@@ -201,10 +225,12 @@ def timetables(cmp) -> LiveResult:
                     state, result = SAME, "Match"
                 else:
                     state, result = "muted", f"Not in the {O} table (not compared)"
+                    if passenger_only:
+                        continue
                 rows.append(LiveRow([e.name, "Arr" if e.role == "arr" else "Dep", e.time,
                                      (issue.gtr_time if issue and issue.gtr_time else other.time if other else ""),
                                      result], state))
-            for e in (g.events if g else []):
+            for e in (g.events if g else []) if not passenger_only else []:
                 if (e.loc, e.role) not in seen:
                     rows.append(LiveRow([e.name, "Arr" if e.role == "arr" else "Dep", "", e.time,
                                          f"{O} only (not compared)"], "muted"))
@@ -234,7 +260,10 @@ def timetables(cmp) -> LiveResult:
                                   ADDED, f"Isolated {O} gap in {B}", rows,
                                   [f"Not in the {B} timetable, but sits in a gap of a regular {gap.group} pattern"],
                                   len(items)))
-    return LiveResult(f"{B} against {O}", ["Location", "Arr/Dep", B, O, "Result"], items, list(cmp.warnings))
+    notes = list(cmp.warnings)
+    if passenger_only:
+        notes.append("Passenger times only: times shown in one file only (not compared) are left out.")
+    return LiveResult(f"{B} against {O}", ["Location", "Arr/Dep", B, O, "Result"], items, notes)
 
 
 # --------------------------------------------------------------------------- train prints
@@ -244,14 +273,16 @@ def prints(cmp) -> LiveResult:
     dwell and allowances; the train's days run, IDs and dates at the top."""
     from rstools.timetable.prints import SIDE_COLUMNS, _compare_pair, side_by_side, train_details
 
+    pax = getattr(cmp, "passenger_only", False)
+
     def live_rows(a, b):
         n = len(train_details(a, b))                    # the train-detail rows come first
         return [LiveRow(cells, state, "details" if i < n else "") for i, (cells, state) in
-                enumerate(side_by_side(a, b))]
+                enumerate(side_by_side(a, b, pax))]
     items: List[LiveItem] = []
     for a, b, how, _n in cmp.pairs:
         rows = live_rows(a, b)
-        changes = _compare_pair(a, b)
+        changes = _compare_pair(a, b, pax)
         items.append(LiveItem(f"pair|{a.label()}|{a.days}|{a.first_time}", a.source, f"{a.label()} {a.days}".strip(),
                               CHANGED if changes else SAME, f"{len(changes)} change(s)" if changes else "No change",
                               rows, [f"{c.location}: {c.change} ({c.original} -> {c.updated})" for c in changes]
@@ -261,7 +292,10 @@ def prints(cmp) -> LiveResult:
         rows = live_rows(a, b)
         items.append(LiveItem(f"{word}|{t.label()}|{t.days}|{t.first_time}", t.source, f"{t.label()} {t.days}".strip(),
                               state, f"Train {word.lower()}", rows, [], len(items)))
-    return LiveResult("Train prints", list(SIDE_COLUMNS), items, list(cmp.warnings))
+    notes = list(cmp.warnings)
+    if pax:
+        notes.append("Passenger times only: passing times and calls without a public time are left out.")
+    return LiveResult("Train prints", list(SIDE_COLUMNS), items, notes)
 
 
 # --------------------------------------------------------------------------- Attune train lists
@@ -377,3 +411,158 @@ def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) ->
     return LiveResult(f"{os.path.basename(trent_a)}  vs  {os.path.basename(trent_b)}",
                       ["Column", "Original", "Updated"], items, list(old.warnings) + list(new.warnings)
                       + [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])
+
+
+# --------------------------------------------------------------------------- Section 4 and TPR documents
+def documents(cmp) -> LiveResult:
+    """Two sets of Section 4 or TPR documents: each possession row / table row / paragraph, field by field."""
+    state_of = {"changed": CHANGED, "added": ADDED, "removed": REMOVED, "same": SAME}
+    items: List[LiveItem] = []
+    for it in cmp.items:
+        state = state_of.get(it.status, SAME)
+        rows = []
+        for name, old, new in it.fields:
+            if not old and not new:
+                continue
+            rs = ADDED if state == ADDED else REMOVED if state == REMOVED else (CHANGED if old != new else SAME)
+            rows.append(LiveRow([name, old, new], rs))
+        if it.where:
+            rows.append(LiveRow(["Pages", it.where, ""], "muted"))
+        diff = [n for n, o, u in it.changes]
+        status = {ADDED: "Added", REMOVED: "Removed", SAME: "No change"}.get(state, ", ".join(diff) + " changed")
+        items.append(LiveItem(it.key, it.group, it.label, state, status, rows,
+                              [f"{n}: {o or '-'} -> {u or '-'}" for n, o, u in it.changes], len(items)))
+    return LiveResult(f"{cmp.kind}: original vs updated", ["Field", "Original", "Updated"], items,
+                      list(cmp.warnings))
+
+
+# --------------------------------------------------------------------------- Section 4 check
+def section4_check(xml: str, pdfs: Sequence[str], log: Log) -> LiveResult:
+    """The trains running in a Section 4 possession window (the same check as Timing Tools), one item per train,
+    day and possession; lifted clashes and trains not checked are listed too."""
+    from rstools import rules
+    from rstools.stationbook import read_plan
+    from rstools.timetable.section4 import DAY_SHORT, check, read_statement
+    from rstools.timetable.engine import read_jobs
+    from rstools.timetable.s4remarks import CHECK
+    if pdfs:
+        log("Reading the Section 4 PDF(s)")
+        statement = read_statement(list(pdfs))
+    else:
+        stored = rules.load_set() if rules.active_set_info() else None
+        if stored is None:
+            raise ValueError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Options > Rules and "
+                             "reference data.")
+        statement = stored
+    log(f"Reading {os.path.basename(xml)}")
+    (plan,) = read_jobs([(read_plan, xml)])
+    res = check(plan, statement, log)
+    items: List[LiveItem] = []
+
+    def rows_of(c) -> List[LiveRow]:
+        p = c.possession
+        return [LiveRow(["Section", f"{p.number} {p.section}", ""], SAME),
+                LiveRow(["Line of route", p.route, ""], "muted"),
+                LiveRow(["Period / night", f"{c.period.name} - {p.night}", ""], SAME),
+                LiveRow(["Possession", c.window.text, f"Runs {DAY_SHORT[c.day]}"], ISSUE if c.all_lines else CHANGED),
+                LiveRow([p.ends[0], "", c.at_a], SAME), LiveRow([p.ends[-1], "", c.at_b], SAME),
+                LiveRow(["Blocked", p.blocked or "-", c.direction or "-"], SAME),
+                LiveRow(["Remarks", p.remarks or "-", c.remark or "-"],
+                        CHANGED if c.outcome == CHECK else SAME)]
+    for group, clashes, exempt in (("Clashes", res.clashes, False), ("Exempt", res.exempt, True)):
+        for c in clashes:
+            p = c.possession
+            if exempt:
+                state, status = SAME, "Exempt: " + (c.remark or "remarks")
+            elif c.all_lines:
+                state, status = ISSUE, "Every line blocked"
+            else:
+                state, status = CHANGED, "Some lines: check the line used"
+            if not exempt and c.outcome == CHECK:
+                status += " (check remark)"
+            items.append(LiveItem(f"{group}|{p.number}|{p.night}|{c.period.name}|{c.train}|{c.day}", group,
+                                  f"{c.train} {DAY_SHORT[c.day]} - {p.number}", state, status, rows_of(c),
+                                  [x for x in (c.remark,) if x], len(items)))
+    for train, why in res.skipped:
+        items.append(LiveItem(f"Skipped|{train}", "Not checked", train, SAME, why,
+                              [LiveRow(["Not checked", why, ""], "muted")], [], len(items)))
+    return LiveResult(f"Section 4 check - {os.path.basename(xml)}", ["Item", "Section 4", "Train"], items,
+                      list(statement.warnings) + list(res.warnings))
+
+
+# --------------------------------------------------------------------------- berthing charts
+def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
+    """Two berthing charts, berth by berth: each berth and column with a difference (as the change report)."""
+    from rstools.berthing.compare import diff
+    from rstools.berthing.layout import read_chart
+    from rstools.berthing.mapping import load as load_locations
+    if os.path.abspath(old_path) == os.path.abspath(new_path):
+        raise ValueError("The two charts selected are the same file.")
+    locations = load_locations()
+    log(f"Reading {os.path.basename(old_path)} and {os.path.basename(new_path)}")
+    old, new = read_chart(old_path, locations), read_chart(new_path, locations)
+    changes, _marked = diff(old, new)
+    by_berth: Dict[tuple, list] = defaultdict(list)
+    for c in changes:
+        by_berth[(c.sheet, c.berth)].append(c)
+    state_of = {"Changed": CHANGED, "Added": ADDED, "Removed": REMOVED}
+    items: List[LiveItem] = []
+    for (sheet, berth), cs in by_berth.items():
+        kinds = {c.kind for c in cs}
+        state = state_of[next(iter(kinds))] if len(kinds) == 1 else CHANGED
+        rows = [LiveRow([c.column or "-", c.old, c.new], state_of.get(c.kind, CHANGED)) for c in cs]
+        items.append(LiveItem(f"{sheet}|{berth}", sheet, berth, state, f"{len(cs)} difference(s)", rows,
+                              [f"{c.column}: {c.kind.lower()} ({c.old or '-'} -> {c.new or '-'})" for c in cs],
+                              len(items)))
+    return LiveResult(f"{os.path.basename(old_path)}  vs  {os.path.basename(new_path)}",
+                      ["Column", "Older chart", "Newer chart"], items,
+                      [] if items else ["No differences between the charts."])
+
+
+# --------------------------------------------------------------------------- unit reports
+def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> LiveResult:
+    """Unit reports (washes and CETs, depot moves, captive units, fuel) of two plans, row by row, matched as in
+    the unit report comparison."""
+    from rstools.statspack.engine import PackOptions, PlanInputs, _unit_report_list, load_plan
+    from rstools.statspack.model import OPERATORS
+    from rstools.statspack.report_compare import SKIP, SPEC, _keyed
+    old = load_plan(PlanInputs(xml_a, trent_a), log, xml_optional=True)
+    new = load_plan(PlanInputs(xml_b, trent_b), log, xml_optional=True)
+    days = sorted(set(old.trent.days()) & set(new.trent.days()))
+    if not days:
+        raise ValueError("The two TRENT prints have no diagram days in common.")
+    opts = PackOptions(days=days, operators=set(OPERATORS), fleets=None)
+    which = ["washes", "depots", "captive", "fuel"]
+    log("Following units in both plans...")
+    old_reps, w_old = _unit_report_list(old, opts, which, True)
+    new_reps, w_new = _unit_report_list(new, opts, which, True)
+    by_old = {r.name: r for r in old_reps}
+    items: List[LiveItem] = []
+    for rep in new_reps:
+        if rep.name == "Notes":
+            continue
+        base = by_old.get(rep.name)
+        nkeys = min(SPEC.get(rep.name, (1, False))[0], len(rep.headers))
+        a, b = _keyed(base.rows if base else [], nkeys), _keyed(rep.rows, nkeys)
+        for k in list(b) + [k for k in a if k not in b]:
+            ra, rb = a.get(k), b.get(k)
+            rows, diff = [], []
+            for i, head in enumerate(rep.headers):
+                if head in SKIP and i >= nkeys:
+                    continue
+                va = ra[i] if ra is not None and i < len(ra) else None
+                vb = rb[i] if rb is not None and i < len(rb) else None
+                if va in (None, "") and vb in (None, ""):
+                    continue
+                st = ADDED if ra is None else REMOVED if rb is None else (SAME if va == vb else CHANGED)
+                if st == CHANGED:
+                    diff.append(head)
+                rows.append(LiveRow([head, "" if va is None else str(va), "" if vb is None else str(vb)], st))
+            state = ADDED if ra is None else REMOVED if rb is None else (CHANGED if diff else SAME)
+            status = {ADDED: "Only in the updated", REMOVED: "Only in the original", SAME: "No change"}.get(
+                state, ", ".join(diff) + " changed")
+            label = " / ".join(str(x) for x in k[:nkeys] if x not in (None, "")) or "(row)"
+            items.append(LiveItem(f"{rep.name}|{k}", rep.name, label, state, status, rows, [], len(items)))
+    return LiveResult(f"Unit reports: {os.path.basename(trent_a)}  vs  {os.path.basename(trent_b)}",
+                      ["Figure", "Original", "Updated"], items,
+                      [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])

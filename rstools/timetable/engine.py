@@ -163,7 +163,7 @@ def _check(first: Sequence[str], second: Sequence[str]):
 
 def compare_files(mode: str, first: Sequence[str], second: Sequence[str],
                   progress: Optional[Callable[[float, str], None]] = None,
-                  log: Optional[Callable[[str], None]] = None):
+                  log: Optional[Callable[[str], None]] = None, passenger_only: bool = False):
     """Read and compare (no output written). Returns the comparison object: a timetable Comparison for
     'timetables' / 'print_tt' / 'list_tt', a PrintComparison for 'prints', a ListComparison for 'lists'.
     Used by the comparison runs and by the Live View, so both always agree."""
@@ -175,7 +175,7 @@ def compare_files(mode: str, first: Sequence[str], second: Sequence[str],
     if mode in ("print_tt", "list_tt"):
         return _cmp_base(mode, first, second[0], p, lg)
     if mode == "prints":
-        return _cmp_prints(first, second, p, lg)
+        return _cmp_prints(first, second, p, lg, passenger_only)
     if mode == "lists":
         return _cmp_lists(first[0], second[0], p, lg)
     if mode in ("s4docs", "tprs"):
@@ -185,13 +185,15 @@ def compare_files(mode: str, first: Sequence[str], second: Sequence[str],
 
 def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, name: str = "", fmt: str = "xlsx",
         progress: Optional[Callable[[float, str], None]] = None,
-        log: Optional[Callable[[str], None]] = None) -> RunResult:
+        log: Optional[Callable[[str], None]] = None, passenger_only: bool = False) -> RunResult:
+    """Compare and save. `passenger_only` (train prints): leave out passing times and calls without a public
+    time, for prints where one side does not show the intermediate timing points."""
     p = progress or (lambda _f, _m: None)
     lg = log or (lambda _m: None)
     first, second = _check(first, second)
     if not out_dir or not os.path.isdir(out_dir):
         raise TimetableRunError(f"The output folder does not exist:\n{out_dir or '(none chosen)'}")
-    cmp = compare_files(mode, first, second, p, lg)
+    cmp = compare_files(mode, first, second, p, lg, passenger_only)
     p(0.8, "Writing the comparison...")
     if mode == "prints":
         from .prints import build_workbook
@@ -254,7 +256,7 @@ def _cmp_timetables(gtr_path, nr_path, p, lg):
     return cmp
 
 
-def _cmp_prints(first, second, p, lg):
+def _cmp_prints(first, second, p, lg, passenger_only=False):
     from .prints import compare_prints, read_print
     p(0.05, "Reading the train prints...")
     lg(f"Reading {len(first)} original and {len(second)} updated print file(s)")
@@ -276,7 +278,7 @@ def _cmp_prints(first, second, p, lg):
         raise TimetableRunError("No trains were recognised on one side of the comparison.\n\n"
                                 + "\n".join(warnings))
     p(0.5, "Comparing trains...")
-    cmp = compare_prints(orig, upd, warnings)
+    cmp = compare_prints(orig, upd, warnings, passenger_only)
     for w in warnings:
         lg("WARNING: " + w)
     return cmp
