@@ -46,6 +46,7 @@ class Options:
     book_timetable: str = ""
     book_services: str = "Thameslink and Great Northern services only"
     book_label: str = ""
+    book_merge: str = ""             # other operators' Attune XMLs merged into the book ('a.xml; b.xml')
     book_days: List[str] = field(default_factory=lambda: ["SX", "SO", "Su"])
     berth_files: Dict[str, List[str]] = field(default_factory=dict)   # berthing chart mode -> its file boxes
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'

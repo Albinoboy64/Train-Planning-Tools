@@ -1381,10 +1381,10 @@ class App(tk.Tk):
         sb.grid(row=0, column=0, rowspan=5, columnspan=3, sticky="new")
         sb.columnconfigure(1, weight=1)
         self.book_vars = {k: tk.StringVar() for k in ("station", "platforms", "list", "operator", "timetable",
-                                                      "services", "label")}
+                                                      "services", "label", "merge")}
         rows = (("station", "Station:"), ("platforms", "Platforms (optional):"), ("list", "Several stations:"),
                 ("operator", "Operator:"), ("timetable", "Timetable:"), ("services", "Services:"),
-                ("label", "Sheet name:"))
+                ("label", "Sheet name:"), ("merge", "Other operators' XML:"))
         for r, (key, text) in enumerate(rows):
             ttk.Label(sb, text=text).grid(row=r, column=0, sticky="w", pady=1)
             if key == "station":
@@ -1398,6 +1398,11 @@ class App(tk.Tk):
                 if key == "list":
                     ttk.Button(sb, text="Clear", command=lambda: self.book_vars["list"].set("")).grid(
                         row=r, column=2, sticky="ew", padx=(4, 0), pady=1)
+                elif key == "merge":
+                    ttk.Button(sb, text="Add...", command=self._add_book_merge).grid(
+                        row=r, column=2, sticky="ew", padx=(4, 0), pady=1)
+                    Tooltip(w, "Attune XMLs from other operators: their trains at the station are merged into "
+                               "the book, marked with the operator. Separate several with ';'.")
             w.grid(row=r, column=1, sticky="ew", padx=(4, 0), pady=1)
         df = ttk.Frame(sb)
         df.grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1414,6 +1419,15 @@ class App(tk.Tk):
         for v in self.book_vars.values():
             v.trace_add("write", lambda *_a: self._update_name_hint())
         sb.grid_remove()
+
+    def _add_book_merge(self):
+        """Add other operators' Attune XMLs to merge into the station book."""
+        paths = filedialog.askopenfilenames(title="Other operators' Attune XML", filetypes=[("Attune XML", "*.xml")])
+        if not paths:
+            return
+        current = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
+        current += [p for p in paths if p not in current]
+        self.book_vars["merge"].set("; ".join(current))
 
     def _add_book_station(self):
         """Add the chosen station (and any platforms) to the list of books to make in one run."""
@@ -1814,6 +1828,7 @@ class App(tk.Tk):
         if o.output_dir and not os.path.isdir(o.output_dir):
             messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}")
             return
+        merge = [p.strip().strip('"') for p in o.book_merge.split(";") if p.strip()]
         self.add_recent("util", o.original)
         saved = dataclasses.replace(o, output_name="", days=[])
         saved.save()
@@ -1827,7 +1842,7 @@ class App(tk.Tk):
                 if len(entries) > 1:
                     results = make_books(o.original, entries, o.output_dir, o.book_operator, o.book_timetable,
                                          o.book_services, o.book_days, log=lambda m: self.q.put(("log", m)),
-                                         progress=lambda f, m: self.q.put(("prog", f, m)))
+                                         progress=lambda f, m: self.q.put(("prog", f, m)), merge_xml=merge)
                     self.q.put(("books_done", results))
                     return
                 if entries:
@@ -1835,7 +1850,8 @@ class App(tk.Tk):
                 path, warnings, summary = make_book(
                     o.original, o.book_station, o.output_dir, o.output_name, o.book_operator, o.book_timetable,
                     o.book_services, o.book_label, o.book_platforms, o.book_days,
-                    log=lambda m: self.q.put(("log", m)), progress=lambda f, m: self.q.put(("prog", f, m)))
+                    log=lambda m: self.q.put(("log", m)), progress=lambda f, m: self.q.put(("prog", f, m)),
+                    merge_xml=merge)
                 self.q.put(("book_done", path, warnings, summary))
             except StationBookError as exc:
                 self.q.put(("error", str(exc)))

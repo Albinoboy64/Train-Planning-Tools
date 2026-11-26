@@ -7,7 +7,7 @@ Command-line use:
     TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days FO   (Friday trains only)
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
-                                       [--sheets SX,SO,Su]
+                                       [--sheets SX,SO,Su] [--merge-xml OTHER_OPERATOR.xml ...]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge ...] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
@@ -131,6 +131,8 @@ def stationbook_cli(argv):
     ap.add_argument("--services", default="Thameslink and Great Northern services only", help="for the title")
     ap.add_argument("--label", default="", help="sheet name before SX / SO / Su (default: station (operator))")
     ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
+    ap.add_argument("--merge-xml", nargs="+", default=[], metavar="XML",
+                    help="other operators' Attune XML(s) whose trains are merged into the book")
     ap.add_argument("--name", default="", help="output name")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     a = _local_out(ap, ap.parse_args(argv))
@@ -138,7 +140,8 @@ def stationbook_cli(argv):
     if len(entries) > 1:
         try:
             results = make_books(a.xml, entries, a.out, a.operator, a.timetable, a.services,
-                                 [s.strip() for s in a.sheets.split(",") if s.strip()], log=print)
+                                 [s.strip() for s in a.sheets.split(",") if s.strip()], log=print,
+                                 merge_xml=a.merge_xml)
         except StationBookError as exc:
             print("ERROR: " + str(exc))
             sys.exit(1)
@@ -150,7 +153,7 @@ def stationbook_cli(argv):
     try:
         path, warnings, summary = make_book(a.xml, a.station, a.out, a.name, a.operator, a.timetable, a.services,
                                             a.label, a.platforms, [s.strip() for s in a.sheets.split(",") if s.strip()],
-                                            log=print)
+                                            log=print, merge_xml=a.merge_xml)
     except StationBookError as exc:
         print("ERROR: " + str(exc))
         sys.exit(1)

@@ -85,6 +85,7 @@ class Train:
     valid_from: str = ""        # 'yyyy-mm-dd', from the XML
     valid_until: str = ""
     rar: str = ""               # how the XML marks it 'runs as required' ('' if it does not)
+    operator: str = ""          # another operator's train merged in from its own XML ('' for the book's own)
 
     @property
     def passenger(self) -> bool:
@@ -118,6 +119,7 @@ class Plan:
     trains: Dict[str, List[Train]]
     diagrams: List[Diagram]
     end: str = ""
+    operator: str = ""          # from the XML heading, where it says
 
     @property
     def diagram_days(self) -> Set[int]:
@@ -228,7 +230,12 @@ def read_plan(path: str) -> Plan:
         raise StationBookError("This is not an Attune diagram XML.")
     if not trains:
         raise StationBookError("The XML contains no trains.")
-    return Plan(path, meta.get("startdate", ""), locations, dict(trains), diagrams, meta.get("enddate", ""))
+    plan = Plan(path, meta.get("startdate", ""), locations, dict(trains), diagrams, meta.get("enddate", ""))
+    plan.operator = next((meta[k].strip() for k in meta if k.lower() in _OPERATOR_KEYS and meta[k].strip()), "")
+    return plan
+
+
+_OPERATOR_KEYS = ("toc", "operator", "owner", "company", "toccode", "operatorcode")
 
 
 _RAR_NAMES = ("runsasrequired", "asrequired", "rar", "runasrequired", "asreq")
@@ -369,24 +376,44 @@ class Builder:
         return found
 
     def build(self, day: int) -> List[Row]:
-        self.day_diagrams = {day: day_diagrams(self.plan.diagrams, day)}
-        self._index: Dict[int, Dict[str, list]] = {day: defaultdict(list)}
-        for d in self.day_diagrams[day]:
-            for i, m in enumerate(d.moves):
-                self._index[day][m.train].append((d, i))
+        """The rows of one stock day. A train belongs to the stock day of the unit diagram that works it, so a
+        train running after midnight on the previous day's diagram is at the end of that day (not the start of
+        the next), and the day's first train is the first of its diagrams. Trains with no diagram here stay on
+        the calendar day they run."""
+        nxt, prev = (day + 1) % 7, (day - 1) % 7
+        self.day_diagrams = {k: day_diagrams(self.plan.diagrams, k) for k in {day, nxt, prev}}
+        self._index: Dict[int, Dict[str, list]] = {}
+        for k, ds in self.day_diagrams.items():
+            self._index[k] = defaultdict(list)
+            for d in ds:
+                for i, m in enumerate(d.moves):
+                    self._index[k][m.train].append((d, i))
         rows = []
         for hc in self.plan.trains:
-            t = self.train(hc, day)
-            if t is None:
-                continue
-            for i, c in enumerate(t.calls[:-1]):
-                if c.loc not in self.tips or not c.stops or c.dep is None:
+            for cal, t in ((day, self.train(hc, day)), (nxt, self.train(hc, nxt))):
+                if t is None:
                     continue
-                if self.platforms and c.plat not in self.platforms:
+                owner = self._stock_day(hc, cal)
+                if owner != day:
                     continue
-                rows.append(self._row(t, i, day))
+                for i, c in enumerate(t.calls[:-1]):
+                    if c.loc not in self.tips or not c.stops or c.dep is None:
+                        continue
+                    if self.platforms and c.plat not in self.platforms:
+                        continue
+                    rows.append(self._row(t, i, day))
         rows.sort(key=lambda r: r.sort)
         return rows
+
+    def _stock_day(self, hc: str, cal: int) -> int:
+        """The stock day a train running on calendar day `cal` belongs to: the day before when it is worked
+        after midnight by that day's diagram (and by no diagram of its own day), else `cal`."""
+        if self._index[cal].get(hc) if cal in self._index else False:
+            return cal
+        before = (cal - 1) % 7
+        if before in self._index and any(d.moves[i].dep >= 86400 for d, i in self._index[before].get(hc, [])):
+            return before
+        return cal
 
     def _row(self, t: Train, i: int, day: int) -> Row:
         c = t.calls[i]
@@ -396,7 +423,7 @@ class Builder:
         formation = self._formation(units)
         inward = self._inward(t, i, day, units, formation)
         stock = "\n".join(f"({self.by_key[k].fleet if k in self.by_key else '?'})" for k in formation)
-        b = t.id + (("\n" + stock) if stock else "")
+        b = t.id + (("\n" + stock) if stock else "") + (f"\n[{t.operator}]" if t.operator else "")
         f = show_dep(t, c) + (f"\n({c.plat})" if c.plat else "")
         g = self._calling(t, i, day, units, formation) if t.passenger else f"Empty to {self.name(dest.loc)}"
         cells = [inward, b, show_dep(t, origin), self.name(origin.loc), self.name(dest.loc), f, g]
@@ -437,7 +464,8 @@ class Builder:
             if prev is None or prev.dest not in self.tips:
                 berth = True
                 continue
-            tin = self.train(prev.train, day) or self.train(prev.train, (day - 1) % 7)
+            tin = (self.train(prev.train, day) or self.train(prev.train, (day + 1) % 7)
+                   or self.train(prev.train, (day - 1) % 7))
             if tin is None:
                 berth = True
                 continue
@@ -529,7 +557,7 @@ class Builder:
             else:
                 d, n = other[keys[0]]
                 nxt = d.moves[n + 1] if n + 1 < len(d.moves) else None
-                t2 = self.train(nxt.train, day) if nxt is not None else None
+                t2 = (self.train(nxt.train, day) or self.train(nxt.train, (day + 1) % 7)) if nxt is not None else None
                 if nxt is None or t2 is None or nxt.origin != at or nxt.dep - d.moves[n].arr > DIVIDE_WINDOW:
                     return None
                 text = self._stops_text(t2, t2.calls[1:])
@@ -680,8 +708,10 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
               timetable: str = "", services: str = "", label: str = "", platforms: str = "",
               day_types: Sequence[str] = ("SX", "SO", "Su"),
               log: Callable[[str], None] = lambda m: None,
-              progress: Callable[[float, str], None] = lambda f, m: None) -> Tuple[str, List[str], str]:
-    """Write the Station Working Book. Returns (path, warnings, summary)."""
+              progress: Callable[[float, str], None] = lambda f, m: None,
+              merge_xml: Sequence[str] = ()) -> Tuple[str, List[str], str]:
+    """Write the Station Working Book. Returns (path, warnings, summary). `merge_xml`: other operators' Attune
+    XMLs whose trains are added to the book (marked with their operator)."""
     from rstools.statspack.fleet import FleetTable
     from rstools.statspack.seats import Stations
     from rstools.fsutil import unique_stem
@@ -689,9 +719,18 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         raise StationBookError("Choose the Attune XML.")
     if not station.strip():
         raise StationBookError("Choose the station.")
+    missing = [p for p in merge_xml if not os.path.isfile(p)]
+    if missing:
+        raise StationBookError("These XML(s) to merge could not be found:\n" + "\n".join(missing))
     log(f"Reading {os.path.basename(xml)}")
     progress(0.03, "Reading the XML...")
     plan = _plan_of(xml)
+    if merge_xml:
+        others = []
+        for p in merge_xml:
+            log(f"Merging {os.path.basename(p)}")
+            others.append(_plan_of(p, keep=True))
+        plan = merge_plans(plan, others)
     progress(0.45, f"Finding the trains at {station.strip()}...")
     tips = Stations(plan.locations).find(station.strip())
     if not tips:
@@ -742,17 +781,55 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
 _PLANS: Dict[tuple, Plan] = {}
 
 
-def _plan_of(xml: str) -> Plan:
-    """read_plan, kept while the file is unchanged (several books from one XML read it once)."""
+def _plan_of(xml: str, keep: bool = False) -> Plan:
+    """read_plan, kept while the file is unchanged (several books from one XML read it once). `keep` keeps the
+    plans already read (the main XML and those merged into it)."""
     try:
         st = os.stat(xml)
         key = (os.path.abspath(xml), st.st_mtime_ns, st.st_size)
     except OSError:
         return read_plan(xml)
     if key not in _PLANS:
-        _PLANS.clear()
+        if not keep:
+            _PLANS.clear()
         _PLANS[key] = read_plan(xml)
     return _PLANS[key]
+
+
+def merge_plans(plan: Plan, others: Sequence[Plan]) -> Plan:
+    """The book's own plan with other operators' plans (their own Attune XMLs) added: their trains and unit
+    diagrams join the book, each train marked with its operator. A train or diagram whose ID the plan already
+    has is renamed 'ID/OPERATOR' so nothing is overwritten. The plans must cover overlapping dates."""
+    import copy
+    merged = Plan(plan.path, plan.start, dict(plan.locations), {k: list(v) for k, v in plan.trains.items()},
+                  list(plan.diagrams), plan.end, plan.operator)
+    for other in others:
+        op = other.operator or os.path.splitext(os.path.basename(other.path))[0][:12]
+        if plan.start and plan.end and other.start and other.end and (other.start[:10] > plan.end[:10]
+                                                                      or other.end[:10] < plan.start[:10]):
+            raise StationBookError(f"{os.path.basename(other.path)} covers {other.start[:10]} to {other.end[:10]}, "
+                                   f"which does not overlap the main XML ({plan.start[:10]} to {plan.end[:10]}).")
+        for tip, name in other.locations.items():
+            merged.locations.setdefault(tip, name)
+        renamed: Dict[str, str] = {}
+        for tid, versions in other.trains.items():
+            new_id = tid if tid not in merged.trains else f"{tid}/{op}"
+            renamed[tid] = new_id
+            out = []
+            for t in versions:
+                t2 = copy.copy(t)
+                t2.id, t2.operator = new_id, op
+                out.append(t2)
+            merged.trains[new_id] = out
+        keys = {d.key for d in merged.diagrams}
+        for d in other.diagrams:
+            d2 = copy.deepcopy(d)
+            if d2.key in keys:
+                d2.key = f"{d.key}/{op}"
+            for m in d2.moves:
+                m.train = renamed.get(m.train, m.train)
+            merged.diagrams.append(d2)
+    return merged
 
 
 def parse_station_list(text: str) -> List[Tuple[str, str]]:
@@ -782,7 +859,8 @@ def _books_job(xml: str, entries: Sequence[Tuple[str, str]], kw: dict) -> List[t
 def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", operator: str = "",
                timetable: str = "", services: str = "", day_types: Sequence[str] = ("SX", "SO", "Su"),
                log: Callable[[str], None] = lambda m: None,
-               progress: Callable[[float, str], None] = lambda f, m: None) -> List[tuple]:
+               progress: Callable[[float, str], None] = lambda f, m: None,
+               merge_xml: Sequence[str] = ()) -> List[tuple]:
     """A Station Working Book for each (station, platforms), one file each, shared over the CPU cores (each
     helper reads the XML once). Returns [(station, path, warnings, summary, error)] in the order given; a
     station that cannot be made gives its error, the others are still made."""
@@ -791,7 +869,8 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
     entries = [(s.strip(), p.strip()) for s, p in entries if s.strip()]
     if not entries:
         raise StationBookError("Choose the station(s).")
-    kw = dict(out_dir=out_dir, operator=operator, timetable=timetable, services=services, day_types=tuple(day_types))
+    kw = dict(out_dir=out_dir, operator=operator, timetable=timetable, services=services, day_types=tuple(day_types),
+              merge_xml=tuple(merge_xml))
     import multiprocessing
     workers = min(max(1, (os.cpu_count() or 1) - 1), len(entries) // 2)
     if workers >= 2 and multiprocessing.parent_process() is None:

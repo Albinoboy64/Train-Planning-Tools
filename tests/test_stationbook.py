@@ -152,6 +152,60 @@ def test_stp_unit_diagram_replaces_ltp():
     assert row.cells[1] == "1A02XX\n(377/4)"                          # one unit, not two
 
 
+def write_late_xml(path, start="2026-12-13", operator="", tid_prefix="", depot_key="1"):
+    """Monday's diagram ends with a train at 00:30 (calendar Tuesday); Tuesday's own diagram starts at 06:00."""
+    trains = [train(f"{tid_prefix}2A10XX", [leg("AAA", "23:00:00", "BBB", "23:20:00", depPlat="1")], days="NNYNNNNNN"),
+              train(f"{tid_prefix}2A11XX", [leg("AAA", "00:30:00", "BBB", "00:50:00", depPlat="1")], days="NNNYNNNNN"),
+              train(f"{tid_prefix}2A12XX", [leg("AAA", "06:00:00", "BBB", "06:20:00", depPlat="1")], days="NNNYNNNNN")]
+    diagrams = [diagram(depot_key, "377/4", [move(f"{tid_prefix}2A10XX", "AAA", "23:00:00", "BBB", "23:20:00"),
+                                             move(f"{tid_prefix}2A11XX", "AAA", "00:30:00", "BBB", "00:50:00")],
+                        days="NNYNNNNNN"),
+                diagram(str(int(depot_key) + 1), "377/4",
+                        [move(f"{tid_prefix}2A12XX", "AAA", "06:00:00", "BBB", "06:20:00")], days="NNNYNNNNN")]
+    op = f' toc="{operator}"' if operator else ""
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(f'<diagramExchange {NS} version="1.0" plantype="L" startdate="{start}" enddate="2027-05-15"{op}>'
+                 "<trainList>" + "".join(trains) + "</trainList><locationList><location tiploc=\"AAA\" "
+                 'longDesc="Alpha"/><location tiploc="BBB" longDesc="Beta"/></locationList><unitDiagramList>'
+                 + "".join(diagrams) + "</unitDiagramList></diagramExchange>")
+
+
+def test_stock_day_starts_with_the_diagrams_first_train():
+    """A train after midnight on Monday's diagram ends Monday's stock day; Tuesday starts with its first diagram's
+    train, not the 00:30."""
+    d = tempfile.mkdtemp()
+    x = os.path.join(d, "late.xml")
+    write_late_xml(x)
+    b = SB.Builder(SB.read_plan(x), {"AAA"}, "Alpha", cars={"377/4": 4})
+    assert [r.cells[1].split("\n")[0] for r in b.build(0)] == ["2A10XX", "2A11XX"]
+    assert [r.cells[1].split("\n")[0] for r in b.build(1)] == ["2A12XX"]
+
+
+def test_other_operator_xml_merged(monkeypatch):
+    import openpyxl
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("LOCALAPPDATA", d)
+    x, other = os.path.join(d, "plan.xml"), os.path.join(d, "other.xml")
+    write_late_xml(x)
+    write_late_xml(other, operator="XC", tid_prefix="", depot_key="5")      # same train IDs: renamed
+    merged = SB.merge_plans(SB.read_plan(x), [SB.read_plan(other)])
+    assert "2A10XX/XC" in merged.trains and merged.trains["2A10XX/XC"][0].operator == "XC"
+    b = SB.Builder(merged, {"AAA"}, "Alpha", cars={"377/4": 4})
+    cells = {r.cells[1].split("\n")[0]: r.cells[1] for r in b.build(0)}
+    assert set(cells) == {"2A10XX", "2A11XX", "2A10XX/XC", "2A11XX/XC"} and cells["2A10XX/XC"].endswith("[XC]")
+    path, _w, _s = SB.make_book(x, "Alpha", d, operator="GTR(TLGN)", day_types=["MO"], merge_xml=[other])
+    rows = [r[1].value for r in openpyxl.load_workbook(path).active.iter_rows(min_row=2)]
+    assert any(str(v).endswith("[XC]") for v in rows)
+    late = os.path.join(d, "late.xml")
+    write_late_xml(late, start="2028-01-01")
+    try:
+        SB.merge_plans(SB.read_plan(x), [SB.Plan(late, "2028-01-01", {}, {}, [], "2028-05-01")])
+    except SB.StationBookError as exc:
+        assert "does not overlap" in str(exc)
+    else:
+        raise AssertionError("dates that do not overlap were merged")
+
+
 def test_station_names_network_rail_and_attune():
     """Network Rail's station names match Attune's."""
     from rstools.statspack.seats import Stations
