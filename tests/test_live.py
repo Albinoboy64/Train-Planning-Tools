@@ -256,9 +256,11 @@ def test_live_new_modes():
     f = tt.write_rule_docs(d)
     s4 = compute("s4docs", {"a": [f["s4_old"]], "b": [f["s4_new"]]})
     by = {i.label: i for i in s4.items}
-    assert by["100.1 MID WEEK"].state == "changed" and by["100.3 SUN/MON"].state == "added"
-    assert by["100.2 WEEK END"].state == "removed"
-    assert [r.cells[0] for r in by["100.1 MID WEEK"].rows if r.state == "changed"] == ["Windows"]
+    mid = by["100.1 MID WEEK - Down and Up BLOCKED"]
+    assert mid.state == "changed" and by["100.3 SUN/MON - BLOCKED"].state == "added"
+    assert by["100.2 WEEK END - BLOCKED"].state == "removed"
+    assert [r.cells[0] for r in mid.rows if r.state == "changed"] == ["Windows"]
+    assert any(i.state == "changed" and i.group.endswith("Notes") for i in s4.items)         # an edited route note
     tpr = compute("tprs", {"a": [f["tpr_old"]], "b": [f["tpr_new"]]})
     assert {i.label: i.state for i in tpr.items if i.state != "same"}.get("Beta Jn") == "changed"
     x = os.path.join(d, "plan.xml")

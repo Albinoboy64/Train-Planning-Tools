@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from .pdfgrid import cluster, segments, text_in
+from .pdfgrid import (cluster, find_furniture, line_text, lines_of, rect_to_visual, segments, text_in, text_runs,
+                      to_visual)
 
 DAY_CODES = {"m": 0, "mo": 0, "mon": 0, "t": 1, "tu": 1, "tue": 1, "tues": 1, "w": 2, "we": 2, "wed": 2,
              "th": 3, "thu": 3, "thur": 3, "thurs": 3, "f": 4, "fr": 4, "fri": 4, "s": 5, "sa": 5, "sat": 5,
@@ -89,10 +90,22 @@ class Possession:
 
 
 @dataclass
+class RouteNote:
+    """Text outside the possession tables: a route's timetable construction notes or its NOTES."""
+    route: str                  # 'LN101 KING’S CROSS TO SHAFTHOLME JN'
+    kind: str                   # 'Notes' / 'Timetable construction notes' / 'Other text'
+    scope: str                  # construction notes: the stretch of line they are for
+    text: str
+    source: str                 # file and page
+
+
+@dataclass
 class Statement:
     possessions: List[Possession] = field(default_factory=list)
     files: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    notes: List[RouteNote] = field(default_factory=list)            # read from PDFs (saved rule sets have none)
+    info: List[Tuple[str, str]] = field(default_factory=list)       # (file, what its page header says)
 
 
 # --------------------------------------------------------------------------- reading the PDF
@@ -155,6 +168,7 @@ def read_statement(paths: Sequence[str], log=lambda m: None) -> Statement:
 
 
 def _read_pdf(path: str, st: Statement):
+    boxes: Dict[int, Tuple[float, float, float, float]] = {}
     try:
         import pypdfium2 as pdfium
     except ImportError:
@@ -227,6 +241,8 @@ def _read_pdf(path: str, st: Statement):
             sec_edges = _cluster([x for x, b, t in rows if b <= (sec_lo + sec_hi) / 2 <= t and x > hx1 - 1])
             rem_edges = _cluster([x for x, b, t in rows if b <= (rem_lo + rem_hi) / 2 <= t and x > hx1 - 1])
             day_edges = _cluster([x for x, b, t in rows if b <= (day_lo + day_hi) / 2 <= t and x > hx1 - 1])
+            if body:
+                boxes[pno] = (min(hx0, body[0]) - 2, edges[0] - 2, max(hx1, body[-1]) + 2, edges[-1] + 2)
             for x0, x1 in zip(body, body[1:]):
                 if x1 - x0 < 4:
                     continue
@@ -253,8 +269,71 @@ def _read_pdf(path: str, st: Statement):
                         line_of_route = known.get(number.split(".")[0].lstrip("0"), route)
                         st.possessions.append(Possession(line_of_route, section, number, ends, night, covered, windows,
                                                          blocked, remarks, f"{os.path.basename(path)} p{pno + 1}"))
+        try:
+            _read_notes(pdf, path, boxes, st)
+        except Exception as exc:                    # the notes are extra: never lose the possessions over them
+            st.warnings.append(f"The notes in '{os.path.basename(path)}' could not be read ({exc}).")
     finally:
         pdf.close()
+
+
+_SCOPE = re.compile(r"\s*Timetable Construction Notes\s*$", re.I)
+
+
+def _read_notes(pdf, path: str, boxes: Dict[int, Tuple[float, float, float, float]], st: Statement):
+    """Each route's NOTES and Timetable Construction Notes: the text outside the possession tables, with the page
+    header and footer (found by repetition) left out and kept as information."""
+    name = os.path.basename(path)
+    pages, lines, heights = [], [], []
+    for i in range(len(pdf)):
+        page = pdf[i]
+        runs = [r for r in to_visual(text_runs(page), page)]
+        pages.append(page)
+        lines.append(lines_of(runs))
+        heights.append(page.get_size()[1])
+    furniture = find_furniture(lines, heights)
+    if furniture.info.get("Header"):
+        head = "; ".join(f"{k} {v}" for k, v in furniture.info.items() if k != "Header")
+        st.info.append((name, (head + " - " if head else "") + furniture.info["Header"]))
+    route, scope, kind = "", "", "Other text"
+    para: List[str] = []
+    last_y, last_size = 0.0, 10.0
+
+    def flush(page_no: int):
+        if para:
+            st.notes.append(RouteNote(route, kind, scope, " ".join(para), f"{name} p{page_no}"))
+            para.clear()
+    for pno, page_lines in enumerate(lines):
+        box = rect_to_visual(pages[pno], *boxes[pno]) if pno in boxes else None
+        for line in page_lines:
+            cx, cy = (line[0].x0 + line[-1].x1) / 2, line[0].cy
+            text = line_text(line)
+            if furniture.is_furniture(text, cy, heights[pno]):
+                continue
+            if box and box[0] <= cx <= box[2] and box[1] <= cy <= box[3]:
+                continue                                    # a possession table's own text
+            size = max(r.size for r in line)
+            title = _titles(text)
+            if title and len(text) < 140:
+                flush(pno + 1)
+                if not re.search(r"Continued\W*$", text):          # 'Continued....' is the same route's next page
+                    route, scope, kind = title[-1][1], "", "Other text"
+                continue
+            if _SCOPE.search(text):
+                flush(pno + 1)
+                scope, kind = _SCOPE.sub("", text), "Timetable construction notes"
+                continue
+            m = re.match(r"^NOTES?\b\s*:?\s*(.*)$", text)
+            if m:
+                flush(pno + 1)
+                scope, kind = "", "Notes"
+                text = m.group(1)
+            elif para and last_y - cy > 1.8 * max(size, last_size):
+                flush(pno + 1)
+            if text:
+                para.append(text)
+            last_y, last_size = cy, size
+        flush(pno + 1)
 
 
 def _titles(raw: str) -> List[Tuple[str, str]]:

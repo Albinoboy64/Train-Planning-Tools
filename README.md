@@ -327,13 +327,17 @@ The tab has two sections. Under **1. Timetable comparison** choose what to compa
 
 ### Two sets of Section 4 documents (PDF)
 
-* Choose the original and the updated Network Rail **Section 4** PDFs (several on each side for several routes). Each possession row is paired by **section number and night** and compared: the **section and its end locations**, the **periods and their dates**, the **possession windows** (times and days), **what is blocked**, and the **remarks / notes**. The obvious header differences - page headings, the line of route title, version and publication details, page numbers - are not compared.
+* Choose the original and the updated Network Rail **Section 4** PDFs (several on each side for several routes). Each possession row is paired by **section number, night and what is blocked** (a section often has several possessions for a night, one for each line blocked, so the number and night alone repeat; a row whose blocked line was edited is still paired by its windows) and compared: the **section and its end locations**, the **periods and their dates**, the **possession windows** (times and days), **what is blocked**, and the **remarks**.
+* **Notes are compared too**: each route's **NOTES** and **Timetable Construction Notes**, and other text outside the possession tables (such as the track patrolling plans), route by route and sentence by sentence, so an edited note shows as changed rather than as one removed and one added. Notes are read from the PDFs; a rule set saved in the app holds the possession rows only, so a comparison from saved rule sets does not include notes (the report says so).
+* **Header details are not compared.** The running header and footer (version, date, page numbers, next issue date) are found by repetition and shown on *What Was Compared* for information, e.g. *Version 4.0; Date 10th July 2026*, so you can see which issues were compared.
 * Output: *Summary*, *Changes* (each changed item, what changed, original and updated), *Added*, *Removed* and *What Was Compared*. Command line: `timetable --s4 OLD.pdf [...] --vs-s4 NEW.pdf [...]`.
 
 ### Two sets of Timetable Planning Rules (PDF)
 
-* Choose the original and the updated **TPR** PDFs. **Every table** is read from its drawn grid (sectional running times, headways, junction margins, dwells, platform rules...) - a table carried on to the next page stays one table - and every **paragraph and note** between them.
-* Tables are paired by section heading and title (section numbers left out, so a renumbered section still pairs), rows by their first column, and each cell is compared under its column heading. Paragraphs are compared section by section, sentence by sentence, so an edited note shows as changed. Running headers, footers and page numbers are not compared.
+* Choose the original and the updated **TPR** PDFs (route TPRs, e.g. *TPR 2027 V4 EM.pdf*). **Every table** is read from its drawn grid (line-of-route tables, headways, junction margins and station planning rules, standages...) - a table carried on to the next page stays one table - and every **paragraph and note** between them.
+* **Left out, and listed on *What Was Compared*:** Network Rail's **covering commentary** (the summary of changes at the front, before the rules start), the **contents pages**, the **running header and footer** (found by repetition on every page, whatever the page size; the version and date are shown for information), and any wording the issue **deleted** (green and struck through), so each document is compared as its final text. The thin change bars in the margin are not table lines.
+* Sections are read from the numbered headings (e.g. *5 Running Times, Margins and Allowances > 5.3 Junction Margins and Station Planning Rules*), and a line-of-route title such as *LN3340 ALREWAS (INCLUSIVE) TO WICHNOR JN* names its table. Tables are paired by section and title (section numbers left out, so a renumbered section still pairs). **Rows are paired by lining the two versions of a table up**, not by their first column (which repeats a lot - platforms, movements - in the real tables): an inserted, deleted or edited row never shifts the others, and a row whose first cell is edited a little is still paired. Each cell is compared under its column heading; paragraphs are compared section by section, sentence by sentence.
+* Tested on the six 2027 V4 route TPRs (AR, EM, KT, LNE, SX, WX) and five Section 4 PDFs: each compared with itself shows no differences, and known edits (a changed cell, an inserted row, a deleted row, an edited note) are each reported exactly once. The 399-page LNE TPR compares in under 10 seconds.
 * Output as for Section 4. Command line: `timetable --tpr OLD.pdf [...] --vs-tpr NEW.pdf [...]`.
 
 ### Section 4 check
@@ -385,6 +389,11 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.28.1** - Section 4 and TPR comparisons follow the real 2027 V4 documents
+* **Section 4**: each route's **NOTES** and **Timetable Construction Notes** (and other text outside the possession tables) are now compared; possession rows are paired by section number, night **and what is blocked**, so a section with several possessions a night no longer mis-pairs after an insertion; the issue's version and date are shown for information.
+* **TPR**: the covering commentary, contents pages and running header / footer (found by repetition, including landscape pages) are left out instead of being read as tables and titles; sections follow the numbered headings; table rows are paired by lining the versions up; deleted (green, struck-through) wording is ignored.
+* Both readers also handle the pages Network Rail turns through 90 degrees (Section 4) and the thin change bars in the margin (TPR).
 
 **3.28.0** - Section 4 and TPR comparisons, Section 4 remarks, stock-day station books, Live View checking
 * **New: compare two sets of Section 4 documents** and **two sets of Timetable Planning Rules** (Timing Tools, Live View and command line): times, dates, locations and notes / every table row and paragraph; headers are not compared.

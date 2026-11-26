@@ -1,24 +1,32 @@
 """Network Rail Timetable Planning Rules (TPR) PDFs: every table and paragraph, for comparing two sets.
 
-The TPR is mostly tables (sectional running times, headways, junction margins, dwells, platform rules...) under
-numbered section headings, with notes and paragraphs between them. Tables are read from their drawn grid lines
-(PDFium): each band between two horizontal rules is a row, cut into cells by the vertical rules crossing it. A
-table's first row is its heading row; a table continued on the next page under the same heading row and title
-carries on as the same table. Text outside the tables is kept as paragraphs under the section it falls in.
-Running page headers and footers (the top and bottom strips of each page, 'Page n of m') are dropped.
+A route TPR is a numbered document (1 Introduction ... 5 Running Times, Margins and Allowances ... appendices) of
+paragraphs and ruled tables, with the tables of a line of route under its title ('LN3340 ALREWAS (INCLUSIVE) TO
+WICHNOR JN'). It starts after a covering commentary (Network Rail's own summary of what changed), each page has a
+running header and footer, and the contents pages list every heading with a page number.
+
+Reading, page by page (PDFium, text with its size and colour):
+* the covering commentary pages, the running header / footer (found by repetition) and the contents pages are left
+  out - the header's version and date are kept for the report as information;
+* a line in larger type than the body starts a numbered section; text below it is paragraphs until a table;
+* a table is the band of horizontal rules with the vertical rules crossing it: each row is cut into cells whose text
+  is the runs inside them; a table carried on to the next page under the same heading row is one table;
+* wording the issue deleted (green and struck through) is ignored, and the thin change bars Network Rail draws in the
+  right margin are not table lines.
 """
 from __future__ import annotations
 
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .pdfgrid import cluster, segments, text_in
+from .pdfgrid import Run, cluster, find_furniture, line_text, lines_of, segments, text_of_box, text_runs
 
-_HEADING = re.compile(r"^(?:\d+(?:\.\d+){0,3}\.?|[A-Z]\d*(?:\.\d+)*)\s+[A-Z][^.]{2,120}$")
-_PAGE_NO = re.compile(r"\bpage\s+\d+(?:\s+of\s+\d+)?\b", re.I)
-MARGIN = 0.06                   # the top and bottom strips of a page hold the running header and footer
+HEADING_SIZE = 13.5                 # body text is 10 pt; headings are 14, 15 and 16 pt
+_LEADER = re.compile(r"\.{3,}\s*\d+\s*$")
+_CONTINUED = re.compile(r"\s*\(?continued\W*$", re.I)
+TITLE_GAP = 30.0                    # a table's title is the line this close above it
 
 
 class TPRError(Exception):
@@ -40,6 +48,9 @@ class TPRDoc:
     tables: List[Table] = field(default_factory=list)
     paragraphs: List[Tuple[str, str, int]] = field(default_factory=list)    # (section, text, page)
     warnings: List[str] = field(default_factory=list)
+    info: List[Tuple[str, str]] = field(default_factory=list)               # (file, what its header says)
+    skipped: List[str] = field(default_factory=list)                        # pages left out, and why
+    deleted: int = 0                                                        # struck-through pieces ignored
 
 
 def read_tpr(paths: Sequence[str], log=lambda m: None) -> TPRDoc:
@@ -56,35 +67,25 @@ def read_tpr(paths: Sequence[str], log=lambda m: None) -> TPRDoc:
     return doc
 
 
-def _lines_of(tp, page_w: float, y0: float, y1: float) -> List[Tuple[float, str]]:
-    """Lines of text between y0 and y1 (top first), as (y, text): PDFium's text runs, joined by line."""
-    out: List[Tuple[float, str]] = []
-    try:
-        n = tp.count_rects()
-    except Exception:
-        return out
-    rows: List[Tuple[float, float, str]] = []           # (y, x, text)
-    for i in range(n):
-        try:
-            left, bottom, right, top = tp.get_rect(i)
-        except Exception:
-            continue
-        cy = (bottom + top) / 2
-        if not (y0 <= cy <= y1):
-            continue
-        text = text_in(tp, left, bottom, right, top)
-        if text:
-            rows.append((cy, left, text))
-    rows.sort(key=lambda r: (-r[0], r[1]))
-    line: List[Tuple[float, float, str]] = []
-    for r in rows:
-        if line and abs(line[0][0] - r[0]) > 3:
-            out.append((line[0][0], " ".join(t for _y, _x, t in sorted(line, key=lambda q: q[1]))))
-            line = []
-        line.append(r)
-    if line:
-        out.append((line[0][0], " ".join(t for _y, _x, t in sorted(line, key=lambda q: q[1]))))
-    return out
+class _State:
+    def __init__(self):
+        self.section = ""
+        self.path: Dict[int, str] = {}          # heading text at each level (16 pt = 1, 15 pt = 2, 14 pt = 3)
+        self.level = 3
+        self.heading_y: Optional[float] = None
+        self.heading_size = 0.0
+        self.last_was_heading = False
+        self.last: Optional[Table] = None
+        self.para: List[str] = []
+        self.para_y = 0.0
+        self.above = ""                 # the last text line (a table's title when it is close above one)
+        self.above_y = 0.0
+
+
+def _flush(doc: TPRDoc, st: _State, page: int):
+    if st.para:
+        doc.paragraphs.append((st.section, " ".join(st.para), page))
+        st.para.clear()
 
 
 def _read_pdf(path: str, doc: TPRDoc):
@@ -96,80 +97,132 @@ def _read_pdf(path: str, doc: TPRDoc):
         pdf = pdfium.PdfDocument(path)
     except Exception as exc:
         raise TPRError(f"'{os.path.basename(path)}' could not be opened as a PDF ({exc}).")
-    section = ""
-    last: Optional[Table] = None
     name = os.path.basename(path)
     try:
-        for pno in range(len(pdf)):
-            page = pdf[pno]
-            w, h = page.get_size()
-            tp = page.get_textpage()
-            top, bottom = h * (1 - MARGIN), h * MARGIN
-            horiz, vert = segments(page, rects=True)
-            grids = _grids(horiz, vert, top, bottom)
-            # text outside the tables: headings and paragraphs, in reading order
-            boxes = [(g[0][0], g[0][-1], g[1]) for g in grids]          # (lowest y, highest y, x span)
-            items: List[Tuple[float, str, Any]] = []
-            for y, text in _lines_of(tp, w, bottom, top):
-                if any(lo - 1 <= y <= hi + 1 for lo, hi, _x in boxes) or _PAGE_NO.search(text):
-                    continue
-                items.append((y, "text", text))
-            for g in grids:
-                items.append((g[0][-1], "grid", g))
-            items.sort(key=lambda it: -it[0])
-            above = ""
-            para: List[str] = []
-            for _y, kind, val in items:
-                if kind == "text":
-                    text = str(val)
-                    if _HEADING.match(text) and len(text) < 130:
-                        _flush(doc, section, para, pno + 1)
-                        section, above = text, ""
-                        continue
-                    para.append(text)
-                    above = text
-                    continue
-                ys, xs = val
-                rows = _grid_rows(tp, ys, xs, vert)
-                if not rows:
-                    continue
-                headers, body = rows[0], rows[1:]
-                title = above if above and len(above) < 160 else ""
-                if title and para and para[-1] == title:
-                    para.pop()                                    # the table's title, not a paragraph
-                _flush(doc, section, para, pno + 1)
-                if (last is not None and last.headers == headers and (not title or title == last.title)
-                        and last.section == section):
-                    last.rows += body                             # continued from the page before
-                    last.pages.append(pno + 1)
-                elif last is not None and not title and len(headers) == len(last.headers) and pno + 1 in (
-                        last.pages[-1], last.pages[-1] + 1) and last.section == section and _no_header(headers):
-                    last.rows += rows                             # continued without repeating the heading row
-                    last.pages.append(pno + 1)
-                else:
-                    last = Table(section, title, headers, body, [pno + 1])
-                    doc.tables.append(last)
-                above = ""
-            _flush(doc, section, para, pno + 1)
+        pages = []
+        for i in range(len(pdf)):
+            page = pdf[i]
+            horiz, vert = segments(page)
+            width, height = page.get_size()
+            pages.append((text_runs(page, horiz), horiz, vert, width, height))
+        furniture = find_furniture([lines_of([r for r in runs if not r.deleted]) for runs, *_ in pages],
+                                   [p[4] for p in pages])
+        if furniture.info:
+            doc.info.append((name, "; ".join(f"{k} {v}" for k, v in furniture.info.items() if k != "Header")
+                             + (f" ({furniture.info['Header']})" if furniture.info.get("Header") else "")))
+        if furniture.start:
+            doc.skipped.append(f"{name}: pages 1-{furniture.start} (covering commentary)")
+        st = _State()
+        for pno in range(furniture.start, len(pages)):
+            _page(doc, st, name, pno, pages[pno], furniture)
+        _flush(doc, st, len(pages))
     finally:
         pdf.close()
     for t in doc.tables:
         t.pages = sorted(set(t.pages))
-    if not doc.tables and not doc.paragraphs:
-        doc.warnings.append(f"{name}: no text found")
 
 
-def _flush(doc: TPRDoc, section: str, para: List[str], page: int):
-    """The paragraph gathered so far, under its section."""
-    if para:
-        doc.paragraphs.append((section, " ".join(para), page))
-        para.clear()
+def _page(doc: TPRDoc, st: _State, name: str, pno: int, data, furniture):
+    runs, horiz, vert, width, height = data
+    live = [r for r in runs if not r.deleted]
+    doc.deleted += len(runs) - len(live)
+    top, bottom = height, 0.0
+    body: List[List[Run]] = []
+    content: List[Run] = []
+    for line in lines_of(live):
+        if furniture.is_furniture(line_text(line), line[0].cy, height):
+            if line[0].cy > height / 2:
+                top = min(top, min(r.y0 for r in line))
+            else:
+                bottom = max(bottom, max(r.y1 for r in line))
+            continue
+        body.append(line)
+        content += line
+    leaders = sum(1 for line in body if _LEADER.search(line_text(line)))
+    if leaders >= 5 and leaders >= 0.35 * len(body):
+        doc.skipped.append(f"{name}: page {pno + 1} (contents)")
+        return
+    # the table lines: not the strike-through lines of deleted text, not the change bars in the margin
+    struck = [r for r in runs if r.deleted]
+    rules = [(y, x0, x1) for y, x0, x1 in horiz
+             if bottom < y < top and not any(r.y0 <= y <= r.y1 and r.x0 - 1 <= (x0 + x1) / 2 <= r.x1 + 1
+                                             for r in struck)]
+    limit = max((x1 for _y, x0, x1 in rules if x1 - x0 > 40), default=width - 45) + 3
+    bars_out = [v for v in vert if v[0] <= limit and bottom < v[1] + 1 and v[2] - 1 < top]
+    grids = _grids(rules, bars_out, top, bottom)
+    boxes = [(xs[0] - 2, ys[0] - 1, xs[1] + 2, ys[-1] + 1) for ys, xs in grids]
+    items: List[Tuple[float, str, Any]] = []
+    for line in body:
+        cx, cy = line[0].cx, line[0].cy
+        if any(b[0] <= cx <= b[2] and b[1] <= cy <= b[3] for b in boxes):
+            continue
+        items.append((cy, "line", line))
+    for ys, xs in grids:
+        items.append((ys[-1], "grid", (ys, xs)))
+    items.sort(key=lambda it: -it[0])
+    page = pno + 1
+    for y, kind, val in items:
+        if kind == "line":
+            text = line_text(val)
+            size = max(r.size for r in val)
+            if size >= HEADING_SIZE:
+                _flush(doc, st, page)
+                continued = (st.heading_y is not None and st.heading_size == size
+                             and st.heading_y - y < 1.8 * size and st.last_was_heading)
+                if continued:
+                    st.path[st.level] += " " + text
+                else:
+                    st.level = 1 if size >= 15.5 else 2 if size >= 14.5 else 3
+                    st.path[st.level] = text
+                    for deeper in [k for k in st.path if k > st.level]:
+                        del st.path[deeper]
+                st.section = " > ".join(st.path[k] for k in sorted(st.path))
+                st.heading_y, st.heading_size, st.last_was_heading = y, size, True
+                st.above = ""
+                continue
+            st.last_was_heading = False
+            if st.para and st.para_y - y > 1.7 * max(size, 9):
+                _flush(doc, st, page)
+            st.para.append(text)
+            st.para_y, st.above, st.above_y = y, text, y
+            continue
+        st.last_was_heading = False
+        ys, xs = val
+        rows = _grid_rows(content, ys, xs, bars_out)
+        if not rows:
+            continue
+        headers, rest = rows[0], rows[1:]
+        title = st.above if st.above and st.above_y - ys[-1] <= TITLE_GAP and _is_title(st.above) else ""
+        if len(headers) == 1 and rest and max(len(r) for r in rest) > 1:
+            # a first row that is one merged cell (a title, with its column names run together) is not a heading
+            # row: it names the table, and the columns are numbered
+            title, headers, rest = " ".join(x for x in (title, headers[0]) if x), [], rows[1:]
+        if title and st.para and st.para[-1] == st.above:
+            st.para.pop()                                           # the table's title, not a paragraph
+        _flush(doc, st, page)
+        last = st.last
+        if (last is not None and last.section == st.section and last.headers == headers
+                and (not title or _CONTINUED.sub("", title) == _CONTINUED.sub("", last.title))):
+            last.rows += rest                                       # carried on from the page before
+            last.pages.append(page)
+        elif (last is not None and not title and last.section == st.section and len(headers) == len(last.headers)
+              and page - last.pages[-1] <= 1 and _no_header(headers)):
+            last.rows += rows                                       # carried on without its heading row
+            last.pages.append(page)
+        else:
+            st.last = Table(st.section, title, headers, rest, [page])
+            doc.tables.append(st.last)
+        st.above = ""
+
+
+def _is_title(text: str) -> bool:
+    """A line that can name the table under it ('LN3340 ALREWAS TO WICHNOR JN', 'Table 5.2 Headways')."""
+    return 0 < len(text) <= 120 and not text.endswith(".")
 
 
 def _no_header(cells: List[str]) -> bool:
-    """A row that is data, not a heading row (it has digits in most cells)."""
-    digits = sum(1 for c in cells if re.search(r"\d", c))
-    return digits >= max(1, len(cells) // 2)
+    """A row that is data, not a heading row (digits in most cells)."""
+    return sum(1 for c in cells if re.search(r"\d", c)) >= max(1, len(cells) // 2)
 
 
 def _grids(horiz, vert, top: float, bottom: float):
@@ -221,8 +274,9 @@ def _grids(horiz, vert, top: float, bottom: float):
     return grids
 
 
-def _grid_rows(tp, ys: List[float], xs: Tuple[float, float], vert) -> List[List[str]]:
-    """The rows of one table, top first: each band cut at the vertical rules that cross it."""
+def _grid_rows(runs: Sequence[Run], ys: List[float], xs: Tuple[float, float], vert) -> List[List[str]]:
+    """The rows of one table, top first: each band cut at the vertical rules that cross it, its cells' text from the
+    text runs inside them."""
     x0, x1 = xs
     out = []
     for lo, hi in reversed(list(zip(ys, ys[1:]))):
@@ -232,7 +286,7 @@ def _grid_rows(tp, ys: List[float], xs: Tuple[float, float], vert) -> List[List[
         edges = cluster([vx for vx, vb, vt in vert if vb - 1 <= mid <= vt + 1 and x0 - 4 <= vx <= x1 + 4])
         if len(edges) < 2:
             edges = [x0, x1]
-        cells = [text_in(tp, a + 0.5, lo + 0.5, b - 0.5, hi - 0.5) for a, b in zip(edges, edges[1:])]
+        cells = [text_of_box(runs, a, lo, b, hi) for a, b in zip(edges, edges[1:])]
         if any(cells):
             out.append(cells)
     return out

@@ -11,31 +11,31 @@ from __future__ import annotations
 import difflib
 import re
 from collections import Counter, defaultdict
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, cast
 
 from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, norm
 from .tpr import Table, TPRDoc
 
 
 def _plain_heading(text: str) -> str:
-    return norm(re.sub(r"^(?:\d+(?:\.\d+)*\.?|[A-Z]\d*(?:\.\d+)*)\s+", "", text or "")).lower()
+    """A section path without its numbers ('5 Running Times > 5.3 Junction Margins' -> 'running times > junction
+    margins'), so a renumbered section still pairs."""
+    parts = [re.sub(r"^(?:\d+(?:\.\d+)*\.?|[A-Z]\d*(?:\.\d+)*)\s+", "", p) for p in (text or "").split(" > ")]
+    return norm(" > ".join(parts)).lower()
 
 
 def _table_id(t: Table) -> str:
     return f"{_plain_heading(t.section)}|{norm(t.title).lower() or ' / '.join(norm(h).lower() for h in t.headers)}"
 
 
-def _row_keys(t: Table) -> List[str]:
-    firsts = Counter(norm(r[0]).lower() if r else "" for r in t.rows)
-    keys: List[str] = []
-    seen: Counter = Counter()
+def _labels(t: Table) -> List[str]:
+    """A name for each row: its first cell, or (where a merged first cell leaves it blank) the one above."""
+    out, carry = [], ""
     for r in t.rows:
-        k = norm(r[0]).lower() if r else ""
-        if firsts[k] > 1 and len(r) > 1:
-            k += " | " + norm(r[1]).lower()
-        seen[k] += 1
-        keys.append(k + (f" #{seen[k]}" if seen[k] > 1 else ""))
-    return keys
+        first = norm(r[0]) if r else ""
+        carry = first or carry
+        out.append(first or carry or "(row)")
+    return out
 
 
 def _cells(t: Table, row: List[str]) -> Dict[str, str]:
@@ -60,8 +60,14 @@ def compare_tprs(a: TPRDoc, b: TPRDoc) -> DocComparison:
                     "Every paragraph and note outside the tables, section by section, sentence by sentence.",
                     f"{len(a.tables)} table(s) and {len(a.paragraphs)} paragraph(s) in the original, "
                     f"{len(b.tables)} and {len(b.paragraphs)} in the updated."]
-    cmp.not_compared = ["Running page headers and footers (the top and bottom strip of each page), page numbers, "
-                        "and section numbers in headings (so a renumbered section still pairs)."]
+    cmp.not_compared = ["Running page headers and footers (found by repetition, whatever the page size), page numbers, "
+                        "contents pages, and section numbers in headings (so a renumbered section still pairs)."]
+    for side, doc in (("Original", a), ("Updated", b)):
+        cmp.info += [(f"{side} document", f"{name}: {what}") for name, what in doc.info]
+        cmp.not_compared += [f"{side}: {note}" for note in doc.skipped]
+        if doc.deleted:
+            cmp.not_compared.append(f"{side}: {doc.deleted} piece(s) of text deleted in the issue (green, struck "
+                                    "through) were ignored, so the document is compared as its final wording.")
     return cmp
 
 
@@ -69,6 +75,46 @@ def _by_id(tables: Sequence[Table]) -> Dict[str, List[Table]]:
     out: Dict[str, List[Table]] = defaultdict(list)
     for t in tables:
         out[_table_id(t)].append(t)
+    return out
+
+
+def _align(x: Table, y: Table):
+    """Pair the rows of two versions of a table in sequence: [(row index in x or None, row index in y or None)].
+    Runs of identical rows stay together; in a block that changed, rows with the same first cell are paired first
+    and the rest in order, so one edited, inserted or deleted row never shifts the pairing of the others (first
+    cells repeat a lot in real tables, so they cannot be keys)."""
+    ra = [tuple(norm(c) for c in r) for r in x.rows]
+    rb = [tuple(norm(c) for c in r) for r in y.rows]
+    out: List[Tuple[Optional[int], Optional[int]]] = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ra, rb, autojunk=False).get_opcodes():
+        if op == "equal":
+            out += list(zip(range(i1, i2), range(j1, j2)))
+            continue
+        left, right = list(range(i1, i2)), list(range(j1, j2))
+        pairs: List[Tuple[Optional[int], Optional[int]]] = []
+        for i in list(left):
+            first = ra[i][0] if ra[i] else ""
+            j = next((j for j in right if first and rb[j] and rb[j][0] == first), None)
+            if j is not None:
+                pairs.append((i, j))
+                left.remove(i)
+                right.remove(j)
+        for i in list(left):                    # a first cell edited a little ('Brighton Jn' -> 'Brighton Jn.')
+            first = ra[i][0] if ra[i] else ""
+            best, score = None, 0.0
+            for j in right:
+                other = rb[j][0] if rb[j] else ""
+                ratio = 1.0 if not first and not other else difflib.SequenceMatcher(None, first, other).ratio()
+                if ratio >= 0.5 and ra[i][1:] == rb[j][1:] and any(ra[i][1:]):
+                    ratio = max(ratio, 0.75)            # only the identifier changed ('4' -> '4A')
+                if ratio > score:
+                    best, score = j, ratio
+            if best is not None and score >= 0.75:
+                pairs.append((i, best))
+                left.remove(i)
+                right.remove(best)
+        pairs += [(i, None) for i in left] + [(None, j) for j in right]
+        out += sorted(pairs, key=lambda p: (p[0] if p[0] is not None else i2, p[1] if p[1] is not None else j2))
     return out
 
 
@@ -83,20 +129,23 @@ def _compare_tables(left: Sequence[Table], right: Sequence[Table], cmp: DocCompa
             ref = x or y
             assert ref is not None
             group = " - ".join(s for s in (norm(ref.section), norm(ref.title)) if s) or "Table"
-            rows_a = dict(zip(_row_keys(x), x.rows)) if x else {}
-            rows_b = dict(zip(_row_keys(y), y.rows)) if y else {}
-            keys = list(dict.fromkeys(list(rows_a) + list(rows_b)))
-            for k in keys:
-                ra, rb = rows_a.get(k), rows_b.get(k)
-                va = _cells(x, ra) if x is not None and ra is not None else {}
-                vb = _cells(y, rb) if y is not None and rb is not None else {}
+            names_a, names_b = (_labels(x) if x else []), (_labels(y) if y else [])
+            if x is not None and y is not None:
+                pairs = _align(x, y)
+            else:
+                pairs = [(i, None) for i in range(len(x.rows))] if x is not None else \
+                    [(None, j) for j in range(len(cast(Table, y).rows))]
+            seen: Counter = Counter()
+            for i, j in pairs:
+                va = _cells(cast(Table, x), x.rows[i]) if x is not None and i is not None else {}
+                vb = _cells(cast(Table, y), y.rows[j]) if y is not None and j is not None else {}
                 names = list(dict.fromkeys(list(va) + list(vb)))
-                label = norm((ra or rb or [""])[0]) or "(row)"
+                label = names_b[j] if j is not None else names_a[cast(int, i)]
+                seen[label] += 1
                 where = " / ".join(f"p{','.join(map(str, t.pages))}" for t in (x, y) if t is not None)
-                item = DocItem(f"T|{tid}|{n}|{k}", group, label, fields=[(c, va.get(c, ""), vb.get(c, ""))
-                                                                       for c in names], where=where)
-                item.status = (ADDED if ra is None else REMOVED if rb is None
-                               else CHANGED if item.changes else SAME)
+                item = DocItem(f"T|{tid}|{n}|{label.lower()}|{seen[label]}", group, label,
+                               fields=[(c, va.get(c, ""), vb.get(c, "")) for c in names], where=where)
+                item.status = ADDED if i is None else REMOVED if j is None else CHANGED if item.changes else SAME
                 cmp.items.append(item)
 
 

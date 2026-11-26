@@ -756,12 +756,14 @@ def test_section4_route_titles():
 
 
 # --------------------------------------------------------------------------- synthetic rule documents
-def write_s4_pdf(path, rows, period="Periods A and B 13.12.2026 to 14.02.2027", route="XX100 TEST ROUTE"):
-    """rows: (section text, night, cell text, remarks)."""
+def write_s4_pdf(path, rows, period="Periods A and B 13.12.2026 to 14.02.2027", route="XX100 TEST ROUTE",
+                 notes=(), construction=(), version="4.0", date="10th July 2026"):
+    """A Section 4 PDF laid out like Network Rail's: pages turned through 90 degrees (the text runs up the page),
+    a running header and footer, then per route a page of timetable construction notes and a page with the
+    possession table (rows: section text, night, cell text, remarks) followed by NOTES.
+    construction: (stretch of line, note text); notes: NOTES text."""
     from reportlab.pdfgen import canvas
-    c = canvas.Canvas(path, pagesize=(800, 1100))
-    cols = [50, 250, 330, 630, 1000]             # SECTION, night, period, REMARKS (along y)
-    edges = [40, 80] + [80 + 30 * (i + 1) for i in range(len(rows))]
+    c = canvas.Canvas(path, pagesize=(1100, 600))           # displayed size; the content is 600 wide, 1100 high
 
     def text(x, y, s, size=6):
         c.saveState()
@@ -770,38 +772,88 @@ def write_s4_pdf(path, rows, period="Periods A and B 13.12.2026 to 14.02.2027", 
         c.setFont("Helvetica", size)
         c.drawString(0, 0, s)
         c.restoreState()
-    text(30, 60, route, 8)
-    for x in edges:
-        c.line(x, cols[0], x, cols[-1])
+
+    def page(n):
+        c.setPageRotation(90)
+        text(18, 40, f"Network Rail Engineering Access Statement 2027 Version: {version}", 9)
+        text(30, 40, f"Test Route Confirmed Rules Date : {date}", 9)
+        text(42, 40, f"Section 4 - Standard Possessions and Opportunities Page : {n} of 2", 9)
+        text(580, 40, "Electronic copy - uncontrolled when printed. Next scheduled issue: 23rd October 2026", 9)
+    page(1)
+    text(70, 60, route, 12)
+    x = 95
+    for scope, line in construction:
+        text(x, 60, f"{scope} Timetable Construction Notes", 10)
+        text(x + 16, 60, line, 8)
+        x += 44
+    c.showPage()
+    page(2)
+    text(70, 60, route + " Continued....", 12)
+    cols = [50, 250, 330, 630, 1000]             # SECTION, night, period, REMARKS (along y)
+    edges = [100, 140] + [140 + 30 * (i + 1) for i in range(len(rows))]
+    for e in edges:
+        c.line(e, cols[0], e, cols[-1])
     for y in cols:
         c.line(edges[0], y, edges[-1], y)
-    hx = edges[1] - 6
-    for a, t in zip(cols, ["SECTION", "Night", period, "REMARKS"]):
-        text(hx, a + 3, t)
+    for a_, t in zip(cols, ["SECTION", "Night", period, "REMARKS"]):
+        text(edges[1] - 6, a_ + 3, t)
     for x1, (sec, night, cell, rem) in zip(edges[2:], rows):
-        for a, t in zip(cols, [sec, night, cell, rem]):
-            text(x1 - 6, a + 3, t)
+        for a_, t in zip(cols, [sec, night, cell, rem]):
+            text(x1 - 6, a_ + 3, t)
+    x = edges[-1] + 28
+    for note in notes:
+        text(x, 60, "NOTES: " + note, 8)
+        x += 22
+    c.showPage()
     c.save()
 
 
 def write_tpr_pdf(path, rows, note="Trains must not be timed to pass Beta Jn within 3 minutes of each other.",
-                  pages=1):
-    """A TPR-like PDF: running header and footer, a numbered heading, a paragraph and a ruled table (repeated
-    over `pages` pages with the heading row repeated)."""
+                  pages=1, commentary=2, version="4.0", date="26 June 2026"):
+    """A TPR laid out like Network Rail's route rules: covering commentary pages, then pages with a four-line
+    running header and a footer, numbered headings (16 and 14 pt), a paragraph with a deleted sentence (green,
+    struck through) and a new one (red), a line-of-route title, a ruled table (with a deleted value in a cell, a
+    change bar in the margin), repeated over `pages` pages with its heading row repeated."""
     from reportlab.pdfgen import canvas
     c = canvas.Canvas(path, pagesize=(595, 842))
-    for pg in range(pages):
-        c.setFont("Helvetica", 8)
-        c.drawString(40, 820, "Timetable Planning Rules - Version 1 - Test Route")
-        c.drawString(40, 15, f"Page {pg + 1} of {pages}")
+    for _k in range(commentary):
         c.setFont("Helvetica", 10)
+        c.drawString(40, 800, "Commentary on the Test Route Timetable Planning Rules 2027, Version 4")
+        c.drawString(40, 780, "5.2 Headways: the value for Beta Jn is changed.")
+        c.showPage()
+
+    def struck(x, y, s):
+        c.setFillColorRGB(0, 0.69, 0.31)
+        c.setFont("Helvetica", 10)
+        c.drawString(x, y, s)
+        c.setLineWidth(0.6)
+        c.line(x, y + 3.5, x + c.stringWidth(s, "Helvetica", 10), y + 3.5)
+        c.setFillColorRGB(0, 0, 0)
+    for pg in range(pages):
+        c.setFont("Helvetica", 10)
+        c.drawString(40, 820, f"NETWORK RAIL Timetable Planning Rules Version: {version}")
+        c.drawString(40, 808, f"Route: Draft Rules for Test Change 2027 Date: {date}")
+        c.drawString(40, 796, f"Test Route Page: {commentary + pg + 1} of {commentary + pages}")
+        c.drawString(40, 30, "Electronic copy - uncontrolled when printed.")
+        top = 740
         if pg == 0:
-            c.drawString(40, 780, "5.2 Headways")
-            c.drawString(40, 760, note)
-            c.drawString(40, 735, "Table 5.2.1 Planning headways")
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(40, 765, "5 Running Times and Margins")
+            c.setFont("Helvetica", 14)
+            c.drawString(40, 740, "5.2 Headways")
+            c.setFont("Helvetica", 10)
+            c.drawString(40, 718, note)
+            struck(40, 704, "This sentence was deleted in the issue.")
+            c.setFillColorRGB(1, 0, 0)
+            c.drawString(40, 690, "A new sentence shown in red.")
+            c.setFillColorRGB(0, 0, 0)
+            c.drawString(40, 664, "LN100 TEST ROUTE TO OTHER JN")
+            top = 650
+            c.setLineWidth(1)
+            c.line(566, 600, 566, 640)                              # a change bar in the right margin
+        c.setLineWidth(0.5)
         heads = ["Location", "Line", "Headway"]
         xs = [40, 200, 320, 440]
-        top = 720
         body = rows if pages == 1 else rows[pg::pages]
         ys = [top - 18 * i for i in range(len(body) + 2)]
         for y in ys:
@@ -810,7 +862,10 @@ def write_tpr_pdf(path, rows, note="Trains must not be timed to pass Beta Jn wit
             c.line(x, ys[-1], x, ys[0])
         for r, cells in enumerate([heads] + list(body)):
             for x, v in zip(xs, cells):
+                c.setFont("Helvetica", 10)
                 c.drawString(x + 3, ys[r] - 13, v)
+        if pg == 0 and body:
+            struck(xs[2] + 14, ys[1] - 13, "9")                      # a deleted value beside the real one
         c.showPage()
     c.save()
 
@@ -819,6 +874,9 @@ S4_ROWS = [("Alpha and Beta Jn 100.1", "MID WEEK", "0140 T-F to 0350 T-F Down an
            ("Beta Jn and Gamma 100.2", "WEEK END", "2350 Sat to 0750 Sun BLOCKED", "")]
 S4_ROWS_NEW = [("Alpha and Beta Jn 100.1", "MID WEEK", "0110 T-F to 0350 T-F Down and Up BLOCKED", "Except ECS"),
                ("Delta and Gamma 100.3", "SUN/MON", "0100 Mon to 0500 Mon BLOCKED", "Freight only")]
+S4_NOTES = ["Access to be maintained to Alpha depot via the slow lines.", "Possessions to be given up at 0750."]
+S4_NOTES_NEW = ["Access to be maintained to Delta depot via the slow lines.", "Possessions to be given up at 0750."]
+S4_CONSTRUCTION = [("Alpha to Beta Jn", "Sat/Sun All trains to be timed over the slow lines.")]
 TPR_ROWS = [("Alpha", "Fast", "3"), ("Beta Jn", "Slow", "4"), ("Gamma", "All", "2")]
 TPR_ROWS_NEW = [("Alpha", "Fast", "3"), ("Beta Jn", "Slow", "5"), ("Delta", "All", "2")]
 
@@ -826,16 +884,18 @@ TPR_ROWS_NEW = [("Alpha", "Fast", "3"), ("Beta Jn", "Slow", "5"), ("Delta", "All
 def write_rule_docs(folder):
     """Original and updated Section 4 and TPR PDFs (also used by the Windows build's smoke test)."""
     out = {k: os.path.join(folder, f"{k}.pdf") for k in ("s4_old", "s4_new", "tpr_old", "tpr_new")}
-    write_s4_pdf(out["s4_old"], S4_ROWS)
-    write_s4_pdf(out["s4_new"], S4_ROWS_NEW)
-    write_tpr_pdf(out["tpr_old"], TPR_ROWS)
-    write_tpr_pdf(out["tpr_new"], TPR_ROWS_NEW, note="Trains must not be timed to pass Beta Jn within 4 minutes "
-                                                     "of each other.")
+    write_s4_pdf(out["s4_old"], S4_ROWS, notes=S4_NOTES, construction=S4_CONSTRUCTION)
+    write_s4_pdf(out["s4_new"], S4_ROWS_NEW, notes=S4_NOTES_NEW, construction=S4_CONSTRUCTION, date="14th August 2026",
+                 version="4.1")
+    write_tpr_pdf(out["tpr_old"], TPR_ROWS, pages=2)
+    write_tpr_pdf(out["tpr_new"], TPR_ROWS_NEW, pages=2, version="4.1", date="14 August 2026",
+                  note="Trains must not be timed to pass Beta Jn within 4 minutes of each other.")
     return out
 
 
 def test_section4_documents_compared():
-    """Two Section 4 PDFs: a window changed, a section removed and one added; headings are not compared."""
+    """Two Section 4 PDFs: a window changed, a section removed and one added, a note edited; headings are not
+    compared but the versions and dates are shown for information."""
     import openpyxl
     from rstools.timetable.engine import run
     d = tempfile.mkdtemp()
@@ -844,23 +904,70 @@ def test_section4_documents_compared():
     wb = openpyxl.load_workbook(res.path)
     assert wb.sheetnames == ["Summary", "Changes", "Added", "Removed", "What Was Compared"]
     changes = [tuple(c.value for c in r[1:5]) for r in wb["Changes"].iter_rows(min_row=2)]
-    assert ("100.1 MID WEEK", "Windows", "0140 Tue to 0350 Tue; 0140 Wed to 0350 Wed; 0140 Thu to 0350 Thu; "
-            "0140 Fri to 0350 Fri", "0110 Tue to 0350 Tue; 0110 Wed to 0350 Wed; 0110 Thu to 0350 Thu; "
-            "0110 Fri to 0350 Fri") in changes, changes
+    assert ("100.1 MID WEEK - Down and Up BLOCKED", "Windows", "0140 Tue to 0350 Tue; 0140 Wed to 0350 Wed; "
+            "0140 Thu to 0350 Thu; 0140 Fri to 0350 Fri", "0110 Tue to 0350 Tue; 0110 Wed to 0350 Wed; "
+            "0110 Thu to 0350 Thu; 0110 Fri to 0350 Fri") in changes, changes
+    assert any(c[1] == "Text" and "Alpha depot" in c[2] and "Delta depot" in c[3] for c in changes), changes
     added = [r[1].value for r in wb["Added"].iter_rows(min_row=2)]
     removed = [r[1].value for r in wb["Removed"].iter_rows(min_row=2)]
-    assert added == ["100.3 SUN/MON"] and removed == ["100.2 WEEK END"]
-    assert res.differences == 3
+    assert added == ["100.3 SUN/MON - BLOCKED"] and removed == ["100.2 WEEK END - BLOCKED"]
+    assert res.differences == 4
+    audit = [[c.value for c in r] for r in wb["What Was Compared"].iter_rows(min_row=2)]
+    assert any(r[0] == "Original document" and "Version 4.0" in r[1] and "10th July 2026" in r[1] for r in audit)
+    assert any(r[0] == "Updated document" and "Version 4.1" in r[1] for r in audit)       # shown, not compared
+    from rstools.timetable.section4 import read_statement
+    st = read_statement([f["s4_old"]])
+    kinds = {(n.kind, n.scope): n.text for n in st.notes}
+    assert kinds[("Timetable construction notes", "Alpha to Beta Jn")].startswith("Sat/Sun All trains")
+    assert [n.text for n in st.notes if n.kind == "Notes"] == S4_NOTES
+    assert all(n.route == "XX100 TEST ROUTE" for n in st.notes)
+    assert not any("Version" in n.text or "uncontrolled" in n.text for n in st.notes)     # not header or footer
+
+
+def test_section4_rows_repeating_a_section_and_night_pair_correctly():
+    """A section can have several possessions for one night (one per line blocked): an inserted row, or one whose
+    blocked line changed, never shifts the pairing of the others."""
+    from rstools.timetable.s4compare import compare_statements
+    from rstools.timetable.section4 import read_statement
+    d = tempfile.mkdtemp()
+    base = [("Alpha and Beta Jn 100.1", "MID WEEK", f"0140 T-F to 0350 T-F {line} BLOCKED", "")
+            for line in ("Down Slow", "Up Slow", "Fast")]
+    old, ins, ren = (os.path.join(d, n) for n in ("old.pdf", "ins.pdf", "ren.pdf"))
+    write_s4_pdf(old, base)
+    write_s4_pdf(ins, [("Alpha and Beta Jn 100.1", "MID WEEK", "0140 T-F to 0350 T-F Down Fast BLOCKED", "")] + base)
+    write_s4_pdf(ren, [base[0], ("Alpha and Beta Jn 100.1", "MID WEEK",
+                                 "0140 T-F to 0350 T-F Up Slow No2 BLOCKED", ""), base[2]])
+    a = read_statement([old])
+    c = compare_statements(a, read_statement([ins]))
+    assert [(i.status, i.label) for i in c.items if i.status != "same"] == [
+        ("added", "100.1 MID WEEK - Down Fast BLOCKED")], [(i.status, i.label) for i in c.items]
+    c = compare_statements(a, read_statement([ren]))
+    diff = [i for i in c.items if i.status != "same"]
+    assert len(diff) == 1 and diff[0].status == "changed" and [x[0] for x in diff[0].changes] == ["Blocked"]
 
 
 def test_tpr_documents_compared():
-    """Two TPR PDFs: a table cell changed, a row added and one removed, a paragraph edited; running headers and page
-    numbers are not compared; a table carried over two pages is one table."""
+    """Two TPR PDFs: a table cell changed, a row added and one removed, a paragraph edited. The covering commentary,
+    the running header and footer, deleted (green struck-through) text and the change bar in the margin are not
+    part of the comparison; a table carried over two pages is one table."""
     import openpyxl
     from rstools.timetable.engine import run
     from rstools.timetable.tpr import read_tpr
     d = tempfile.mkdtemp()
     f = write_rule_docs(d)
+    doc = read_tpr([f["tpr_old"]])
+    (table,) = doc.tables
+    assert table.section == "5 Running Times and Margins > 5.2 Headways"
+    assert table.title == "LN100 TEST ROUTE TO OTHER JN"
+    assert table.headers == ["Location", "Line", "Headway"]                  # the change bar is not a column
+    assert table.rows[0] == ["Alpha", "Fast", "3"]                            # the deleted '9' is ignored
+    assert sorted(r[0] for r in table.rows) == ["Alpha", "Beta Jn", "Gamma"]  # one table over the two pages
+    text = " ".join(p for _s, p, _n in doc.paragraphs)
+    assert "within 3 minutes" in text and "A new sentence shown in red." in text
+    assert "deleted in the issue" not in text and "Page:" not in text and "uncontrolled" not in text
+    assert "Commentary" not in text and doc.deleted == 2
+    assert doc.skipped == ["tpr_old.pdf: pages 1-2 (covering commentary)"]
+    assert doc.info and "Version 4.0" in doc.info[0][1] and "26 June 2026" in doc.info[0][1]
     res = run("tprs", [f["tpr_old"]], [f["tpr_new"]], d)
     wb = openpyxl.load_workbook(res.path)
     changes = [tuple(c.value for c in r[1:5]) for r in wb["Changes"].iter_rows(min_row=2)]
@@ -868,6 +975,10 @@ def test_tpr_documents_compared():
     assert any(c[1] == "Text" and "3 minutes" in c[2] and "4 minutes" in c[3] for c in changes), changes
     assert [r[1].value for r in wb["Added"].iter_rows(min_row=2)] == ["Delta"]
     assert [r[1].value for r in wb["Removed"].iter_rows(min_row=2)] == ["Gamma"]
+    audit = [[c.value for c in r] for r in wb["What Was Compared"].iter_rows(min_row=2)]
+    assert any(r[0] == "Updated document" and "Version 4.1" in r[1] for r in audit)
+    assert any(r[0] == "Not compared" and "covering commentary" in r[1] for r in audit)
+    assert any(r[0] == "Not compared" and "deleted in the issue" in r[1] for r in audit)
     two = os.path.join(d, "two.pdf")
     write_tpr_pdf(two, TPR_ROWS, pages=2)
     doc = read_tpr([two])

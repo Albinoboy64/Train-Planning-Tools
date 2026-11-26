@@ -36,6 +36,7 @@ class DocComparison:
     warnings: List[str] = field(default_factory=list)
     compared: List[str] = field(default_factory=list)       # what was compared, in words
     not_compared: List[str] = field(default_factory=list)   # what was left out (headers and the like)
+    info: List[Tuple[str, str]] = field(default_factory=list)   # (label, text): what the documents' headers say
 
     def count(self, status: str) -> int:
         return sum(1 for i in self.items if i.status == status)
@@ -80,6 +81,7 @@ def build_workbook(cmp: DocComparison):
         add_sheet(wb, title, ["Where", "Item", "Details", "Pages"], part, [36, 34, 100, 26])
     audit = [["Original", "; ".join(os.path.basename(f) for f in cmp.first)],
              ["Updated", "; ".join(os.path.basename(f) for f in cmp.second)]]
+    audit += [[label, text] for label, text in cmp.info]
     audit += [["Compared", c] for c in cmp.compared]
     audit += [["Not compared", c] for c in cmp.not_compared]
     audit += [["Note", w] for w in cmp.warnings]

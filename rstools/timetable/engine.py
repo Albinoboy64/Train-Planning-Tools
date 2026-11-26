@@ -327,6 +327,8 @@ def _cmp_docs(mode, first, second, p, lg):
             st = Statement()
             for path, r in zip(paths, res):
                 st.possessions += r.possessions
+                st.notes += r.notes
+                st.info += r.info
                 st.files.append(path)
                 st.warnings += r.warnings
                 lg(f"{os.path.basename(path)}: {len(r.possessions)} possession row(s)")
@@ -336,6 +338,9 @@ def _cmp_docs(mode, first, second, p, lg):
             for path, r in zip(paths, res):
                 doc.tables += r.tables
                 doc.paragraphs += r.paragraphs
+                doc.info += r.info
+                doc.skipped += r.skipped
+                doc.deleted += r.deleted
                 doc.files.append(path)
                 doc.warnings += r.warnings
                 lg(f"{os.path.basename(path)}: {len(r.tables)} table(s), {len(r.paragraphs)} paragraph(s)")
