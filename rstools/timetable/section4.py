@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from .pdfgrid import cluster, segments, text_in
+
 DAY_CODES = {"m": 0, "mo": 0, "mon": 0, "t": 1, "tu": 1, "tue": 1, "tues": 1, "w": 2, "we": 2, "wed": 2,
              "th": 3, "thu": 3, "thur": 3, "thurs": 3, "f": 4, "fr": 4, "fri": 4, "s": 5, "sa": 5, "sat": 5,
              "su": 6, "sun": 6}
@@ -131,36 +133,9 @@ def parse_windows(text: str) -> List[Window]:
     return out
 
 
-def _text_in(tp, x0, y0, x1, y1) -> str:
-    try:
-        text = tp.get_text_bounded(left=x0, bottom=y0, right=x1, top=y1)
-    except Exception:
-        return ""
-    return " ".join(text.replace("￾", "").replace("\x02", "-").split())
-
-
-def _segments(page):
-    import pypdfium2.raw as R
-    cols, rows = [], []          # cols: lines of constant y (column edges), rows: constant x (row edges)
-    for obj in page.get_objects():
-        if obj.type != R.FPDF_PAGEOBJ_PATH:
-            continue
-        l, b, r, t = obj.get_bounds()
-        if t - b < 3 and r - l > 3:
-            cols.append(((b + t) / 2, l, r))
-        elif r - l < 3 and t - b > 3:
-            rows.append(((l + r) / 2, b, t))
-    return cols, rows
-
-
-def _cluster(values, tol=2.5):
-    out = []
-    for v in sorted(values):
-        if out and v - out[-1][-1] <= tol:
-            out[-1].append(v)
-        else:
-            out.append([v])
-    return [sum(g) / len(g) for g in out]
+_text_in = text_in              # the shared grid reader (pdfgrid), under the names used here
+_segments = segments
+_cluster = cluster
 
 
 def read_statement(paths: Sequence[str], log=lambda m: None) -> Statement:

@@ -753,3 +753,123 @@ def test_section4_route_titles():
     assert t("(2520pts to BE536sigs,\r\n2521pts to BE547 and Up Branch Siding)") == []
     assert t("SW230 BARNES TO FELTHAM JN / WHITTON JN (VIA HOUNSLOW) SECTION Barnes to Chiswick") == [
         "SW230 BARNES TO FELTHAM JN / WHITTON JN (VIA HOUNSLOW)"]
+
+
+# --------------------------------------------------------------------------- synthetic rule documents
+def write_s4_pdf(path, rows, period="Periods A and B 13.12.2026 to 14.02.2027", route="XX100 TEST ROUTE"):
+    """rows: (section text, night, cell text, remarks)."""
+    from reportlab.pdfgen import canvas
+    c = canvas.Canvas(path, pagesize=(800, 1100))
+    cols = [50, 250, 330, 630, 1000]             # SECTION, night, period, REMARKS (along y)
+    edges = [40, 80] + [80 + 30 * (i + 1) for i in range(len(rows))]
+
+    def text(x, y, s, size=6):
+        c.saveState()
+        c.translate(x, y)
+        c.rotate(90)
+        c.setFont("Helvetica", size)
+        c.drawString(0, 0, s)
+        c.restoreState()
+    text(30, 60, route, 8)
+    for x in edges:
+        c.line(x, cols[0], x, cols[-1])
+    for y in cols:
+        c.line(edges[0], y, edges[-1], y)
+    hx = edges[1] - 6
+    for a, t in zip(cols, ["SECTION", "Night", period, "REMARKS"]):
+        text(hx, a + 3, t)
+    for x1, (sec, night, cell, rem) in zip(edges[2:], rows):
+        for a, t in zip(cols, [sec, night, cell, rem]):
+            text(x1 - 6, a + 3, t)
+    c.save()
+
+
+def write_tpr_pdf(path, rows, note="Trains must not be timed to pass Beta Jn within 3 minutes of each other.",
+                  pages=1):
+    """A TPR-like PDF: running header and footer, a numbered heading, a paragraph and a ruled table (repeated
+    over `pages` pages with the heading row repeated)."""
+    from reportlab.pdfgen import canvas
+    c = canvas.Canvas(path, pagesize=(595, 842))
+    for pg in range(pages):
+        c.setFont("Helvetica", 8)
+        c.drawString(40, 820, "Timetable Planning Rules - Version 1 - Test Route")
+        c.drawString(40, 15, f"Page {pg + 1} of {pages}")
+        c.setFont("Helvetica", 10)
+        if pg == 0:
+            c.drawString(40, 780, "5.2 Headways")
+            c.drawString(40, 760, note)
+            c.drawString(40, 735, "Table 5.2.1 Planning headways")
+        heads = ["Location", "Line", "Headway"]
+        xs = [40, 200, 320, 440]
+        top = 720
+        body = rows if pages == 1 else rows[pg::pages]
+        ys = [top - 18 * i for i in range(len(body) + 2)]
+        for y in ys:
+            c.line(xs[0], y, xs[-1], y)
+        for x in xs:
+            c.line(x, ys[-1], x, ys[0])
+        for r, cells in enumerate([heads] + list(body)):
+            for x, v in zip(xs, cells):
+                c.drawString(x + 3, ys[r] - 13, v)
+        c.showPage()
+    c.save()
+
+
+S4_ROWS = [("Alpha and Beta Jn 100.1", "MID WEEK", "0140 T-F to 0350 T-F Down and Up BLOCKED", "Except ECS"),
+           ("Beta Jn and Gamma 100.2", "WEEK END", "2350 Sat to 0750 Sun BLOCKED", "")]
+S4_ROWS_NEW = [("Alpha and Beta Jn 100.1", "MID WEEK", "0110 T-F to 0350 T-F Down and Up BLOCKED", "Except ECS"),
+               ("Delta and Gamma 100.3", "SUN/MON", "0100 Mon to 0500 Mon BLOCKED", "Freight only")]
+TPR_ROWS = [("Alpha", "Fast", "3"), ("Beta Jn", "Slow", "4"), ("Gamma", "All", "2")]
+TPR_ROWS_NEW = [("Alpha", "Fast", "3"), ("Beta Jn", "Slow", "5"), ("Delta", "All", "2")]
+
+
+def write_rule_docs(folder):
+    """Original and updated Section 4 and TPR PDFs (also used by the Windows build's smoke test)."""
+    out = {k: os.path.join(folder, f"{k}.pdf") for k in ("s4_old", "s4_new", "tpr_old", "tpr_new")}
+    write_s4_pdf(out["s4_old"], S4_ROWS)
+    write_s4_pdf(out["s4_new"], S4_ROWS_NEW)
+    write_tpr_pdf(out["tpr_old"], TPR_ROWS)
+    write_tpr_pdf(out["tpr_new"], TPR_ROWS_NEW, note="Trains must not be timed to pass Beta Jn within 4 minutes "
+                                                     "of each other.")
+    return out
+
+
+def test_section4_documents_compared():
+    """Two Section 4 PDFs: a window changed, a section removed and one added; headings are not compared."""
+    import openpyxl
+    from rstools.timetable.engine import run
+    d = tempfile.mkdtemp()
+    f = write_rule_docs(d)
+    res = run("s4docs", [f["s4_old"]], [f["s4_new"]], d)
+    wb = openpyxl.load_workbook(res.path)
+    assert wb.sheetnames == ["Summary", "Changes", "Added", "Removed", "What Was Compared"]
+    changes = [tuple(c.value for c in r[1:5]) for r in wb["Changes"].iter_rows(min_row=2)]
+    assert ("100.1 MID WEEK", "Windows", "0140 Tue to 0350 Tue; 0140 Wed to 0350 Wed; 0140 Thu to 0350 Thu; "
+            "0140 Fri to 0350 Fri", "0110 Tue to 0350 Tue; 0110 Wed to 0350 Wed; 0110 Thu to 0350 Thu; "
+            "0110 Fri to 0350 Fri") in changes, changes
+    added = [r[1].value for r in wb["Added"].iter_rows(min_row=2)]
+    removed = [r[1].value for r in wb["Removed"].iter_rows(min_row=2)]
+    assert added == ["100.3 SUN/MON"] and removed == ["100.2 WEEK END"]
+    assert res.differences == 3
+
+
+def test_tpr_documents_compared():
+    """Two TPR PDFs: a table cell changed, a row added and one removed, a paragraph edited; running headers and page
+    numbers are not compared; a table carried over two pages is one table."""
+    import openpyxl
+    from rstools.timetable.engine import run
+    from rstools.timetable.tpr import read_tpr
+    d = tempfile.mkdtemp()
+    f = write_rule_docs(d)
+    res = run("tprs", [f["tpr_old"]], [f["tpr_new"]], d)
+    wb = openpyxl.load_workbook(res.path)
+    changes = [tuple(c.value for c in r[1:5]) for r in wb["Changes"].iter_rows(min_row=2)]
+    assert ("Beta Jn", "Headway", "4", "5") in changes, changes
+    assert any(c[1] == "Text" and "3 minutes" in c[2] and "4 minutes" in c[3] for c in changes), changes
+    assert [r[1].value for r in wb["Added"].iter_rows(min_row=2)] == ["Delta"]
+    assert [r[1].value for r in wb["Removed"].iter_rows(min_row=2)] == ["Gamma"]
+    two = os.path.join(d, "two.pdf")
+    write_tpr_pdf(two, TPR_ROWS, pages=2)
+    doc = read_tpr([two])
+    assert len(doc.tables) == 1 and sorted(r[0] for r in doc.tables[0].rows) == ["Alpha", "Beta Jn", "Gamma"]
+    assert not any("Page" in p for _s, p, _n in doc.paragraphs)

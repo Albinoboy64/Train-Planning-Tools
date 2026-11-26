@@ -25,6 +25,8 @@ MODE_TEXT = {
     "list_tt": ("Attune train list against a timetable", "Check timetable"),
     "prints": ("Two sets of train prints (PDF or Word)", "Compare train prints"),
     "lists": ("Two Attune train list exports (Excel)", "Compare train lists"),
+    "s4docs": ("Two sets of Section 4 documents (PDF)", "Compare Section 4"),
+    "tprs": ("Two sets of Timetable Planning Rules (PDF)", "Compare TPRs"),
 }
 SIDES = {
     "timetables": ("GTR timetable:", "Network Rail timetable:"),
@@ -32,14 +34,18 @@ SIDES = {
     "list_tt": ("Attune train list - reference:", "Timetable to check:"),
     "prints": ("Original train print(s):", "Updated train print(s):"),
     "lists": ("Original Attune train list:", "Updated Attune train list:"),
+    "s4docs": ("Original Section 4 PDF(s):", "Updated Section 4 PDF(s):"),
+    "tprs": ("Original TPR PDF(s):", "Updated TPR PDF(s):"),
 }
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _FT = {_XL: [("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
        _PR: [("Train prints", "*.pdf *.docx"), ("PDF", "*.pdf"), ("Word", "*.docx"), ("All files", "*.*")],
-       _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")]}
+       _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")],
+       (".pdf",): [("PDF", "*.pdf"), ("All files", "*.*")]}
 EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL), "prints": (_PR, _PR),
-        "lists": (_LI, _LI)}                       # accepted file types for the first and second box
-MULTI = {"print_tt": (True, False), "prints": (True, True)}     # boxes that take several files
+        "lists": (_LI, _LI), "s4docs": ((".pdf",), (".pdf",)), "tprs": ((".pdf",), (".pdf",))}
+MULTI = {"print_tt": (True, False), "prints": (True, True), "s4docs": (True, True),     # boxes that take several
+         "tprs": (True, True)}                                                          # files
 NOTES = {
     "timetables": ("Network Rail is the reference: every NR time at a GTR location is checked. Saved in the "
                    "Consolidated TT Comparison template, named after the NR timetable."),
@@ -52,6 +58,10 @@ NOTES = {
                "heading details."),
     "lists": ("Trains are paired by UID and days (or headcode, days and departure time; a retimed train still pairs "
               "when it is the only one left with its headcode, days and origin), and every column is compared."),
+    "s4docs": ("Each possession row is paired by section number and night, and its times, dates, locations, what "
+               "is blocked and the remarks / notes are compared. Page headings and the route title are not."),
+    "tprs": ("Every table row (paired by section, table and first column) and every paragraph is compared. Running "
+             "headers, footers and page numbers are not."),
 }
 SEP = " ; "
 S4 = "section4"                 # Utilities: the Section 4 possession check
@@ -344,6 +354,16 @@ class TimetableTab(ttk.Frame):
                 if not many and len(fits) > 1:
                     self.status.configure(text="That box takes one file - the first was used.")
                 return
+        if mode in ("s4docs", "tprs") and all(p.lower().endswith(".pdf") for p in paths):
+            files = sorted(paths, key=os.path.getmtime)         # older file(s) are the original
+            if len(files) >= 2:
+                half = len(files) // 2
+                self.vars["a"].set(SEP.join(files[:half]))
+                self.vars["b"].set(SEP.join(files[half:]))
+            else:
+                empty = [k for k in ("a", "b") if not self.vars[k].get().strip()]
+                self.vars[(empty or ["b"])[0]].set(files[0])
+            return
         kinds = {p: sniff_timetable(p) for p in sheets}
         tts = sorted((p for p in sheets if kinds[p]), key=lambda p: kinds[p] != "gtr")      # GTR first
         lists = [p for p in sheets if not kinds[p]]
@@ -702,7 +722,8 @@ class TimetableTab(ttk.Frame):
                     self._append(item[1], item[2])
                 elif item[0] == "dropped":
                     _k, paths, key, s4 = item
-                    (self.place_section4(paths) if s4 else self.place_files(paths, key))
+                    (self.place_section4(paths) if s4 and self.mode.get() != "s4docs"
+                     else self.place_files(paths, key))
                 elif item[0] == "done":
                     res = item[1]
                     self._finish(True)

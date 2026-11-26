@@ -7,7 +7,9 @@ Three comparisons share one entry point:
 * ``print_tt`` / ``list_tt`` - Attune train prints / an Attune train list as the reference, against a
   timetable (GTR or Network Rail), by the same rules and into the same template;
 * ``prints``     - two sets of train prints (PDF / Word);
-* ``lists``      - two Attune train list exports (Excel / CSV).
+* ``lists``      - two Attune train list exports (Excel / CSV);
+* ``s4docs``     - two sets of Network Rail Section 4 PDFs (times, dates, locations and notes);
+* ``tprs``       - two sets of Timetable Planning Rules PDFs (every table row and paragraph).
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from typing import Callable, List, Optional, Sequence
 from rstools.docexport import ext_for
 from rstools.naming import clip, compare_name
 
-MODES = ("timetables", "print_tt", "list_tt", "prints", "lists")
+MODES = ("timetables", "print_tt", "list_tt", "prints", "lists", "s4docs", "tprs")
 PARALLEL_BYTES = 4 * 1024 * 1024        # below this, starting helper processes costs more than it saves
 
 
@@ -137,7 +139,8 @@ def default_name(mode: str, first: Sequence[str], second: Sequence[str]) -> str:
     if mode in ("timetables", "print_tt", "list_tt"):
         return ""
     a, b = (first[0] if first else ""), (second[0] if second else "")
-    what = "Train Print Comparison" if mode == "prints" else "Train List Comparison"
+    what = {"prints": "Train Print Comparison", "s4docs": "Section 4 Comparison",
+            "tprs": "TPR Comparison"}.get(mode, "Train List Comparison")
     return clip(f"{compare_name(a, b)} {what}") if a and b else ""
 
 
@@ -175,6 +178,8 @@ def compare_files(mode: str, first: Sequence[str], second: Sequence[str],
         return _cmp_prints(first, second, p, lg)
     if mode == "lists":
         return _cmp_lists(first[0], second[0], p, lg)
+    if mode in ("s4docs", "tprs"):
+        return _cmp_docs(mode, first, second, p, lg)
     raise TimetableRunError(f"Unknown comparison '{mode}'.")
 
 
@@ -206,6 +211,12 @@ def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, na
                  + f": {changed} changed",
                  f"{len(cmp.added)} added, {len(cmp.removed)} removed, {len(cmp.changes)} changed cell(s)"]
         return RunResult(path, lines, list(cmp.warnings), len(cmp.changes) + len(cmp.added) + len(cmp.removed))
+    if mode in ("s4docs", "tprs"):
+        from .doccompare import build_workbook as docs_workbook, summary_lines as doc_lines
+        path = _out(out_dir, clip(name or default_name(mode, first, second)), fmt)
+        _save(docs_workbook(cmp), path)
+        diffs = sum(1 for i in cmp.items if i.status != "same")
+        return RunResult(path, doc_lines(cmp), list(cmp.warnings), diffs)
     from .output import build_workbook as timetable_workbook, document_sections, output_name, summary_lines
     path = _out(out_dir, clip(name or output_name(cmp)), fmt)
     wb = timetable_workbook(cmp)
@@ -282,6 +293,63 @@ def _cmp_lists(a_path, b_path, p, lg):
     if cmp.only_original or cmp.only_updated:
         cmp.warnings.append("Columns in only one list are not compared: "
                             + ", ".join(cmp.only_original + cmp.only_updated))
+    for w in cmp.warnings:
+        lg("WARNING: " + w)
+    return cmp
+
+
+def read_section4_pdf(path: str):
+    """One Section 4 PDF's possessions (a module-level reader, so it can run in a helper process)."""
+    from .section4 import read_statement
+    return read_statement([path])
+
+
+def read_tpr_pdf(path: str):
+    from .tpr import read_tpr
+    return read_tpr([path])
+
+
+def _cmp_docs(mode, first, second, p, lg):
+    from .section4 import Section4Error, Statement
+    from .tpr import TPRDoc, TPRError
+    s4 = mode == "s4docs"
+    p(0.05, "Reading the documents...")
+    lg(f"Reading {len(first)} original and {len(second)} updated PDF(s)")
+    try:
+        results = read_all(read_section4_pdf if s4 else read_tpr_pdf, list(first) + list(second))
+    except (Section4Error, TPRError) as exc:
+        raise TimetableRunError(str(exc))
+    sides = []
+    for paths, res in ((first, results[:len(first)]), (second, results[len(first):])):
+        if s4:
+            st = Statement()
+            for path, r in zip(paths, res):
+                st.possessions += r.possessions
+                st.files.append(path)
+                st.warnings += r.warnings
+                lg(f"{os.path.basename(path)}: {len(r.possessions)} possession row(s)")
+            sides.append(st)
+        else:
+            doc = TPRDoc()
+            for path, r in zip(paths, res):
+                doc.tables += r.tables
+                doc.paragraphs += r.paragraphs
+                doc.files.append(path)
+                doc.warnings += r.warnings
+                lg(f"{os.path.basename(path)}: {len(r.tables)} table(s), {len(r.paragraphs)} paragraph(s)")
+            sides.append(doc)
+    if s4 and (not sides[0].possessions or not sides[1].possessions):
+        raise TimetableRunError("No Section 4 possessions were found on one side. Use Network Rail's Engineering "
+                                "Access Statement Section 4 (Standard Possession Opportunities) PDFs.")
+    if not s4 and any(not (d.tables or d.paragraphs) for d in sides):
+        raise TimetableRunError("Nothing could be read from the TPR PDFs on one side (scanned images?).")
+    p(0.5, "Comparing...")
+    if s4:
+        from .s4compare import compare_statements
+        cmp = compare_statements(sides[0], sides[1])
+    else:
+        from .tprcompare import compare_tprs
+        cmp = compare_tprs(sides[0], sides[1])
     for w in cmp.warnings:
         lg("WARNING: " + w)
     return cmp
