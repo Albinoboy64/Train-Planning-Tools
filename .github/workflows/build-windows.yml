@@ -23,9 +23,9 @@ jobs:
       #   SIGNING_CERT_PASSWORD    - the .pfx password
       HAS_SIGNING_CERT: ${{ secrets.SIGNING_CERT_PFX_BASE64 != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14.6"
 
@@ -141,7 +141,7 @@ jobs:
           Copy-Item README.md package\README.md
           Compress-Archive -Path package\* -DestinationPath TrainPlanningTools-portable.zip -Force
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: TrainPlanningTools-portable
           path: |
@@ -201,7 +201,7 @@ jobs:
 
       - name: Publish release (version tags, a manual run with a release tag, or a new version on main)
         if: steps.rel.outputs.tag != ''
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: Train Planning Tools ${{ steps.rel.outputs.tag }}
