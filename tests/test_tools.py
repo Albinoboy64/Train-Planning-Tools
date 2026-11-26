@@ -1377,3 +1377,82 @@ def test_rules_dialog_lists_sets_and_protects_the_built_in_one(tmp_path, monkeyp
         dlg.destroy()
     finally:
         app.destroy()
+
+
+def test_display_is_decided_by_the_window_centre_and_rescales_are_limited():
+    """Moving between displays: the display under the window's centre decides (a window across two displays is
+    not taken for each in turn), and a rescale is never repeated in quick succession."""
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools import theme
+    left = ((0, 0, 1920, 1040), 96)
+    right = ((1920, 0, 3840, 1040), 192)
+    assert theme.pick_display((100, 100), [left, right]) == left
+    assert theme.pick_display((2500, 500), [left, right]) == right
+    assert theme.pick_display((1919, 5), [left, right]) == left          # the edge pixel is still the left display
+    assert theme.pick_display((4500, 500), [left, right]) == right       # off every display: the nearest one
+    assert theme.pick_display((0, 0), []) is None
+
+    now = [100.0]
+    guard = theme.RescaleGuard(clock=lambda: now[0])
+    assert guard.allow()                                                 # the first rescale
+    guard.done()
+    now[0] += 0.5
+    assert not guard.allow()                                             # Windows still settling the window
+    now[0] += 1.2
+    assert guard.allow()                                                 # quiet time over
+    guard.done()
+    now[0] += 0.3
+    guard.mouse(True)                                                    # a new drag: allowed again...
+    assert not guard.allow()                                             # ...but never a third time in 3 seconds
+    now[0] += 3.0
+    assert guard.allow() and guard.refused == 2
+
+
+def test_a_failed_rescale_is_logged_and_leaves_the_window_usable(tmp_path, monkeypatch):
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    from rstools import errorlog
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return
+    try:
+        written = []
+        monkeypatch.setattr(errorlog, "write", lambda text: written.append(text))
+        monkeypatch.setattr(app, "set_text_size", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        before = app.dpi
+        app.dpi_changed(before * 2)
+        assert written and "boom" in written[0]
+        assert app.dpi == before and app.winfo_exists()                  # nothing half rescaled
+        app.update()
+    finally:
+        app.destroy()
+
+
+def test_painting_is_held_on_the_client_window_and_always_switched_back(monkeypatch):
+    """freeze_redraw (Windows): WM_SETREDRAW goes to the Tk client window, never the frame, and is switched back on
+    (and the frame repainted) even when the rescale fails."""
+    import sys
+    import types
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools import theme
+    calls = []
+    user32 = types.SimpleNamespace(
+        SendMessageW=lambda hwnd, msg, w, l: calls.append(("send", hwnd, msg, w)),
+        GetAncestor=lambda hwnd, flag: 999,
+        RedrawWindow=lambda hwnd, *a: calls.append(("redraw", hwnd)))
+    fake = types.SimpleNamespace(windll=types.SimpleNamespace(user32=user32))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "ctypes", fake)
+    root = types.SimpleNamespace(winfo_id=lambda: 123)
+    try:
+        with theme.freeze_redraw(root):
+            raise ValueError("rescale failed")
+    except ValueError:
+        pass
+    assert calls == [("send", 123, 0x000B, 0), ("send", 123, 0x000B, 1), ("redraw", 999)]

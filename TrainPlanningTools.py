@@ -255,6 +255,9 @@ def statspack_cli(argv):
     ap.add_argument("--unit-period", choices=["week", "days", "timetable"], default="",
                     help="unit reports: follow units through the week (default), show each day separately, or "
                          "give only the fleet totals for the entire timetable")
+    ap.add_argument("--possible", choices=["every", "over", "off"], default="",
+                    help="unit reports: note where a WASH, CET or FUEL could be added, for every unit (default), "
+                         "only units over a limit, or not at all")
     ap.add_argument("--capacity-group", "--seats-group", dest="seats_group", default="",
                     help="capacity report for a headcode group, e.g. 1F")
     ap.add_argument("--capacity-corridor", "--seats-corridor", dest="seats_corridor", default="",
@@ -277,6 +280,8 @@ def statspack_cli(argv):
                          changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
     if a.unit_period and not a.unit_reports:
         ap.error("--unit-period is used with --unit-reports")
+    if a.possible and not a.unit_reports:
+        ap.error("--possible is used with --unit-reports")
     if a.unit_period and a.per_day:
         ap.error("use --unit-period days instead of --per-day, not both")
     try:
@@ -293,7 +298,8 @@ def statspack_cli(argv):
             raise StatsPackError(f"Unknown day {exc}; use {','.join(DAYS)}")
         o = PackOptions(days=days, operators={x.strip().upper() for x in a.operators.split(",") if x.strip()},
                         fleets={x.strip() for x in a.fleets.split(",") if x.strip()} or None,
-                        output=a.output, output_dir=a.out, output_name=a.name, compare=cmp, fmt=a.format)
+                        output=a.output, output_dir=a.out, output_name=a.name, compare=cmp, fmt=a.format,
+                        possible=a.possible or "every")
         new = load_plan(PlanInputs(a.xml or "", a.trent), print, xml_optional=bool(a.unit_reports))
         for m in day_availability(new, days) + new.warnings:
             print("WARNING:", m)

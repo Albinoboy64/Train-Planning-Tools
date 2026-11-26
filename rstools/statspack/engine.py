@@ -49,6 +49,7 @@ class PackOptions:
     output_name: str = ""
     compare: CompareOptions = field(default_factory=CompareOptions)   # comparison outputs only
     fmt: str = "xlsx"                 # xlsx | pdf | docx
+    possible: str = "every"           # unit reports: where a WASH / CET / FUEL could be added - every | over | off
 
 
 @dataclass
@@ -361,8 +362,9 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
                       progress: Callable[[float, str], None] = lambda f, m: None) -> Tuple[list, List[str]]:
     from .fleet import FleetTable
     from .model import operator_of
-    from .units import (WASH_LIMIT, Depots, Report, _period, captive_reports, depot_reports, follow_units,
-                        fuel_reports, over_wash_limit, wash_cet_reports)
+    from .units import (CET_LIMIT, WASH_LIMIT, Depots, Report, _period, attach_possible, captive_reports,
+                        checks_report, depot_reports, follow_units, fuel_reports, over_cet_limit, over_wash_limit,
+                        wash_cet_reports)
     period = _period(period)
     week = period == "week"
     days = sorted(opts.days)
@@ -383,19 +385,29 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
     progress(0.6, "Writing the report...")
     reports = []
     kinds = tuple(k for k in ("washes", "cets") if k in which)
+    diesel = {r.cls for r in table.rows if (r.power or "").upper().startswith("D") or r.cls.startswith("171")}
+    possible = week and opts.possible != "off" and any(k in which for k in ("washes", "cets", "fuel"))
+    if possible:
+        reports += attach_possible(units, per_day, diesel, days, names, opts.possible)
     if kinds:
-        reports += wash_cet_reports(units, per_day, period, kinds)
+        reports += wash_cet_reports(units, per_day, period, kinds, possible)
         late = over_wash_limit(units) if (week and "washes" in kinds) else []
         if late:
             warnings.append(f"{len(late)} unit(s) go more than {WASH_LIMIT} days without a wash "
                             f"(e.g. {', '.join(u.diagrams[0].label for u in late[:6])}): see the Washes by Unit tab.")
+        late_cet = over_cet_limit(units) if (week and "cets" in kinds) else []
+        if late_cet:
+            warnings.append(f"{len(late_cet)} unit(s) go more than {CET_LIMIT} days in passenger service without a "
+                            f"CET (e.g. {', '.join(u.diagrams[0].label for u in late_cet[:6])}): see the CETs by "
+                            "Unit tab.")
+    if week:
+        reports += checks_report(units)
     if "depots" in which:
         reports += depot_reports(per_day, depots, names)
     if "captive" in which:
         reports += captive_reports(units, per_day, depots, names, week, days)
     if "fuel" in which:                              # always across days: a 48-hour rule spans days
-        diesel = {r.cls for r in table.rows if (r.power or "").upper().startswith("D") or r.cls.startswith("171")}
-        reports += fuel_reports(units, diesel, days)
+        reports += fuel_reports(units, diesel, days, possible)
     span = ("week" if week else "whole timetable" if period == "timetable"
             else "+".join(DAYS[d] for d in days) if len(days) < 7 else "each day")
     reports.sort(key=lambda r: r.name.lower())              # tabs in A-Z order, the notes last

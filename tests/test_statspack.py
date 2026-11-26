@@ -576,12 +576,12 @@ def test_fuel_check_48_hours():
                                     int(d in fuel_days), [1380] if d in fuel_days else []) for d in days])
     rep = fuel_reports([unit(801, (0, 2, 4, 6)), unit(802, (0, 4)), unit(803, (), range(3)),
                         unit(804, (), fleet="377/4")], {"171/7"}, list(range(7)))[0]
-    res = {r[0]: (r[4], r[5], r[8]) for r in rep.rows}
+    res = {r[0]: (r[4], r[5], r[9]) for r in rep.rows}
     assert set(res) == {"MO SU801", "MO SU802", "MO SU803"}                # the 377/4 is not checked
     assert res["MO SU801"] == (4, "48:00", "OK")                           # Su 23:00 -> TO 23:00 is exactly 48 h
     assert res["MO SU802"] == (2, "96:00", "Over 48 hours (2 gap(s))")      # MO -> FO and FO -> next MO
     assert res["MO SU803"][2] == "No fuel"
-    assert rep.rows[-1][8] == "OK"                                         # problems listed first
+    assert rep.rows[-1][9] == "OK"                                         # problems listed first
 
 
 def test_capacity_report_seating_and_standing_toggles(monkeypatch):
@@ -926,3 +926,147 @@ def test_wash_and_cet_tabs_period_inferred_reasons_and_the_three_day_rule():
         assert any("more than 3 days without a wash" in str(n) for n in notes), notes
         path = unit_reports(plan, opts(d, [0, 1, 2, 3, 4]), ["washes"], "timetable")[0][0]
         assert openpyxl.load_workbook(path).sheetnames == ["Washes by Fleet", "Notes"]
+
+
+# --------------------------------------------------------------------------- #
+# next-day numbers, standing diagrams, CET and fuel rules, possible slots
+# --------------------------------------------------------------------------- #
+def _plan_of(rows_by_diagram, folder):
+    """Diagrams as (days, number, fleet, start, end): each starts at `start` at 07.00 on a passenger train and
+    ends there (stabling at `end`)."""
+    lines = []
+    for days, num, fleet, start, end in rows_by_diagram:
+        rows = [move(start, "", "1", "", "07.00", f"1B{num:02d}SX", f"{num}(1)", 30.0, 30.0)]
+        if end:
+            rows.append(act(end, "4", "08+00", "STABLD"))
+        lines += diagram("SX", num, days, fleet, rows, 30.0, 0.0)
+    p = os.path.join(folder, "n.docx")
+    write_docx(p, lines)
+    return load_plan(PlanInputs("", p), xml_optional=True)
+
+
+def test_missing_next_day_number_is_inferred_only_when_one_diagram_fits():
+    from rstools.statspack.units import checks_report, follow_units
+    with tempfile.TemporaryDirectory() as d:
+        # one possible diagram: used, and marked as missing its next-day number
+        plan = _plan_of([("MO", 10, "377/4", "BRGHTN", "BRGHTN"), ("TO", 20, "377/4", "BRGHTN", "BRGHTN"),
+                         ("TO", 21, "700/0", "BRGHTN", "BRGHTN")], d)
+        units, _pd, warnings = follow_units(plan.trent, None, [0, 1])
+        chain = next(u for u in units if u.diagrams[0].key == "SX10")
+        assert [x.key for x in chain.diagrams] == ["SX10", "SX20"] and chain.links == ["inferred"]
+        assert "next-day number missing" in chain.inferred[0]["reason"]
+        assert not checks_report(units)
+        # two possible diagrams: not followed, listed with the candidates
+        plan = _plan_of([("MO", 10, "377/4", "BRGHTN", "BRGHTN"), ("TO", 20, "377/4", "BRGHTN", "BRGHTN"),
+                         ("TO", 21, "377/4", "BRGHTN", "BRGHTN")], d)
+        units, _pd, warnings = follow_units(plan.trent, None, [0, 1])
+        first = next(u for u in units if u.diagrams[0].key == "SX10")
+        assert [x.key for x in first.diagrams] == ["SX10"]
+        rep = checks_report(units)[0]
+        assert rep.name == "Next-Day Checks"
+        row = next(r for r in rep.rows if r[1] == "SX10")
+        assert row[3] == "Next-day number missing" and "TO SX20" in row[4] and "TO SX21" in row[4]
+        assert any("could form more than one diagram" in w for w in warnings)
+        # two units that could only form the same diagram: neither is chosen for it
+        plan = _plan_of([("MO", 10, "377/4", "BRGHTN", "BRGHTN"), ("MO", 11, "377/4", "BRGHTN", "BRGHTN"),
+                         ("TO", 20, "377/4", "BRGHTN", "BRGHTN")], d)
+        units, _pd, _w = follow_units(plan.trent, None, [0, 1])
+        assert all(len(u.diagrams) == 1 for u in units if u.diagrams[0].day == 0)
+        assert any("another unit could form it too" in r[4] for r in checks_report(units)[0].rows)
+
+
+def test_a_unit_that_berths_all_day_forms_the_diagram_that_leaves_after_it():
+    from rstools.statspack.units import checks_report, follow_units
+    with tempfile.TemporaryDirectory() as d:
+        stand = lambda loc: act(loc, "1", "00+00", "STABLD")                      # noqa: E731
+        lines = (diagram("SX", 10, "MO", "377/4", [move("BRGHTN", "", "1", "", "07.00", "1B10SX", "10(1)", 30.0, 30.0),
+                                                   act("BRGHTN", "4", "08+00", "STABLD")], 30.0, 0.0)
+                 + diagram("SX", 11, "TO", "377/4", [stand("BRGHTN")], 0.0, 0.0)
+                 + diagram("SX", 12, "WO", "377/4",
+                           [move("BRGHTN", "", "1", "", "07.00", "1B12SX", "12(1)", 30.0, 30.0)], 30.0, 0.0))
+        p = os.path.join(d, "s.docx")
+        write_docx(p, lines)
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        units, per_day, _w = follow_units(plan.trent, None, [0, 1, 2])
+        assert [x.key for x in units[0].diagrams] == ["SX10", "SX11", "SX12"] and not checks_report(units)
+        assert per_day[1][0].standing and not per_day[0][0].standing
+        # standing in a different siding from where the unit arrived: followed, but flagged
+        lines2 = (
+            diagram("SX", 10, "MO", "377/4", [move("BRGHTN", "", "1", "", "07.00", "1B10SX", "10(1)", 30.0, 30.0),
+                                              act("BRGHTN", "4", "08+00", "STABLD")], 30.0, 0.0)
+            + diagram("SX", 11, "TO", "377/4", [stand("BRGHSID")], 0.0, 0.0)
+            + diagram("SX", 12, "WO", "377/4", [move("BRGHTN", "", "1", "", "07.00", "1B12SX", "12(1)", 30.0, 30.0)],
+                      30.0, 0.0))
+        write_docx(p, lines2)
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        units, _pd, _w = follow_units(plan.trent, None, [0, 1, 2])
+        assert [x.key for x in units[0].diagrams][:2] == ["SX10", "SX11"]
+        rows = checks_report(units)[0].rows
+        assert any(r[3] == "Berthed in a different place" and "BRGHSID" in r[4] for r in rows), rows
+
+
+def test_cet_limit_counts_passenger_days_only_and_fuel_needs_real_running():
+    from rstools.statspack.units import (CET_LIMIT, DayDiagram, UnitWeek, fuel_reports, over_cet_limit)
+
+    def unit(passenger, cet_days, running=None, fuel_days=(), n=5, fleet="377/4"):
+        return UnitWeek([DayDiagram(d, f"SX{d}", fleet, "L", 300, "L", 1400, 0, int(d in cet_days),
+                                    int(d in fuel_days), [1380] if d in fuel_days else [],
+                                    passenger=d in passenger, running_min=running) for d in range(n)])
+    busy = unit(range(5), (0,))
+    assert busy.cet_gap == 4 and over_cet_limit([busy]) == [busy] and CET_LIMIT == 3
+    quiet = unit((0, 1, 4), (0,))                       # days 2 and 3 are not in passenger service
+    assert quiet.cet_gap == 2 and not over_cet_limit([quiet])
+    assert unit(range(5), (0, 3)).cet_gap == 2           # a CET starts the count again
+    still, moving = unit((), (), 20, (0, 4), fleet="171/7"), unit((), (), 300, (0, 4), fleet="171/7")
+    rep = {r[0]: r for r in fuel_reports([still], {"171/7"}, [0, 1, 2, 3, 4])[0].rows}
+    assert rep["MO SX0"][9] == "Over 48 hours, but mostly stationary"
+    rep = {r[0]: r for r in fuel_reports([moving], {"171/7"}, [0, 1, 2, 3, 4])[0].rows}
+    assert rep["MO SX0"][9].startswith("Over 48 hours (") and rep["MO SX0"][6] >= 2
+
+
+def test_places_where_a_wash_cet_or_fuel_could_be_added():
+    from rstools.statspack.units import DayDiagram, UnitWeek, attach_possible
+
+    def diag(key, fleet, stops, done, day=0):
+        return DayDiagram(day, key, fleet, "A", 300, "A", 1400, 0, 0, 0, [], standing=False, passenger=True,
+                          running_min=300, stops=stops, done=done)
+    washer = UnitWeek([diag("SX1", "377/4", [("HOVE", 600, 640)], [("WASH", "HOVE", 620)])])
+    long_stop = UnitWeek([diag("SX2", "377/4", [("HOVE", 700, 800), ("BRGHTN", 900, 1000)], [])])
+    short_stop = UnitWeek([diag("SX3", "377/4", [("HOVE", 700, 725)], [])])
+    done_here = UnitWeek([diag("SX4", "377/4", [("HOVE", 700, 800)], [("WASH", "HOVE", 710)])])
+    units = [washer, long_stop, short_stop, done_here]
+    per_day = {0: [u.diagrams[0] for u in units]}
+    rep = attach_possible(units, per_day, {"171/7"}, [0], {"HOVE": "Hove"}, "every")[0]
+    rows = [r for r in rep.rows if r[4] == "WASH"]
+    assert [(r[0], r[5], r[8], r[9]) for r in rows] == [("MO SX2", "Hove", 100, 40)]   # learned: 40 min at Hove
+    assert long_stop.could["WASH"] == ["Hove MO 11:40-13:20"] and not short_stop.could.get("WASH")
+    assert not [r for r in rep.rows if r[4] == "FUEL"]                                  # not a diesel unit
+    # only units over a limit
+    for u in units:
+        u.could.clear()
+    assert attach_possible(units, per_day, {"171/7"}, [0], {}, "over")[0].rows == []   # nobody is over a limit
+    assert attach_possible(units, per_day, {"171/7"}, [0], {}, "off") == []
+
+
+def test_possible_option_in_the_unit_reports_and_command_line(capsys):
+    import openpyxl
+    import pytest
+    import TrainPlanningTools as cli
+    from rstools.statspack.engine import unit_reports
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "w.docx")
+        write_docx(p, _washing_week([0], [0, 4]))
+        plan = load_plan(PlanInputs("", p), xml_optional=True)
+        for mode in ("every", "over", "off"):
+            path = unit_reports(plan, opts(d, [0, 1, 2, 3, 4], possible=mode, output_name=f"u_{mode}"),
+                                ["washes", "cets"], "week")[0][0]
+            names = openpyxl.load_workbook(path).sheetnames
+            assert ("Possible Washes, CETs, Fuel" in names) == (mode != "off"), (mode, names)
+            heads = [c.value for c in openpyxl.load_workbook(path)["CETs by Unit"][3]]
+            assert ("Could be added at" in heads) == (mode != "off") and "CET every 3 days" in heads
+        with pytest.raises(SystemExit) as bad:
+            cli.main(["statspack", "--trent", p, "--unit-reports", "washes", "--possible", "sometimes"])
+        assert bad.value.code == 2
+        with pytest.raises(SystemExit) as bad:
+            cli.main(["statspack", "--trent", p, "--possible", "over"])
+        assert bad.value.code == 2 and "--possible is used with --unit-reports" in capsys.readouterr().err

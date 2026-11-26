@@ -448,6 +448,8 @@ def test_live_view_pops_out_and_comes_back(tmp_path, monkeypatch):
         return                                          # no display
     try:
         tab, win = app.live_tab, app.live_window
+        app.notebook.select(app.live_page)                # the tab the user presses Pop out on
+        app.update()
         items = [LiveItem("k1", "G", "1A01", "changed", "Time changed", [LiveRow(["Time", "0500", "0510"],
                                                                                  "changed")]),
                  LiveItem("k2", "G", "1A02", "changed", "Time changed", [LiveRow(["Time", "0600", "0610"],
@@ -462,6 +464,9 @@ def test_live_view_pops_out_and_comes_back(tmp_path, monkeypatch):
         assert win.out and tab.pop_btn.cget("text") == "Bring back"
         assert str(app.tk.call("wm", "title", str(win.holder))) == "Live View"
         assert win.note.winfo_ismapped()
+        # only the results are in the window: the task, files and Compare stay in the main window
+        assert win.holder is tab.out_holder and tab.listv.winfo_toplevel() is not app
+        assert tab.mode_box.winfo_toplevel() is app and tab.run_btn.winfo_toplevel() is app
         assert tab.listv.get_children() == before and tab.listv.selection() == (before[-1],)
         assert tab.full_btn.winfo_ismapped() and tab.top_cb.winfo_ismapped()
         win.toggle_fullscreen()
@@ -506,3 +511,71 @@ def test_live_berthing_rows_stay_in_chart_column_order(tmp_path, monkeypatch):
     heads = [r.cells[0] for r in rows]
     assert heads == ["FRI FINISH", "MON START", "WED START"], heads
     assert [r.state for r in rows] == ["same", "same", "added"]
+
+
+def test_live_output_display_options(tmp_path, monkeypatch):
+    """Layout, changed rows only, text size and the hidden train list work in the tab and the window, and are
+    kept in the settings."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from rstools.live.model import LiveItem, LiveResult, LiveRow
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return
+    try:
+        tab = app.live_tab
+        app.notebook.select(app.live_page)
+        rows = [LiveRow(["Time", "0500", "0510"], "changed"), LiveRow(["Platform", "4", "4"], "same"),
+                LiveRow(["Dest", "Hove", "Hove"], "same")]
+        tab._loaded(tab.mode(), LiveResult("t", ["Field", "Original", "Updated"],
+                                           [LiveItem("k1", "G", "1A01", "changed", "Time changed", rows),
+                                            LiveItem("k2", "G", "1A02", "changed", "Time changed", rows)]),
+                    False, {}, None, {})
+        app.update()
+        tab.listv.selection_set("k1")
+        app.update()
+        assert len(tab.detail.get_children()) == 3
+        tab.changed_only.set(True)
+        tab._display_changed()
+        assert [tab.detail.item(i, "values")[0] for i in tab.detail.get_children()] == ["Time"]
+        assert app.opts.live_changed_only
+        tab.changed_only.set(False)
+        tab._display_changed()
+        assert len(tab.detail.get_children()) == 3
+        # text size: its own font, within limits
+        from tkinter import font
+        before = font.nametofont("LiveText", tab).cget("size")
+        tab.set_zoom(2)
+        assert font.nametofont("LiveText", tab).cget("size") > before and app.opts.live_zoom == 2
+        tab.set_zoom(99)
+        assert tab.zoom == 5 and not tab.bigger_btn.instate(["!disabled"])
+        tab.set_zoom(0)
+        assert font.nametofont("LiveText", tab).cget("size") == before
+        tab.set_display_ratio(2.0)                       # popped out on a display with twice the scaling
+        assert font.nametofont("LiveText", tab).cget("size") >= before * 2 - 1
+        tab.set_display_ratio(1.0)
+        # layout: stacked, then side by side again; the selection stays
+        tab.layout_box.set("Stacked")
+        tab._layout_picked()
+        app.update()
+        assert str(tab.pane.cget("orient")) == "vertical" and app.opts.live_layout == "stacked"
+        assert tab.listv.selection() == ("k1",)
+        tab.layout_box.set("Side by side")
+        tab._layout_picked()
+        assert str(tab.pane.cget("orient")) == "horizontal"
+        # hide the list: details only, Previous / Next still move through the trains
+        tab.list_hidden.set(True)
+        tab._list_visibility()
+        app.update()
+        assert str(tab.left) not in [str(p) for p in tab.pane.panes()] and app.opts.live_list_hidden
+        tab.step(1)
+        assert tab.listv.selection() == ("k2",)
+        tab.list_hidden.set(False)
+        tab._list_visibility()
+        assert str(tab.left) in [str(p) for p in tab.pane.panes()]
+    finally:
+        app.destroy()

@@ -67,6 +67,18 @@ SEP = " ; "
 POLL_MS = 1500
 
 
+LAYOUTS = {"side": "Side by side", "stacked": "Stacked"}
+ZOOM_MIN, ZOOM_MAX = -2, 5                       # steps of text size in the list and details
+
+
+def _pick(value, allowed, default):
+    return value if value in allowed else default
+
+
+def _orient(layout: str) -> str:
+    return "vertical" if layout == "stacked" else "horizontal"
+
+
 def _split(text: str):
     return [p.strip().strip('"') for p in text.split(SEP.strip()) if p.strip().strip('"')]
 
@@ -188,9 +200,38 @@ class LiveTab(ttk.Frame):
         self.prog.grid(row=0, column=2, padx=(12, 0))          # always in place: nothing moves when it runs
         self.status = ttk.Label(ctl, text="Choose the files and press Compare (F5).", style="Small.TLabel")
         self.status.grid(row=0, column=3, sticky="w", padx=(10, 0))
-        self.window = None                  # popout.LiveWindow, set by the app: Live View in its own window
-        win = ttk.Frame(ctl)
-        win.grid(row=0, column=4, sticky="e", padx=(8, 0))
+        self.window = None                  # popout.LiveWindow, set by the app: the output in its own window
+        self.progress = Progress(self.prog)
+
+        # the output (train list and details) is a frame of its own: it is what pops out into a window
+        self.out_holder = tk.Frame(self)
+        self.out_holder.grid(row=3, column=0, sticky="nsew")
+        tool = self.toolbar = ttk.Frame(self.out_holder, padding=(0, 0, 0, 4))
+        tool.pack(fill="x")
+        self.layout_var = tk.StringVar(value=_pick(getattr(self.app.opts, "live_layout", "side"), LAYOUTS, "side"))
+        self.changed_only = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_changed_only", False)))
+        self.list_hidden = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_list_hidden", False)))
+        self.zoom = max(ZOOM_MIN, min(ZOOM_MAX, int(getattr(self.app.opts, "live_zoom", 0) or 0)))
+        self.display_ratio = 1.0              # the window's display scaling against the main window's (pop-out)
+        ttk.Label(tool, text="Layout:").grid(row=0, column=0, padx=(0, 4))
+        self.layout_box = ttk.Combobox(tool, state="readonly", width=13, values=list(LAYOUTS.values()))
+        self.layout_box.set(LAYOUTS[self.layout_var.get()])
+        self.layout_box.grid(row=0, column=1)
+        self.layout_box.bind("<<ComboboxSelected>>", lambda _e: self._layout_picked())
+        ttk.Checkbutton(tool, text="Changed rows only", variable=self.changed_only,
+                        command=self._display_changed).grid(row=0, column=2, padx=(10, 0))
+        ttk.Checkbutton(tool, text="Hide train list", variable=self.list_hidden,
+                        command=self._list_visibility).grid(row=0, column=3, padx=(10, 0))
+        self.smaller_btn = ttk.Button(tool, text="A-", width=3, command=lambda: self.set_zoom(self.zoom - 1))
+        self.bigger_btn = ttk.Button(tool, text="A+", width=3, command=lambda: self.set_zoom(self.zoom + 1))
+        ttk.Label(tool, text="Text:").grid(row=0, column=4, padx=(10, 4))
+        self.smaller_btn.grid(row=0, column=5)
+        self.bigger_btn.grid(row=0, column=6, padx=(2, 0))
+        ttk.Button(tool, text="< Previous", command=lambda: self.step(-1)).grid(row=0, column=7, padx=(12, 0))
+        ttk.Button(tool, text="Next >", command=lambda: self.step(1)).grid(row=0, column=8, padx=(2, 0))
+        win = ttk.Frame(tool)
+        win.grid(row=0, column=9, sticky="e", padx=(12, 0))
+        tool.columnconfigure(9, weight=1)
         self.pop_btn = ttk.Button(win, text="Pop out", command=self.toggle_window)
         self.pop_btn.grid(row=0, column=0)
         self.full_btn = ttk.Button(win, text="Full screen (F11)", command=lambda: self.window and
@@ -201,16 +242,17 @@ class LiveTab(ttk.Frame):
         self.top_cb.grid(row=0, column=2, padx=(4, 0))
         self.full_btn.grid_remove()
         self.top_cb.grid_remove()
-        Tooltip(self.pop_btn, "Open Live View in its own window (Ctrl+Shift+P), to move it to another monitor or "
-                              "show it full screen. Everything in it carries on; close the window or press Bring "
-                              "back to put it back in this tab.")
-        self.progress = Progress(self.prog)
-
-        pane = ttk.Panedwindow(self, orient="horizontal")
-        pane.grid(row=3, column=0, sticky="nsew")
-        left, right = ttk.Frame(pane, padding=(0, 0, 6, 0)), ttk.Frame(pane, padding=(6, 0, 0, 0))
-        pane.add(left, weight=2)
-        pane.add(right, weight=3)
+        Tooltip(self.pop_btn, "Show only the results (train list and details) in a window of their own "
+                              "(Ctrl+Shift+P), to put them on another monitor or full screen. The task, files and "
+                              "options stay here: Compare (F5) updates the window.")
+        Tooltip(self.layout_box, "Side by side: the train list beside the details (wide screens). Stacked: the list "
+                                 "above the details (tall or narrow windows).")
+        # the two panes are children of the output frame (not of the paned window), so the paned window can be
+        # rebuilt the other way round without losing them
+        self.left = left = ttk.Frame(self.out_holder, padding=(0, 0, 6, 0))
+        self.right = right = ttk.Frame(self.out_holder, padding=(6, 0, 0, 0))
+        self.pane = ttk.Panedwindow(self.out_holder)         # replaced at once by the layout's own
+        self._arrange_panes()
 
         left.columnconfigure(0, weight=1)
         left.rowconfigure(1, weight=1)
@@ -291,6 +333,7 @@ class LiveTab(ttk.Frame):
             widget.bind("<Shift-F3>", lambda _e: self.step(-1) or "break")
         self.bind_all("<F3>", lambda _e: self._f3(1), add="+")
         self.bind_all("<Shift-F3>", lambda _e: self._f3(-1), add="+")
+        self._apply_zoom()
         self.retheme(self.app.palette)
 
     def _char_width(self) -> int:
@@ -302,13 +345,89 @@ class LiveTab(ttk.Frame):
     def rescale(self):
         """Column widths for the display's scaling and the text size (called again when either changes)."""
         from rstools.theme import px
+        self._apply_zoom()
         for col, width in self.LIST_WIDTHS.items():
-            self.listv.column(col, width=px(self, width))
+            self.listv.column(col, width=int(px(self, width) * self.zoom_factor()))
+
+    def zoom_factor(self) -> float:
+        return (1.12 ** self.zoom) * self.display_ratio
+
+    def _apply_zoom(self):
+        """The list and details have a text size of their own: the main text size, zoomed with A- / A+, and
+        sized for the display the window is on (a popped-out window can be on a display with other scaling)."""
+        from tkinter import font
+        from rstools.theme import row_height
+        base = font.nametofont("TkDefaultFont", self)
+        if "LiveText" not in font.names(self):
+            self._live_font = font.Font(self, name="LiveText", exists=False)
+        live = font.nametofont("LiveText", self)
+        size = int(base.cget("size"))
+        scaled = max(6, round(abs(size) * self.zoom_factor()))
+        live.configure(family=base.cget("family"), size=scaled if size > 0 else -scaled)
+        style = ttk.Style(self)
+        style.configure("Live.Treeview", font="LiveText",
+                        rowheight=max(row_height(self), live.metrics("linespace") + 6))
+        for name in ("listv", "detail"):                  # (the details are built after the first call)
+            tv = getattr(self, name, None)
+            if tv is not None:
+                tv.configure(style="Live.Treeview")
+        if hasattr(self, "smaller_btn"):
+            self.smaller_btn.state(["!disabled" if self.zoom > ZOOM_MIN else "disabled"])
+            self.bigger_btn.state(["!disabled" if self.zoom < ZOOM_MAX else "disabled"])
+
+    def set_zoom(self, zoom: int):
+        self.zoom = max(ZOOM_MIN, min(ZOOM_MAX, zoom))
+        self.app.opts.live_zoom = self.zoom
+        self.app.save_app_settings()
+        self.rescale()
+
+    def set_display_ratio(self, ratio: float):
+        """The popped-out window moved to a display whose scaling is `ratio` times the main window's."""
+        ratio = round(ratio, 3)
+        if ratio != self.display_ratio:
+            self.display_ratio = ratio
+            self.rescale()
+
+    def _layout_picked(self):
+        layout = next(k for k, v in LAYOUTS.items() if v == self.layout_box.get())
+        self.layout_var.set(layout)
+        self.app.opts.live_layout = layout
+        self.app.save_app_settings()
+        self._apply_layout()
+
+    def _arrange_panes(self):
+        """(Re)build the paned window for the chosen layout, with the train list unless it is hidden."""
+        old = self.pane
+        for pane in list(old.panes()):
+            old.forget(pane)
+        old.destroy()
+        self.pane = ttk.Panedwindow(self.out_holder, orient=_orient(self.layout_var.get()))
+        self.pane.pack(fill="both", expand=True)
+        if not self.list_hidden.get():
+            self.pane.add(self.left, weight=2)
+        self.pane.add(self.right, weight=3)
+        for pane in (self.left, self.right):             # panes that are not its children must be above it
+            pane.lift(self.pane)
+
+    def _apply_layout(self):
+        """Side by side or stacked: the same two panes in a paned window turned round (the selection stays)."""
+        self._arrange_panes()
+
+    def _list_visibility(self):
+        """Hide the train list (details only, Previous / Next in the toolbar) or show it again."""
+        self.app.opts.live_list_hidden = self.list_hidden.get()
+        self.app.save_app_settings()
+        self._arrange_panes()
+
+    def _display_changed(self):
+        """Changed rows only was ticked or unticked: show the selected train again."""
+        self.app.opts.live_changed_only = self.changed_only.get()
+        self.app.save_app_settings()
+        self._show_selected()
 
     def retheme(self, p: dict):
         """Colours of the difference rows and the notes box for the current theme."""
-        if isinstance(self.master, tk.Frame):         # the plain frame that holds the Live View (popout)
-            self.master.configure(background=p["bg"])
+        self.out_holder.configure(background=p["bg"])     # the plain frame that pops out into a window
         for tv in (self.listv, self.detail):
             tv.tag_configure(CHANGED, background=p["d_changed"])
             tv.tag_configure(ADDED, background=p["d_added"])
@@ -516,6 +635,19 @@ class LiveTab(ttk.Frame):
         else:
             self.full_btn.grid_remove()
             self.top_cb.grid_remove()
+
+    def display_changed(self):
+        """The main window is on a display with other scaling: the list and details follow it."""
+        self.rescale()
+        if self.window is not None and self.window.out:       # the popped-out window's display, against the new one
+            self.window._rescale_for_display()
+
+    def output_place(self, back: bool):
+        """The output goes out into its window (the tab keeps a note in its place) or comes back."""
+        if back:
+            self.out_holder.grid(row=3, column=0, sticky="nsew")
+        else:
+            self.out_holder.grid_remove()
 
     def stop(self):
         if self._autosave_after:                      # closing: save the confirmations now
@@ -888,14 +1020,20 @@ class LiveTab(ttk.Frame):
             return
         self.head.configure(text=f"{it.label}  -  {it.status}   ({it.group})")
         self._rows, self._details_iid = {}, ""
+        only = self.changed_only.get()
+        shown = [r for r in it.rows if not only or r.state not in (SAME, "muted")]
         details = [r for r in it.rows if r.group == "details"]
-        if details:                                 # train prints: the train's details under one heading
+        if details and (not only or any(r in shown for r in details)):
+            # train prints: the train's details under one heading
             self._details_iid = self.detail.insert("", "end", values=self._details_label(details),
                                                    open=self._details_open(), tags=self._details_tags(details))
-        for row in it.rows:
+        for row in shown:
             parent = self._details_iid if row.group == "details" else ""
             iid = self.detail.insert(parent, "end", values=row.cells, tags=(row.state,) if row.state != SAME else ())
             self._rows[iid] = row
+        if only and it.rows and not shown:
+            self.detail.insert("", "end", values=["(every row is the same on both sides)"]
+                               + [""] * (len(self.result.columns) - 1 if self.result else 0), tags=("muted",))
         self._item_notes = it.notes or ([it.status] if it.state != SAME else ["No differences."])
         self._set_notes(self._item_notes)
 

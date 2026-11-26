@@ -12,10 +12,11 @@ the whole window at once.
 from __future__ import annotations
 
 import sys
+import time
 from contextlib import contextmanager
 from functools import lru_cache
 import tkinter as tk
-from typing import Dict, List, Literal, Sequence, Tuple
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
 from tkinter import ttk
 
 MODES = {"system": "Follow Windows", "light": "Light", "dark": "Dark", "contrast": "High contrast"}
@@ -140,26 +141,29 @@ def window_dpi(root) -> int:
 
 @contextmanager
 def freeze_redraw(root):
-    """On Windows, hold the window's painting while it is rescaled and repaint it once at the end, so it does
-    not redraw piece by piece. Does nothing elsewhere, and painting is always switched back on."""
-    hwnd = 0
+    """On Windows, hold the painting of the window's contents while it is rescaled and repaint the whole window once
+    at the end. Painting is held on the Tk client window only, never on the top-level frame: a frame that is held
+    while it is moved to another display can stay black or see-through until something repaints it. Does nothing
+    elsewhere, and painting is always switched back on (and the window repainted) even when the rescale fails."""
+    client = frame = 0
     if sys.platform.startswith("win"):
         try:
             import ctypes
-            hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)            # GA_ROOT: the frame
-            if hwnd:
-                ctypes.windll.user32.SendMessageW(hwnd, 0x000B, 0, 0)            # WM_SETREDRAW off
+            client = root.winfo_id()
+            frame = ctypes.windll.user32.GetAncestor(client, 2)                      # GA_ROOT: the frame
+            if client:
+                ctypes.windll.user32.SendMessageW(client, 0x000B, 0, 0)            # WM_SETREDRAW off
         except (AttributeError, OSError, tk.TclError):
-            hwnd = 0
+            client = 0
     try:
         yield
     finally:
-        if hwnd:
+        if client:
             try:
                 import ctypes
-                ctypes.windll.user32.SendMessageW(hwnd, 0x000B, 1, 0)            # WM_SETREDRAW on
+                ctypes.windll.user32.SendMessageW(client, 0x000B, 1, 0)            # WM_SETREDRAW on
                 # RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW
-                ctypes.windll.user32.RedrawWindow(hwnd, None, None, 0x1 | 0x4 | 0x80 | 0x400 | 0x100)
+                ctypes.windll.user32.RedrawWindow(frame or client, None, None, 0x1 | 0x4 | 0x80 | 0x400 | 0x100)
             except (AttributeError, OSError):
                 pass
 
@@ -231,6 +235,95 @@ def place_window(x: int, y: int, w: int, h: int, need_w: int, need_h: int, area,
     x = max(left, min(x, right - w - fw))
     y = max(top, min(y, bottom - h - fh))
     return x, y, w, h
+
+
+Area = Tuple[int, int, int, int]
+
+
+def pick_display(point: Tuple[int, int], displays: Sequence[Tuple[Area, int]]) -> Optional[Tuple[Area, int]]:
+    """The (work area, dpi) of the display a point is on, else the nearest one (None if there are none). The
+    centre of a window decides which display it is on, so a window sticking out over two displays is not
+    taken for each in turn."""
+    if not displays:
+        return None
+    x, y = point
+
+    def gap(item) -> int:
+        (left, top, right, bottom), _dpi = item
+        dx = max(left - x, 0, x - right + 1)
+        dy = max(top - y, 0, y - bottom + 1)
+        return dx * dx + dy * dy
+    return min(displays, key=gap)
+
+
+def displays() -> List[Tuple[Area, int]]:
+    """(work area, dpi) of every display on Windows (empty elsewhere or on error)."""
+    if not sys.platform.startswith("win"):
+        return []
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD)]
+        found: List[Tuple[Area, int]] = []
+        proc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT),
+                                  wintypes.LPARAM)
+
+        def each(hmon, _hdc, _rect, _data):
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            x, y = ctypes.c_uint(), ctypes.c_uint()
+            if (ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(info))
+                    and ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(x), ctypes.byref(y)) == 0):
+                r = info.rcWork
+                found.append(((r.left, r.top, r.right, r.bottom), int(x.value)))
+            return 1
+        ctypes.windll.user32.EnumDisplayMonitors(None, None, proc(each), 0)
+        return found
+    except (AttributeError, OSError, ValueError):
+        return []
+
+
+def display_of_window(root) -> Optional[Tuple[Area, int]]:
+    """(work area, dpi) of the display the centre of the window is on, or None where that cannot be read."""
+    try:
+        point = (root.winfo_rootx() + root.winfo_width() // 2, root.winfo_rooty() + root.winfo_height() // 2)
+    except tk.TclError:
+        return None
+    return pick_display(point, displays())
+
+
+class RescaleGuard:
+    """Keeps a window from rescaling over and over while it is moved between displays. After a rescale the
+    window is left alone for `quiet` seconds (unless the mouse is pressed again: a new drag), and never rescaled
+    more than `most` times in `window` seconds, whatever Windows reports about its scaling."""
+
+    def __init__(self, quiet: float = 1.5, most: int = 2, window: float = 3.0, clock=time.monotonic):
+        self.quiet, self.most, self.window, self.clock = quiet, most, window, clock
+        self.times: List[float] = []
+        self.dragged = True                         # a drag since the last rescale (true until the first one)
+        self.refused = 0
+
+    def mouse(self, held: bool):
+        if held:
+            self.dragged = True
+
+    def allow(self) -> bool:
+        now = self.clock()
+        self.times = [t for t in self.times if now - t < self.window]
+        if self.times and not self.dragged and now - self.times[-1] < self.quiet:
+            self.refused += 1
+            return False
+        if len(self.times) >= self.most:
+            self.refused += 1
+            return False
+        return True
+
+    def done(self):
+        self.times.append(self.clock())
+        self.dragged = False
 
 
 def mouse_held() -> bool:

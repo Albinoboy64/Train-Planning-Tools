@@ -258,6 +258,11 @@ How units are followed: each diagram's WASH / CET / FUEL lines and start and end
 
 Which locations are depots: any location named *T&RSMD*, *TMD*, *EMUD*, *Depot*, *Shed* or *Traincare*, grouped by depot (so every road at Selhurst counts as Selhurst), plus the depot list in **Options > Edit depot list**: add a TIPLOC with its depot name, or leave the depot blank to mark a location as not a depot.
 
+**Next-day numbers, berths and limits (3.35.0)**
+* Where the XML and TRENT print give no next-day number, a unit is linked to the next day's diagram only if it is the **only** one it could form (same fleet, starting where it stabled, best match first: same place, same depot, same station area); it is marked *inferred* with the reason *next-day number missing*. If more than one could be formed, or another unit could form the same one, the unit is **not followed further**: it is listed on **Next-Day Checks** with the candidates. A unit that stands (berths) all day is followed to the diagram that leaves where it stands, on the days after; if it stands somewhere other than where it arrived (a different siding), or the diagram it forms starts somewhere else, that is flagged there too.
+* **CETs by Unit**: *Days in service without a CET (most)* counts only days the unit works a passenger train (class 1, 2 or 9), and the limit is 3 days. **Fuel check**: a gap over 48 hours counts only if the unit moves for two hours or more on two or more days of it (*Days running in the gap*); otherwise it says *Over 48 hours, but mostly stationary*.
+* **Possible Washes, CETs, Fuel** (whole-week reports): a stop at a location where the TRENT print does that activity (FUEL: diesel units only), at least as long as the shortest stop where it is done there (20 / 30 / 30 minutes for a WASH / CET / FUEL where that is not known), at which the unit does not do it. Each unit also has a *Could be added at* note. Choose *Every unit*, *Units over a limit only* or *Off* under the unit report options (`--possible every|over|off`). Check that the activity can really be done there before adding it.
+
 ### Output formats
 
 Every Stats Pack output (stats packs, comparisons and unit reports) can be saved as **Excel** (the default), **PDF** or **Word**: choose under *Save as* in *4. Output*. PDF and Word use A4 landscape pages with the heading row repeated on each page and the same highlighting; very wide tabs are split into parts. A whole stats pack is long as a document (hundreds of pages per day) - choose *totals only*, fewer days or *Changed rows only* for something shorter. The Stock Tools change report can also be PDF or Word (*Create change report as*); the highlighted CWN itself is always Excel.
@@ -408,7 +413,12 @@ The **Live View** tab shows any comparison in the app inside the window: CWNs, s
 
 7. **Two berthing charts**: each berth with a difference is listed (under its sheet and siding location), and its cells are shown side by side, *Column / Older chart / Newer chart*: a changed unit or time in yellow, a unit only in the newer chart in green, one only in the older chart in red, and the berth's unchanged cells between them in column order so each change is seen in context. Berths with no difference are not listed. It uses the same comparison as *Compare two berthing charts*.
 8. **Section 4 check**: the trains are listed under *Clashes*, *Exempt* and *Not checked*; each shows its section, period and night, possession window, times at each end, what is blocked, the line used (with a VPT), the operator (other operators' trains) and the remarks. With *Refresh when a file is saved* the check re-runs as you correct the XML.
-9. **Pop out** (Ctrl+Shift+P) moves the Live View into **its own window**, to put it on another monitor or beside your work. Everything carries on in it: the comparison, the selected train, the ticks and a refresh in progress. In that window **Full screen** (F11; Esc leaves it) and **Always on top** are offered, and F5 compares again. **Bring back** (or closing the window) puts it back in the tab. The window's size and place are remembered; if that place is no longer on a screen (a monitor was unplugged), it opens on the main screen.
+9. **Pop out** (Ctrl+Shift+P) puts **only the results** (the train list and the details) in **their own window**, to put them on another monitor or beside your work. The task, the files and the options stay in the main window: choose them and press **Compare** (F5) there and the window shows the comparison. The selected train, the ticks and a refresh in progress all carry on. In that window **Full screen** (F11; Esc leaves it) and **Always on top** are offered, and F5 compares again. **Bring back** (or closing the window) puts the results back in the tab. The window's size and place are remembered; if that place is no longer on a screen (a monitor was unplugged), it opens on the main screen.
+10. **Display options** (above the results, in the tab and in the window; remembered):
+    * **Layout**: *Side by side* (the list beside the details) or *Stacked* (the list above the details, for tall or narrow windows).
+    * **Changed rows only**: the details show only the rows that differ.
+    * **Text A- / A+**: the list and details are made smaller or bigger, whatever the rest of the window is set to. In a window on a display with other scaling the text follows that display.
+    * **Hide train list**: the details only, full width; **< Previous** / **Next >** in the toolbar move through the trains.
 
 **Export...** saves the trains currently listed (with the filter and search applied) to Excel, PDF or Word: an *About* sheet, a *Trains* sheet (each train's result and differences in words) and a *Differences* sheet (each differing call or field, coloured as on screen).
 
@@ -423,6 +433,13 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.35.0** - unit report rules, Live View output-only pop-out, moving between displays
+* **Unit reports**: where there is no next-day number, a unit is followed only if it could form just one diagram (marked *inferred*, "next-day number missing"). If it could form more than one, or the same one as another unit, it is not followed further and is listed on the new **Next-Day Checks** tab. A unit that berths for a whole day is followed to the diagram that leaves where it stands, and a berth in a different place from where the unit arrived or leaves for is flagged.
+* **CET**: a unit should not go more than 3 days in passenger service without a CET (days it stands, stables or only works empty trains do not count). **Fuel (171s)**: a gap over 48 hours is a problem only if the unit really runs on two or more days of it, else it says *mostly stationary*.
+* **Possible extra WASH / CET / FUEL**: a *Could be added at* note on each unit and a new **Possible Washes, CETs, Fuel** tab list the stops at a location where the TRENT print does that activity, long enough (at least the shortest stop where it is done there), where the unit does not. Option on the unit reports: every unit (default), units over a limit only, or off; command line `--possible every|over|off`.
+* **Live View pop-out** now holds only the results; the task, files and options stay in the main window. New display options: layout (side by side / stacked), changed rows only, text size and hiding the train list.
+* **Moving between displays**: the window is rescaled for the display its centre is on, once, and left alone for a moment afterwards (no more repeated rescaling or a black area behind the window); painting is held on the contents only; and a failure while rescaling is logged and leaves the window as it was.
 
 **3.34.0** - platform workings: compare, colours, rounds and automatic berthing arrangements
 * **Platform workings** (Victoria, London Bridge, Brighton) can be compared, put in colours and added to by rounds in the CWN tasks, as single files or folders. Line, number of cars and operator changes are reported, and so are the lines of each day's berthing arrangements. Supplement numbers are ignored when folders are paired, and *Days to check* picks day tabs.
@@ -975,7 +992,7 @@ TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --seats-group 
                [--between 07:00-10:00 --at "London Victoria" --direction arriving] [--per-day]
 TrainPlanningTools.exe statspack --old-pack OLD.xlsx --new-pack NEW.xlsx
                [--no-summary] [--changed-tabs-only] [--changed-rows-only] [--flag-miles 10] [--format xlsx|pdf|docx]
-TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx --unit-reports washes,cets,depots,captive,fuel
+TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx --unit-reports washes,cets,depots,captive,fuel [--possible every|over|off]
 TrainPlanningTools.exe statspack --trent "TLGN_SX.docx;TLGN_SO.docx;TLGN_SU.docx" --unit-reports washes,depots,captive   (no XML needed)
                [--unit-period week|days|timetable] [--format xlsx|pdf|docx]
 

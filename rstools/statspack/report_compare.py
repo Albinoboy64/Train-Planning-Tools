@@ -17,12 +17,13 @@ SPEC: Dict[str, Tuple[int, bool]] = {
     "Capacity Summary": (1, True), "Capacity by Hour": (1, True), "Capacity by Train": (2, False),
     "Washes by Fleet": (1, True), "Washes by Diagram": (2, False), "Washes by Unit": (1, False),
     "CETs by Fleet": (1, True), "CETs by Diagram": (2, False), "CETs by Unit": (1, False),
-    "Inferred Links": (3, False),
+    "Inferred Links": (3, False), "Next-Day Checks": (3, False),
+    "Possible Washes, CETs, Fuel": (5, False),
     "Depot Moves by Day": (1, True), "Depot Moves by Depot": (3, True), "Depot Moves by Diagram": (2, False),
     "Captive Diagrams": (2, False), "Captive Units": (1, False), "Fuel Check (171s)": (1, False),
 }
 # descriptive columns left out of the comparison (they change whenever diagrams are renumbered)
-SKIP = {"Diagrams worked", "Linked by", "Matched on", "Why it was inferred", "Stabled at"}
+SKIP = {"Diagrams worked", "Linked by", "Matched on", "Why it was inferred", "Stabled at", "Could be added at"}
 ONLY_OLD, ONLY_NEW = "Only in the original", "Only in the updated"
 
 

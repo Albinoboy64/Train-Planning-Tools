@@ -30,7 +30,8 @@ from .meta import is_comparison_output, read_meta_file
 from .options import Options, PRESET_COLOURS, default_categories, default_name
 
 APP_WIDE = ("last_tab", "theme", "text_size", "recent", "check_updates", "github_token", "notify_done", "saved",
-            "live_details_open", "live_passenger_only", "live_check_header", "live_check_timing")
+            "live_details_open", "live_passenger_only", "live_check_header", "live_check_timing",
+            "live_window", "live_window_on_top", "live_layout", "live_changed_only", "live_zoom", "live_list_hidden")
 TAB_NAMES = ("Stock Tools", "Stats Pack", "Timing Tools", "Live View")
 REPORT_FORMATS = {"xlsx": "Excel", "pdf": "PDF", "docx": "Word"}
 ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -217,6 +218,7 @@ class App(tk.Tk):
         attach(self)                                             # help when the mouse rests on a control
         theme.watch_focus_cues(self)                             # focus outlines only for keyboard use
         self._dpi_after = None
+        self._rescale_guard = theme.RescaleGuard()
         # a different display: rescale to its scaling. Bound to the main window alone (its own bind tag): a
         # binding on the root would run for every widget's resize too (hundreds per resize or rescale)
         self.bind_class("TPTMain", "<Configure>", self._moved)
@@ -280,16 +282,29 @@ class App(tk.Tk):
         if self._dpi_after:
             self.after_cancel(self._dpi_after)
             self._dpi_after = None
-        if theme.window_dpi(self) != self.dpi:
+        self._rescale_guard.mouse(theme.mouse_held())
+        if self._display_dpi() != self.dpi:
             self._dpi_after = self.after(80, self._check_dpi)
+
+    def _display_dpi(self) -> int:
+        """The scaling of the display the centre of the window is on (so a window sticking out over two displays is
+        not taken for each of them in turn); the window's own scaling where the displays cannot be read."""
+        found = theme.display_of_window(self)
+        return found[1] if found else theme.window_dpi(self)
 
     def _check_dpi(self):
         self._dpi_after = None
-        dpi = theme.window_dpi(self)
+        dpi = self._display_dpi()
         if dpi == self.dpi:
             return
         if theme.mouse_held():              # still being dragged: rescale once it is let go, in one step
+            self._rescale_guard.mouse(True)
             self._dpi_after = self.after(60, self._check_dpi)
+            return
+        if not self._rescale_guard.allow():  # just rescaled: Windows still settling the window onto its display
+            if self._rescale_guard.refused == 1:
+                errorlog.write("The window kept changing display scaling while it was moved; it was left as it is.")
+            self._dpi_after = self.after(700, self._check_dpi)
             return
         self.dpi_changed(dpi)
 
@@ -305,25 +320,40 @@ class App(tk.Tk):
 
     def dpi_changed(self, dpi: int):
         """Redraw for a display with other scaling: text, spacing and the logo sized for it, and the window kept
-        the same physical size."""
+        the same physical size and wholly on the display. Any failure is logged and the window left usable (never
+        half rescaled, never with painting held)."""
+        self._rescale_guard.done()
+        before = (self.dpi, self.dpi_scale)
         ratio = dpi / self.dpi
-        self.dpi, self.dpi_scale = dpi, dpi / theme.BASE_DPI
-        with theme.freeze_redraw(self):             # Windows: one repaint at the end, not piece by piece
-            self.tk.call("tk", "scaling", dpi / 72.0)
-            width, height = self.winfo_width(), self.winfo_height()
-            self.set_text_size(self.size_var.get(), fit=False, save=False, rescale_only=True)
-            self._set_minsize()
-            self.update_idletasks()                 # the content's new size, worked out while painting is held
-            if self.state() != "zoomed":
-                # the same physical size, grown if the content needs more room, and kept on this display
-                area = theme.screen_area(self)
-                w, h = theme.rescaled_size(width, height, ratio, area)
-                frame = (max(0, 2 * (self.winfo_rootx() - self.winfo_x())),
-                         max(0, self.winfo_rooty() - self.winfo_y() + (self.winfo_rootx() - self.winfo_x())))
-                need_w, need_h = self._needed_size()
-                x, y, w, h = theme.place_window(self.winfo_x(), self.winfo_y(), w, h, need_w, need_h, area, frame)
-                self.geometry(f"{w}x{h}+{x}+{y}")
-                self.update_idletasks()             # lay the window out at its new size while painting is held
+        try:
+            self.dpi, self.dpi_scale = dpi, dpi / theme.BASE_DPI
+            with theme.freeze_redraw(self):             # Windows: one repaint at the end, not piece by piece
+                self.tk.call("tk", "scaling", dpi / 72.0)
+                width, height = self.winfo_width(), self.winfo_height()
+                self.set_text_size(self.size_var.get(), fit=False, save=False, rescale_only=True)
+                self._set_minsize()
+                self.update_idletasks()                 # the content's new size, worked out while painting is held
+                if self.state() != "zoomed":
+                    # the same physical size, grown if the content needs more room, and wholly on the display the
+                    # window's centre is on
+                    found = theme.display_of_window(self)
+                    area = found[0] if found else theme.screen_area(self)
+                    w, h = theme.rescaled_size(width, height, ratio, area)
+                    frame = (max(0, 2 * (self.winfo_rootx() - self.winfo_x())),
+                             max(0, self.winfo_rooty() - self.winfo_y() + (self.winfo_rootx() - self.winfo_x())))
+                    need_w, need_h = self._needed_size()
+                    x, y, w, h = theme.place_window(self.winfo_x(), self.winfo_y(), w, h, need_w, need_h, area,
+                                                    frame)
+                    self.geometry(f"{w}x{h}+{x}+{y}")
+                    self.update_idletasks()             # lay the window out at its new size while painting is held
+            self.live_tab.display_changed()             # the Live View's text follows the scaling
+        except Exception:
+            errorlog.write(traceback.format_exc())
+            self.dpi, self.dpi_scale = before
+            try:
+                self.tk.call("tk", "scaling", before[0] / 72.0)
+            except tk.TclError:
+                pass
         if self.state() != "zoomed":
             self.after_idle(self._keep_on_screen)   # check again once painting is back on (Windows can delay
                                                     # or adjust a move made while it was held)
@@ -331,7 +361,8 @@ class App(tk.Tk):
     def _keep_on_screen(self):
         """Move the window back fully onto its display if any part of it is off the edge."""
         try:
-            area = theme.screen_area(self)
+            found = theme.display_of_window(self)
+            area = found[0] if found else theme.screen_area(self)
             frame = (max(0, 2 * (self.winfo_rootx() - self.winfo_x())),
                      max(0, self.winfo_rooty() - self.winfo_y() + (self.winfo_rootx() - self.winfo_x())))
             w, h = self.winfo_width(), self.winfo_height()
@@ -945,12 +976,10 @@ class App(tk.Tk):
         self.notebook.add(tt_page, text="  Timing Tools  ")
         from rstools.live.gui_tab import LiveTab
         live_page = self.live_page = ScrollPage(self.notebook)
-        live_holder = tk.Frame(live_page.body)      # a plain Tk frame: it can become a window of its own (popout)
-        live_holder.pack(fill="both", expand=True)
-        self.live_tab = LiveTab(live_holder, self)
+        self.live_tab = LiveTab(live_page.body, self)
         self.live_tab.pack(fill="both", expand=True)
         from rstools.live.popout import LiveWindow
-        self.live_window = self.live_tab.window = LiveWindow(self, live_holder, live_page.body, self.live_tab)
+        self.live_window = self.live_tab.window = LiveWindow(self, self.live_tab.out_holder, self.live_tab)
         self.notebook.add(live_page, text="  Live View  ")
         from rstools import icons
         for page, name in ((cwn_page, "stock"), (stats_page, "stats"), (tt_page, "timing"), (live_page, "live")):

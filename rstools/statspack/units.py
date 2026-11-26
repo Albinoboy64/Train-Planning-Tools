@@ -109,6 +109,11 @@ class DayDiagram:
     fuel_times: List[int] = field(default_factory=list)   # minutes after the day's midnight of each FUEL
     next_key: str = ""          # TLGN print: 'Forms (Next Day)' diagram
     prev_key: str = ""          # ...and 'Off (Previous Day)'
+    standing: bool = False      # no train moves: the unit stands (berths) all day
+    passenger: bool = False     # works at least one passenger train (class 1, 2 or 9)
+    running_min: Optional[int] = None    # minutes the unit spends moving (None: not known, taken as running)
+    stops: List[Tuple[str, int, int]] = field(default_factory=list)      # (location, arrives, departs) where it waits
+    done: List[Tuple[str, str, int]] = field(default_factory=list)       # (WASH / CET / FUEL, location, minute)
 
     @property
     def label(self) -> str:
@@ -121,6 +126,8 @@ class UnitWeek:
     diagrams: List[DayDiagram]
     links: List[str] = field(default_factory=list)      # how each step was linked: 'XML' / 'TRENT' / 'inferred'
     inferred: List[dict] = field(default_factory=list)  # for each inferred link: where and why (see follow_units)
+    checks: List[dict] = field(default_factory=list)    # next-day numbers missing, berths in another place
+    could: Dict[str, List[str]] = field(default_factory=dict)    # WASH / CET / FUEL: where it could be added
 
     @property
     def washes(self) -> int:
@@ -144,6 +151,20 @@ class UnitWeek:
         return best
 
 
+    @property
+    def cet_gap(self) -> int:
+        """Most days in passenger service in a row without a CET (a day it stables, stands or only works empty
+        trains does not count, and a CET on any day starts the count again)."""
+        best = run = 0
+        for d in self.diagrams:
+            if d.cets:
+                run = 0
+            elif d.passenger:
+                run += 1
+                best = max(best, run)
+        return best
+
+
 def day_diagrams(trent: TrentData, day: int) -> List[DayDiagram]:
     out = []
     picked, _notes = _pick_diagrams(trent, day)
@@ -156,16 +177,31 @@ def day_diagrams(trent: TrentData, day: int) -> List[DayDiagram]:
         last_time = max((cast(int, r.arr if r.arr is not None else r.dep) for r in timed), default=0)
         acts = Counter(r.activity for r in rows if r.activity)
         fuel_times, when = [], first.dep or 0
-        for r in rows:                      # a FUEL line has no time of its own: the unit's last arrival
+        done: List[Tuple[str, str, int]] = []
+        stops: List[Tuple[str, int, int]] = []
+        running = 0
+        for i, r in enumerate(rows):         # a FUEL line has no time of its own: the unit's last arrival
             t = r.arr if r.arr is not None else r.dep
             if t is not None:
                 when = t
             if r.activity == "FUEL":
                 fuel_times.append(when)
+            if r.activity in ("WASH", "CET", "FUEL"):
+                done.append((r.activity, r.loc, when))
+            if r.arr is not None and r.dep is not None and r.dep > r.arr and r.loc:
+                stops.append((r.loc, r.arr, r.dep))
+            if r.headcode and r.dep is not None and i + 1 < len(rows):
+                nxt = rows[i + 1]
+                reached = nxt.arr if nxt.arr is not None else nxt.dep
+                if reached is not None and reached >= r.dep:
+                    running += reached - r.dep
+        heads = [r.headcode for r in rows if r.headcode]
         out.append(DayDiagram(day, td.key, td.fleet, first.loc, first.dep or 0, rows[-1].loc, last_time,
                               acts.get("WASH", 0), acts.get("CET", 0), acts.get("FUEL", 0), fuel_times,
                               f"{td.depot}{td.next_num}" if td.next_num else "",
-                              f"{td.depot}{td.prev_num}" if td.prev_num else ""))
+                              f"{td.depot}{td.prev_num}" if td.prev_num else "",
+                              standing=not heads, passenger=any(h[:1] in ("1", "2", "9") for h in heads),
+                              running_min=running, stops=stops, done=done))
     return sorted(out, key=lambda d: (d.fleet, d.key))
 
 
@@ -310,43 +346,85 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
     if missing:
         warnings.append(f"{len(missing)} next-day working(s) in the XML point to a diagram that is not in the TRENT "
                         f"print (e.g. {', '.join(missing[:6])}) - those units are not followed further.")
-    # days (or diagrams) without an XML link: match where the unit stabled to where a diagram starts
+    # days (or diagrams) without an XML link: match where the unit stabled to where a diagram starts. The next-day
+    # number is missing there, so a link is only made where one diagram could be formed; when several could be
+    # formed the unit is not followed further and is listed for checking.
     inferred = 0
+    ambiguous: Dict[Tuple[int, str], dict] = {}
     for i, d in enumerate(days[:-1]):
         later = days[i + 1:]
         open_ends = [x for x in per_day[d] if (d, x.key) not in succ and not ends_cycle(x.end_loc, depots)
                      and (d not in covered or (d, x.key) in stabled or (d, x.key) not in links)]
-        for tier in (0, 1, 2):                      # exact place first, then same depot, then same area
-            for x in sorted(open_ends, key=lambda x: x.end_min):
+        # a unit that stands all day (or whose note skips days) can form a diagram on any later day
+
+        def free(x: DayDiagram, d: int = d, later: List[int] = later) -> Tuple[int, List[Tuple[int, DayDiagram]]]:
+            for tier in (0, 1, 2):                  # exact place first, then same depot, then same area
+                for d2 in later if ((d, x.key) in stabled or x.standing) else later[:1]:
+                    found = [(d2, y) for y in per_day[d2] if (d2, y.key) not in pred and y.fleet == x.fleet
+                             and _closeness(x.end_loc, y.start_loc, depots) == tier]
+                    if found:
+                        return tier, found
+            return 3, []
+        changed = True
+        while changed:
+            changed = False
+            single: Dict[Tuple[int, str], List[DayDiagram]] = defaultdict(list)
+            for x in open_ends:
                 if (d, x.key) in succ:
                     continue
-                for d2 in later if (d, x.key) in stabled else later[:1]:
-                    cands = [y for y in per_day[d2] if (d2, y.key) not in pred and y.fleet == x.fleet
-                             and _closeness(x.end_loc, y.start_loc, depots) == tier]
-                    if cands:
-                        y = min(cands, key=lambda y: y.start_min)
-                        succ[(d, x.key)] = ((d2, y.key), "inferred")
-                        pred.add((d2, y.key))
-                        inferred += 1
-                        if attune is None or not attune.path:
-                            cause = "no Attune XML was given, so there is no next-day working"
-                        elif d not in covered:
-                            cause = f"the XML has no unit diagrams for {DAY_NAMES[d]}"
-                        elif (d, x.key) in stabled:
-                            cause = "its diagram ends 'Stabld', so the next working is not named"
-                        else:
-                            cause = "the XML and TRENT print give no next-day working for it"
-                        detail[(d, x.key)] = _why((d, x.key), (d2, y.key), node, depots, tier, cause)
-                        break
+                tier, found = free(x)
+                if len(found) == 1:
+                    single[(found[0][0], found[0][1].key)].append(x)
+            for _target, claimants in sorted(single.items()):
+                if len(claimants) != 1:
+                    continue                        # two units could only form it: neither is certain
+                x = claimants[0]
+                tier, found = free(x)
+                d2, y = found[0]
+                succ[(d, x.key)] = ((d2, y.key), "inferred")
+                pred.add((d2, y.key))
+                inferred += 1
+                changed = True
+                if attune is None or not attune.path:
+                    cause = "no Attune XML was given, so there is no next-day working"
+                elif d not in covered:
+                    cause = f"the XML has no unit diagrams for {DAY_NAMES[d]}"
+                elif (d, x.key) in stabled:
+                    cause = "its diagram ends 'Stabld', so the next working is not named"
+                else:
+                    cause = "the XML and TRENT print give no next-day working for it"
+                detail[(d, x.key)] = _why((d, x.key), (d2, y.key), node, depots, tier,
+                                          cause + ", and it is the only diagram it can form (next-day number missing)")
+        for x in open_ends:
+            if (d, x.key) in succ:
+                continue
+            tier, found = free(x)
+            if found:
+                names = depots.names if depots is not None else {}
+                what = (f"could form {len(found)} diagrams: " if len(found) > 1 else
+                        "could only form ")
+                ambiguous[(d, x.key)] = {
+                    "day": DAYS[d], "diagram": x.key, "fleet": x.fleet, "check": "Next-day number missing",
+                    "detail": f"stabled at {names.get(x.end_loc, x.end_loc)} ({x.end_loc}); {what}"
+                              + ", ".join(f"{DAYS[d2]} {y.key}" for d2, y in found[:8])
+                              + (" ..." if len(found) > 8 else "")
+                              + ("" if len(found) > 1 else ", but another unit could form it too")
+                              + " - not followed further, check"}
+    if ambiguous:
+        eg = ", ".join(f"{v['day']} {v['diagram']}" for v in list(ambiguous.values())[:6])
+        warnings.append(f"{len(ambiguous)} unit(s) have no next-day number and could form more than one diagram, or "
+                        f"the same one as another unit (e.g. {eg}): they are not followed further - see the "
+                        "Next-Day Checks tab.")
     lacking = [DAY_NAMES[d] for d in days[:-1] if d not in covered]
     if lacking and not trent_links and not (attune is not None and attune.path):
         warnings.append(f"{inferred} link(s) were inferred: without an XML, units are followed by matching where "
-                        "they stabled to where a diagram starts (marked 'inferred'). Add the Attune XML for exact "
-                        "next-day workings.")
+                        "they stabled to where a diagram starts, where only one diagram can be formed (marked "
+                        "'inferred'). Add the Attune XML for exact next-day workings.")
     elif lacking and not trent_links:
         warnings.append("The XML has no unit diagrams for " + ", ".join(lacking) + ", so units on those days were "
-                        "followed by matching where they stabled to where a diagram starts (marked 'inferred'). "
-                        "Use an Attune export covering every day for exact next-day workings.")
+                        "followed by matching where they stabled to where a diagram starts, where only one diagram "
+                        "can be formed (marked 'inferred'). Use an Attune export covering every day for exact "
+                        "next-day workings.")
     elif inferred:
         warnings.append(f"{inferred} link(s) were inferred from stabling locations (diagrams ending 'Stabld' or "
                         "without a next-day working in the XML or TRENT print).")
@@ -357,6 +435,7 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                 continue                            # picked up by a unit from an earlier day
             chain, how, at = [x], [], (d, x.key)
             notes: List[dict] = []
+            checks: List[dict] = []
             while at in succ and len(chain) < len(days):
                 here = at
                 at, kind = succ[at]
@@ -364,7 +443,16 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                 how.append(kind)
                 if kind == "inferred" and here in detail:
                     notes.append(detail[here])
-            units.append(UnitWeek(chain, how, notes))
+                a_, b_ = node[here], node[at]
+                if (a_.standing or b_.standing) and a_.end_loc != b_.start_loc:
+                    names = depots.names if depots is not None else {}
+                    where = (f"{a_.label} ends at {names.get(a_.end_loc, a_.end_loc)} ({a_.end_loc}) but "
+                             f"{b_.label} starts at {names.get(b_.start_loc, b_.start_loc)} ({b_.start_loc})")
+                    checks.append({"day": DAYS[a_.day], "diagram": a_.key, "fleet": a_.fleet,
+                                   "check": "Berthed in a different place", "detail": where + " - check the siding"})
+            if at in ambiguous:
+                checks.append(ambiguous[at])
+            units.append(UnitWeek(chain, how, notes, checks))
     return units, per_day, warnings
 
 
@@ -393,6 +481,7 @@ def _chain(u: UnitWeek) -> str:
 
 
 WASH_LIMIT = 3          # a unit should not go more than this many days without a wash
+CET_LIMIT = 3           # ... or this many days in passenger service without a CET
 
 
 def _period(period) -> str:
@@ -404,8 +493,12 @@ def over_wash_limit(units: List[UnitWeek]) -> List[UnitWeek]:
     return [u for u in units if u.wash_gap > WASH_LIMIT]
 
 
+def over_cet_limit(units: List[UnitWeek]) -> List[UnitWeek]:
+    return [u for u in units if u.cet_gap > CET_LIMIT]
+
+
 def wash_cet_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]], period=True,
-                     kinds: Sequence[str] = ("washes", "cets")) -> List[Report]:
+                     kinds: Sequence[str] = ("washes", "cets"), possible: bool = False) -> List[Report]:
     """Washes and CETs, each on its own tabs: by diagram or by unit, and by fleet (per day when each day is shown
     separately, for the whole timetable when only the fleet totals are wanted), then the inferred links."""
     period = _period(period)
@@ -415,7 +508,7 @@ def wash_cet_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]]
             continue
         word = "Washes" if kind == "washes" else "CETs"
         if period == "week":
-            out += [_by_unit(units, kind), _fleet_totals([(u.diagrams[0].fleet, u.washes, u.cets,
+            out += [_by_unit(units, kind, possible), _fleet_totals([(u.diagrams[0].fleet, u.washes, u.cets,
                                                            sum(x.fuels for x in u.diagrams)) for u in units],
                                                          "Units", kind)]
         elif period == "days":
@@ -438,7 +531,12 @@ def wash_cet_reports(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]]
     return out
 
 
-def _by_unit(units: List[UnitWeek], kind: str) -> Report:
+def _could(u: UnitWeek, act: str) -> str:
+    found = u.could.get(act, [])
+    return "; ".join(found[:3]) + (f" (+{len(found) - 3} more)" if len(found) > 3 else "")
+
+
+def _by_unit(units: List[UnitWeek], kind: str, possible: bool = False) -> Report:
     rows = []
     for u in sorted(units, key=lambda u: (u.diagrams[0].fleet, u.diagrams[0].day, u.diagrams[0].key)):
         first = u.diagrams[0]
@@ -447,10 +545,14 @@ def _by_unit(units: List[UnitWeek], kind: str) -> Report:
         if kind == "washes":
             gap = u.wash_gap
             rows.append([first.label, first.fleet, len(u.diagrams), u.washes, sum(x.fuels for x in u.diagrams), gap,
-                         "OK" if gap <= WASH_LIMIT else f"More than {WASH_LIMIT} days without a wash",
-                         _chain(u), linked])
+                         "OK" if gap <= WASH_LIMIT else f"More than {WASH_LIMIT} days without a wash"]
+                        + ([_could(u, "WASH")] if possible else []) + [_chain(u), linked])
         else:
-            rows.append([first.label, first.fleet, len(u.diagrams), u.cets, _chain(u), linked])
+            gap = u.cet_gap
+            rows.append([first.label, first.fleet, len(u.diagrams), u.cets, gap,
+                         "OK" if gap <= CET_LIMIT else f"More than {CET_LIMIT} days in service without a CET"]
+                        + ([_could(u, "CET")] if possible else []) + [_chain(u), linked])
+    extra = ["Could be added at"] if possible else []
     if kind == "washes":
         late = over_wash_limit(units)
         note = ("Each unit followed through the week with the next-day workings ('>' from the XML or TRENT print, "
@@ -459,12 +561,17 @@ def _by_unit(units: List[UnitWeek], kind: str) -> Report:
                 + (f": {len(late)} unit(s) do." if late else ": none do."))
         return Report("Washes by Unit", "Washes per unit",
                       ["Unit (first diagram)", "Fleet", "Days", "Washes", "Fuel", "Days without a wash (most)",
-                       f"Wash every {WASH_LIMIT} days", "Diagrams worked", "Linked by"], rows,
+                       f"Wash every {WASH_LIMIT} days"] + extra + ["Diagrams worked", "Linked by"], rows,
                       ["body"] * len(rows), note)
+    late_cet = over_cet_limit(units)
     return Report("CETs by Unit", "CETs per unit",
-                  ["Unit (first diagram)", "Fleet", "Days", "CETs", "Diagrams worked", "Linked by"], rows,
-                  ["body"] * len(rows), "Each unit followed through the week with the next-day workings ('>' from "
-                                        "the XML or TRENT print, '>?' inferred: see Inferred Links).")
+                  ["Unit (first diagram)", "Fleet", "Days", "CETs", "Days in service without a CET (most)",
+                   f"CET every {CET_LIMIT} days"] + extra + ["Diagrams worked", "Linked by"], rows,
+                  ["body"] * len(rows),
+                  "Each unit followed through the week with the next-day workings ('>' from the XML or TRENT print, "
+                  "'>?' inferred: see Inferred Links). Only days in passenger service count towards the limit: a "
+                  f"unit should not go {CET_LIMIT} days in service without a CET"
+                  + (f": {len(late_cet)} unit(s) do." if late_cet else ": none do."))
 
 
 def inferred_links(units: List[UnitWeek]) -> Report:
@@ -615,47 +722,183 @@ def _when(minute: int) -> str:
     return f"{DAYS[minute // 1440]} {minute % 1440 // 60:02d}:{minute % 60:02d}"
 
 
-def fuel_reports(units: List[UnitWeek], diesel: Collection[str], days: Sequence[int]) -> List[Report]:
+RUNNING_DAY_MIN = 120          # minutes moving in a day for it to count as a day the unit is really running
+
+
+def _runs(x: DayDiagram) -> bool:
+    return x.running_min is None or x.running_min >= RUNNING_DAY_MIN
+
+
+def fuel_state(u: UnitWeek, days: Sequence[int]):
+    """(fuel times, gaps (length, from, to), followed for the whole week, over-48-hour gaps, those of them with at
+    least two days of real running). Times are minutes of the week."""
+    full_week = len(days) == 7
+    first = u.diagrams[0]
+    fuels = sorted(x.day * 1440 + t for x in u.diagrams for t in x.fuel_times)
+    start = first.day * 1440 + first.start_min
+    end = u.diagrams[-1].day * 1440 + u.diagrams[-1].end_min
+    whole = full_week and len(u.diagrams) == 7
+    gaps = []
+    if fuels:
+        gaps += [(b - a, a, b) for a, b in zip(fuels, fuels[1:])]
+        if whole:
+            gaps.append((fuels[0] + WEEK - fuels[-1], fuels[-1], fuels[0] + WEEK))
+        else:
+            gaps.append((fuels[0] - start, start, fuels[0]))
+            gaps.append((end - fuels[-1], fuels[-1], end))
+    else:
+        gaps.append((WEEK if whole else end - start, start, end))
+    over = [g for g in gaps if g[0] > FUEL_LIMIT]
+    real = [g for g in over if _running_days(u, g) >= 2]
+    return fuels, gaps, whole, over, real
+
+
+def _running_days(u: UnitWeek, gap) -> int:
+    """Days touched by a gap on which the unit really runs (a day it only stands, or moves for under two hours,
+    does not count)."""
+    _length, a, b = gap
+    days = set()
+    for x in u.diagrams:
+        for shift in (0, WEEK):
+            lo = x.day * 1440 + shift
+            if lo < b and lo + 1440 > a and _runs(x):
+                days.add((x.day, shift))
+    return len(days)
+
+
+def fuel_over(u: UnitWeek, days: Sequence[int]) -> bool:
+    """True if the unit goes more than 48 hours without fuel while really running for two or more days of it."""
+    return bool(fuel_state(u, days)[4])
+
+
+def fuel_reports(units: List[UnitWeek], diesel: Collection[str], days: Sequence[int],
+                 possible: bool = False) -> List[Report]:
     """Each diesel unit (e.g. the 171s) followed through the week: is it fuelled at least every 48 hours?
     A unit followed for the whole week is taken to repeat weekly, so the gap from its last fuel to its
     first fuel the next week counts too. For a unit followed for part of the week, the time before its
     first fuel and after its last fuel is measured from the start of its first diagram / to the end of
-    its last, and marked 'part week'."""
-    full_week = len(days) == 7
+    its last, and marked 'part week'. A long gap only counts as a problem if the unit really runs for two or
+    more days of it (a unit that mostly stands is marked 'mostly stationary')."""
     rows, kinds = [], []
     for u in sorted(units, key=lambda u: (u.diagrams[0].fleet, u.diagrams[0].day, u.diagrams[0].key)):
         first = u.diagrams[0]
         if first.fleet not in diesel:
             continue
-        fuels = sorted(x.day * 1440 + t for x in u.diagrams for t in x.fuel_times)
-        start = first.day * 1440 + first.start_min
-        end = u.diagrams[-1].day * 1440 + u.diagrams[-1].end_min
-        whole = full_week and len(u.diagrams) == 7
-        gaps = []
-        if fuels:
-            gaps += [(b - a, a, b) for a, b in zip(fuels, fuels[1:])]
-            if whole:
-                gaps.append((fuels[0] + WEEK - fuels[-1], fuels[-1], fuels[0] + WEEK))
-            else:
-                gaps.append((fuels[0] - start, start, fuels[0]))
-                gaps.append((end - fuels[-1], fuels[-1], end))
-        else:
-            gaps.append((WEEK if whole else end - start, start, end))
+        fuels, gaps, whole, over, real = fuel_state(u, days)
         worst = max(gaps)
-        over = [g for g in gaps if g[0] > FUEL_LIMIT]
-        result = ("No fuel all week" if not fuels and whole else "No fuel" if not fuels else
-                  f"Over 48 hours ({len(over)} gap(s))" if over else "OK")
+        result = ("No fuel all week" if not fuels and whole and real else "No fuel" if not fuels and real else
+                  f"Over 48 hours ({len(real)} gap(s))" if real else
+                  "Over 48 hours, but mostly stationary" if over else "OK")
         rows.append([first.label, first.fleet, len(u.diagrams), "Whole week" if whole else "Part week", len(fuels),
-                     f"{worst[0] // 60}:{worst[0] % 60:02d}", _when(worst[1]), _when(worst[2]), result, _chain(u)])
+                     f"{worst[0] // 60}:{worst[0] % 60:02d}", _running_days(u, worst), _when(worst[1]),
+                     _when(worst[2]), result] + ([_could(u, "FUEL")] if possible else []) + [_chain(u)])
         kinds.append("body")
-    rows.sort(key=lambda r: (r[8] == "OK", r[1], r[0]))      # problems first
-    bad = sum(1 for r in rows if r[8] != "OK")
+    rows.sort(key=lambda r: (r[9] == "OK", r[1], r[0]))      # problems first
+    bad = sum(1 for r in rows if r[9] != "OK")
     return [Report("Fuel Check (171s)", f"Diesel units fuelled at least every 48 hours - {bad} of {len(rows)} "
                    "unit(s) need checking" if rows else "Diesel units fuelled at least every 48 hours",
                    ["Unit (first diagram)", "Fleet", "Days", "Followed for", "Fuels", "Longest gap (h:mm)",
-                    "Gap from", "Gap to", "Result", "Diagrams worked"], rows, kinds,
+                    "Days running in the gap", "Gap from", "Gap to", "Result"]
+                   + (["Could be added at"] if possible else []) + ["Diagrams worked"], rows, kinds,
                    "Fuel times are the arrival before each FUEL line in the TRENT print. Whole week: the unit is "
                    "taken to repeat weekly, so the gap from its last fuel to its first fuel the next week is "
                    "included. Part week: gaps before the first fuel and after the last are measured from the "
                    "start of its first diagram / to the end of its last, so check those units across the "
-                   "week boundary.")]
+                   "week boundary. A gap over 48 hours is a problem only if the unit really runs (moves for two "
+                   "hours or more) on at least two days of it, else it is marked 'mostly stationary'.")]
+
+
+# --------------------------------------------------------------------------- #
+# where a WASH, CET or FUEL could be added
+# --------------------------------------------------------------------------- #
+ACTIVITIES = ("WASH", "CET", "FUEL")
+FALLBACK_STOP = {"WASH": 20, "CET": 30, "FUEL": 30}     # minutes, where no stop length is known for a location
+
+
+def activity_places(per_day: Dict[int, List[DayDiagram]],
+                    diesel: Collection[str]) -> Dict[Tuple[str, str], Optional[int]]:
+    """{(activity, location): the shortest stop at which it is already done there, or None if not known}.
+    FUEL is only learned from diesel units."""
+    found: Dict[Tuple[str, str], Optional[int]] = {}
+    for diags in per_day.values():
+        for x in diags:
+            for act, loc, t in x.done:
+                if act == "FUEL" and x.fleet not in diesel:
+                    continue
+                key = (act, loc)
+                found.setdefault(key, None)
+                stop = next((b - a for (l2, a, b) in x.stops if l2 == loc and a <= t <= b), None)
+                if stop is not None and (found[key] is None or stop < cast(int, found[key])):
+                    found[key] = stop
+    return found
+
+
+def opportunities(u: UnitWeek, act: str, places: Dict[Tuple[str, str], Optional[int]]):
+    """Stops of the unit's diagrams where `act` is done by other units but not by this one: (diagram, location,
+    arrives, departs, stop length, shortest stop where done)."""
+    out = []
+    for x in u.diagrams:
+        for loc, a, b in x.stops:
+            key = (act, loc)
+            if key not in places:
+                continue
+            need = places[key]
+            if b - a < (need if need is not None else FALLBACK_STOP[act]):
+                continue
+            if any(a2 == act and l2 == loc and a <= t <= b for a2, l2, t in x.done):
+                continue
+            out.append((x, loc, a, b, b - a, need))
+    return out
+
+
+def attach_possible(units: List[UnitWeek], per_day: Dict[int, List[DayDiagram]], diesel: Collection[str],
+                    days: Sequence[int], names: Dict[str, str], mode: str = "every") -> List[Report]:
+    """Where each unit could have a WASH, CET (and FUEL, for diesel units) added: noted on the unit (`could`) and
+    listed on one tab. mode: 'every' unit, only units 'over' a limit, or 'off'."""
+    if mode == "off":
+        return []
+    places = activity_places(per_day, diesel)
+    rows: List[list] = []
+    for u in units:
+        first = u.diagrams[0]
+        over = {"WASH": u.wash_gap > WASH_LIMIT, "CET": u.cet_gap > CET_LIMIT,
+                "FUEL": first.fleet in diesel and fuel_over(u, days)}
+        for act in ACTIVITIES:
+            if act == "FUEL" and first.fleet not in diesel:
+                continue
+            if mode == "over" and not over[act]:
+                continue
+            found = opportunities(u, act, places)
+            u.could[act] = [f"{names.get(loc, loc)} {DAYS[x.day]} {_hm(a)}-{_hm(b)}" for x, loc, a, b, _n, _s in found]
+            for x, loc, a, b, length, need in found:
+                rows.append([first.label, DAYS[x.day], x.key, x.fleet, act, names.get(loc, loc), _hm(a), _hm(b),
+                             length, "-" if need is None else need, "Yes" if over[act] else "No"])
+    rows.sort(key=lambda r: (r[10] != "Yes", r[3], r[0], DAYS.index(r[1]), r[6]))
+    return [Report("Possible Washes, CETs, Fuel", "Places where a WASH, CET or FUEL could be added",
+                   ["Unit (first diagram)", "Day", "Diagram", "Fleet", "Activity", "Location", "Arrives", "Departs",
+                    "Stop (min)", "Shortest stop where done there (min)", "Unit over its limit"], rows,
+                   ["body"] * len(rows),
+                   "Stops at a location where the TRENT print does this activity, long enough (at least the shortest "
+                   "stop where it is done there; "
+                   + ", ".join(f"{a} {m} min" for a, m in FALLBACK_STOP.items())
+                   + " where that is not known), where this unit does not. Check that it can be done there before "
+                   "adding it. FUEL: diesel units only. " + ("Only units over a limit are listed."
+                                                           if mode == "over" else "Every unit is listed."))]
+
+
+def checks_report(units: List[UnitWeek]) -> List[Report]:
+    """Next-day numbers that are missing where more than one diagram could be formed, and berths (standing
+    diagrams) in a different place from where the unit arrived or leaves for."""
+    seen, rows = set(), []
+    for u in units:
+        for c in u.checks:
+            key = (c["day"], c["diagram"], c["check"], c["detail"])
+            if key not in seen:
+                seen.add(key)
+                rows.append([c["day"], c["diagram"], c["fleet"], c["check"], c["detail"]])
+    if not rows:
+        return []
+    return [Report("Next-Day Checks", "Next-day workings to check", ["Day", "Diagram", "Fleet", "Check", "Detail"],
+                   rows, ["body"] * len(rows),
+                   "Where the XML and TRENT print give no next-day number, a unit is followed only if it could form "
+                   "one diagram. A unit that stands all day is followed to the diagram that leaves where it stands.")]

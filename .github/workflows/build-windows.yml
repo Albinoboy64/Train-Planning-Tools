@@ -157,6 +157,8 @@ jobs:
           if (!(Test-Path smoke\seats.xlsx)) { throw "exe did not produce a capacity report" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--old-xml','smoke\sp.xml','--old-trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_cmp','--unit-reports','washes,depots' -Wait -PassThru
           if (!(Test-Path smoke\units_cmp.xlsx)) { throw "exe did not produce a unit report comparison" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_week','--unit-reports','washes,cets,fuel','--possible','over' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\units_week.xlsx)) { throw "exe did not produce a whole-week unit report with the possible-slot option" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_xml('smoke/swb.xml')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\swb.xml','--station','Alpha','--out','smoke','--name','swb' -Wait -PassThru
           if (!(Test-Path smoke\swb.xlsx)) { throw "exe did not produce a station working book" }

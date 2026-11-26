@@ -14,7 +14,7 @@ from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
 from rstools.autocomplete import Suggest
-from rstools.widgets import Progress, TaskBox, local_folder_box
+from rstools.widgets import Progress, TaskBox, Tooltip, local_folder_box
 from rstools.branding import APP_NAME
 from rstools.naming import file_label
 from rstools.fsutil import write_json
@@ -48,6 +48,7 @@ FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):"
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
 NOTE = ("Several VL29 prints can go in one box, e.g. the LTP print and a week's STP print. The XML must be from the "
         "same plan as the TRENT print; unit reports can be made from the TRENT print alone.")
+UNIT_POSSIBLE = (("every", "Every unit"), ("over", "Units over a limit only"), ("off", "Off"))
 UNIT_PERIODS = (("week", "Whole week (follows each unit with the next-day workings)"),
                 ("days", "Show each day separately"),
                 ("timetable", "Entire timetable (totals by fleet only)"))
@@ -141,6 +142,17 @@ class StatsPackTab(ttk.Frame):
                                          ("depots", "Depot returns / swaps"), ("captive", "Captive units"))):
             ttk.Checkbutton(uf, text=text, variable=self.unit_vars[key]).grid(row=i // 3, column=i % 3, sticky="w",
                                                                             padx=(0, 10))
+        self.unit_possible = tk.StringVar(value="every")
+        ttk.Label(uf, text="Note where a WASH, CET or FUEL could be added:").grid(row=2, column=0, columnspan=2,
+                                                                                    sticky="w", pady=(4, 0))
+        self.possible_box = ttk.Combobox(uf, state="readonly", width=22, values=[t for _v, t in UNIT_POSSIBLE])
+        self.possible_box.grid(row=2, column=2, sticky="w", pady=(4, 0))
+        self.possible_box.set(dict(UNIT_POSSIBLE)["every"])
+        self.possible_box.bind("<<ComboboxSelected>>", lambda _e: self.unit_possible.set(
+            next(v for v, t in UNIT_POSSIBLE if t == self.possible_box.get())))
+        Tooltip(self.possible_box, "Adds a 'Could be added at' note to each unit, and a tab of the stops at a "
+                                   "location where the TRENT print does this activity, long enough for it, where "
+                                   "the unit does not (whole-week reports only).")
         self.two_plans = tk.BooleanVar(value=False)         # unit / capacity reports: compare two timetables
         self.unit_period = tk.StringVar(value="week")
         for r, (value, text) in enumerate(UNIT_PERIODS, start=3):
@@ -878,6 +890,9 @@ class StatsPackTab(ttk.Frame):
         period = s.get("unit_period")
         self.unit_period.set(period if period in dict(UNIT_PERIODS)
                              else "week" if s.get("unit_week", True) else "days")
+        possible = s.get("unit_possible")
+        self.unit_possible.set(possible if possible in dict(UNIT_POSSIBLE) else "every")
+        self.possible_box.set(dict(UNIT_POSSIBLE)[self.unit_possible.get()])
         self.two_plans.set(bool(s.get("two_plans", False)))
         seats = s.get("seats")
         if isinstance(seats, dict):
@@ -920,7 +935,8 @@ class StatsPackTab(ttk.Frame):
              "compare": {k: v.get() for k, v in self.cmp_vars.items()},
              "flag_miles": self._flag_threshold(),
              "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_period": self.unit_period.get(),
-             "seats": self._seat_state(), "two_plans": self.two_plans.get(), "fmt": self.fmt_var.get()}
+             "unit_possible": self.unit_possible.get(), "seats": self._seat_state(),
+             "two_plans": self.two_plans.get(), "fmt": self.fmt_var.get()}
         write_json(_settings_path(), s)
 
     # ------------------------------------------------------------ saved comparisons
@@ -931,7 +947,8 @@ class StatsPackTab(ttk.Frame):
                 "operators": {op: v.get() for op, v in self.op_vars.items()},
                 "compare": {k: v.get() for k, v in self.cmp_vars.items()}, "flag_miles": self._flag_threshold(),
                 "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_period": self.unit_period.get(),
-                "seats": self._seat_state(), "two_plans": self.two_plans.get()}
+                "unit_possible": self.unit_possible.get(), "seats": self._seat_state(),
+                "two_plans": self.two_plans.get()}
 
     def _seat_state(self) -> dict:
         return {"kind": self.seat_kind.get(), "groups": {k: v.get() for k, v in self.seat_group.items()},
@@ -1016,7 +1033,7 @@ class StatsPackTab(ttk.Frame):
                            output_dir=out_dir, output_name=self.out_name.get().strip(),
                            compare=CompareOptions(**{k: v.get() for k, v in self.cmp_vars.items()},
                                                   flag_miles=self._flag_threshold()),
-                           fmt=self.fmt_var.get())
+                           fmt=self.fmt_var.get(), possible=self.unit_possible.get())
         if mode == "units" and not any(v.get() for v in self.unit_vars.values()):
             return messagebox.showwarning(TITLE, "Tick at least one unit report.")
         if mode == "seats":

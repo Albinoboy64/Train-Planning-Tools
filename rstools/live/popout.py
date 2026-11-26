@@ -63,19 +63,24 @@ def desktop_area(widget) -> Tuple[int, int, int, int]:
 
 
 class LiveWindow:
-    """Moves the Live View (`tab`, packed in the tk.Frame `holder` on the Live View page `page`) into its own window
-    and back. While it is out, the page shows a note with a button to bring it back."""
+    """Moves the Live View's output (`holder`, the tk.Frame with the train list and details, in the Live View tab
+    `tab`) into its own window and back. The task, files and options stay in the main window, and a comparison
+    started there shows in the window. While the output is out, the tab shows a note with a button to bring it back."""
 
-    def __init__(self, app, holder: tk.Frame, page, tab):
-        self.app, self.holder, self.page, self.tab = app, holder, page, tab
+    def __init__(self, app, holder: tk.Frame, tab):
+        self.app, self.holder, self.tab = app, holder, tab
         self.out = False
         self.fullscreen = False
+        self._seen = None
         self.on_top = tk.BooleanVar(value=bool(getattr(app.opts, "live_window_on_top", False)))
-        self.note = ttk.Frame(page, padding=24)
-        ttk.Label(self.note, text="Live View is in its own window.", font="AppBold").grid(row=0, column=0, sticky="w")
-        ttk.Button(self.note, text="Show the window", command=self.show).grid(row=1, column=0, sticky="w",
+        self.note = ttk.Frame(tab, padding=24)
+        ttk.Label(self.note, text="The results are in their own window.", font="AppBold").grid(row=0, column=0,
+                                                                                               sticky="w")
+        ttk.Label(self.note, text="Choose the files and press Compare here; the window shows the comparison.",
+                  style="Small.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        ttk.Button(self.note, text="Show the window", command=self.show).grid(row=2, column=0, sticky="w",
                                                                               pady=(8, 0))
-        ttk.Button(self.note, text="Bring back", command=self.bring_back).grid(row=1, column=1, sticky="w",
+        ttk.Button(self.note, text="Bring back", command=self.bring_back).grid(row=2, column=1, sticky="w",
                                                                               padx=(8, 0), pady=(8, 0))
 
     # ------------------------------------------------------------------ moving
@@ -86,11 +91,11 @@ class LiveWindow:
         if self.out:
             self.show()
             return True
-        self.holder.pack_forget()
+        self.tab.output_place(False)
         try:
             self.holder.tk.call("wm", "manage", self.holder)
         except tk.TclError:                    # a system that cannot make a frame a window: leave it in the tab
-            self.holder.pack(fill="both", expand=True)
+            self.tab.output_place(True)
             return False
         self.out = True
         w = str(self.holder)
@@ -108,7 +113,8 @@ class LiveWindow:
             ("<Control-Shift-p>", self.bring_back)]
         for seq, fn in keys:
             self.holder.bind(seq, self._key(fn))
-        self.note.pack(fill="both", expand=True)
+        self.holder.bind("<Configure>", self._configured, add="+")
+        self.note.grid(row=3, column=0, sticky="nsew")
         self.tab.window_changed(True)
         self.show()
         return True
@@ -125,15 +131,37 @@ class LiveWindow:
         except tk.TclError:
             pass
         self.holder.tk.call("wm", "forget", self.holder)
-        for seq in ("<F11>", "<Escape>", "<F5>", "<Control-Return>", "<Control-Shift-P>", "<Control-Shift-p>"):
+        for seq in ("<F11>", "<Escape>", "<F5>", "<Control-Return>", "<Control-Shift-P>", "<Control-Shift-p>",
+                    "<Configure>"):
             self.holder.unbind(seq)
         self.out = False
-        self.note.pack_forget()
-        self.holder.pack(fill="both", expand=True)
+        self.note.grid_remove()
+        self.tab.output_place(True)
+        self.tab.set_display_ratio(1.0)
         self.tab.window_changed(False)
         try:
             self.app.notebook.select(self.app.live_page)
         except (AttributeError, tk.TclError):
+            pass
+
+    def _configured(self, event):
+        """The window moved or resized: if it is now on a display with other scaling, the list and details are
+        sized for it (Tk has one scaling for the app, set for the main window's display)."""
+        if event.widget is not self.holder:
+            return
+        if self._seen:
+            self.holder.after_cancel(self._seen)
+        self._seen = self.holder.after(200, self._rescale_for_display)
+
+    def _rescale_for_display(self):
+        self._seen = None
+        if not self.out:
+            return
+        try:
+            from rstools import theme
+            dpi, main = theme.window_dpi(self.holder), max(getattr(self.app, "dpi", 0) or 0, 1)
+            self.tab.set_display_ratio(dpi / main)
+        except (tk.TclError, AttributeError):
             pass
 
     @staticmethod

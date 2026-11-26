@@ -71,6 +71,10 @@ class Options:
     live_passenger_only: bool = False    # Live View: passing / one-sided intermediate times hidden
     live_window: str = ""            # Live View's own window: its last size and place, 'WxH+X+Y'
     live_window_on_top: bool = False     # Live View's own window: kept above other windows
+    live_layout: str = "side"        # Live View results: side (list beside details) | stacked
+    live_changed_only: bool = False  # Live View details: only the rows that differ
+    live_zoom: int = 0               # Live View list and details: steps of text size (-2 .. 5)
+    live_list_hidden: bool = False   # Live View: the train list hidden (details only)
     check_updates: bool = True       # look for a newer release on GitHub when the app starts
     notify_done: bool = True         # flash the taskbar and show a notice when a run ends in the background
     saved: Dict[str, dict] = field(default_factory=dict)     # saved comparisons: name -> {tab, state}
