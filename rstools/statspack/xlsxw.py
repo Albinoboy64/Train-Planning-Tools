@@ -71,6 +71,9 @@ def fmt_dur(v: int) -> str:
 
 
 _DEFAULT_STYLE = {"sz": 13.0}
+CLOCK_FMT = 46                      # Excel's built-in [h]:mm:ss: a time of day, past 24:00 where it runs on
+DUR_FMT = 164                       # the app's own [h]:mm:ss for durations (told apart from times when read back)
+DUR_CODE = "[h]:mm:ss;-[h]:mm:ss"
 
 
 class Styles:
@@ -83,6 +86,18 @@ class Styles:
         self.xfs: List[tuple] = [(0, 0, 0, 0, None, None, False)]
         self._xf_index: Dict[tuple, int] = {self.xfs[0]: 0}
         self._cache: Dict[tuple, tuple] = {}
+        self._timed: Dict[Tuple[int, int], int] = {}
+
+    def timed(self, xf: int, numfmt: int) -> int:
+        """The cell format `xf` showing its number as a time (CLOCK_FMT) or a duration (DUR_FMT)."""
+        hit = self._timed.get((xf, numfmt))
+        if hit is None:
+            key = self.xfs[xf][:3] + (numfmt,) + self.xfs[xf][4:]
+            if key not in self._xf_index:
+                self._xf_index[key] = len(self.xfs)
+                self.xfs.append(key)
+            hit = self._timed[(xf, numfmt)] = self._xf_index[key]
+        return hit
 
     def _idx(self, lst, item):
         if item not in lst:
@@ -147,6 +162,7 @@ class Styles:
                      (' wrapText="1"' if wrap else "") + "/>"
             xfs.append(f"<xf {attrs}>{al}</xf>" if al else f"<xf {attrs}/>")
         return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="{MAIN}">'
+                f'<numFmts count="1"><numFmt numFmtId="{DUR_FMT}" formatCode="{DUR_CODE}"/></numFmts>'
                 f'<fonts count="{len(self.fonts)}">{fonts}</fonts><fills count="{len(fills)}">{"".join(fills)}</fills>'
                 f'<borders count="{len(borders)}">{"".join(borders)}</borders>'
                 f'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
@@ -182,6 +198,7 @@ class SheetWriter:
         self._measure = False
         self.freeze_row = 0                   # rows above and including this one stay in view (0: none)
         self.filter_ref = ""                  # 'A3:H40': an Excel filter on the heading row
+        self.orientation = "landscape"        # printed across the page (the tabs are wide), fitted to its width
 
     def measure(self):
         """From the next row on, record the longest value shown in each column (for its width)."""
@@ -228,10 +245,16 @@ class SheetWriter:
             elif t is bool:
                 add(f'<c r="{ref}" s="{s}" t="b"><v>{int(v)}</v></c>')
                 continue
-            elif t is Clock:
-                text = fmt_clock(v)
+            elif t is Clock or (t is Dur and v >= 0):
+                # a real Excel time (sorts and adds up), shown as before: hh:mm:ss, hours past 24 kept
+                text = fmt_clock(v) if t is Clock else fmt_dur(v)
+                add(f'<c r="{ref}" s="{self.styles.timed(s, CLOCK_FMT if t is Clock else DUR_FMT)}">'
+                    f'<v>{v / 86400!r}</v></c>')
+                if widths is not None and len(text) > widths.get(c, 0):
+                    widths[c] = len(text)
+                continue
             elif t is Dur:
-                text = fmt_dur(v)
+                text = fmt_dur(v)              # Excel cannot show a negative time: kept as text
             else:
                 text = str(v)
             add(f'<c r="{ref}" s="{s}" t="s"><v>{sst(text)}</v></c>')
@@ -255,7 +278,8 @@ class SheetWriter:
                 + (f"<cols>{col_xml}</cols>" if cols else "")
                 + f'<sheetData>{"".join(self.rows)}</sheetData>{auto}{merge_xml}'
                 f'<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
-                f'<pageSetup paperSize="9" fitToWidth="1" fitToHeight="0" orientation="portrait"/></worksheet>')
+                f'<pageSetup paperSize="9" fitToWidth="1" fitToHeight="0" orientation="{self.orientation}"/>'
+                '</worksheet>')
 
 
 class Workbook:
@@ -263,6 +287,7 @@ class Workbook:
         self.sst = SharedStrings()
         self.styles = Styles()
         self.sheets: List[Tuple[str, str]] = []
+        self.print_rows: Dict[int, int] = {}      # sheet index -> heading rows repeated on every printed page
 
     def new_sheet(self) -> SheetWriter:
         return SheetWriter(self.sst, self.styles)
@@ -270,11 +295,24 @@ class Workbook:
     def add(self, name: str, writer: SheetWriter, cols, merges):
         from rstools.fsutil import sheet_title
         name = sheet_title(name, [n for n, _x in self.sheets])
+        if writer.freeze_row:
+            self.print_rows[len(self.sheets)] = writer.freeze_row
         self.sheets.append((name, writer.xml(cols, merges)))
 
     def save(self, path: str):
         """Write the workbook (parts compressed on all cores; replaced only once complete)."""
         write_zip(path, self._parts())
+
+    def _print_titles(self) -> str:
+        """The heading rows of each tab printed at the top of every page."""
+        if not self.print_rows:
+            return ""
+        names = []
+        for i, rows in sorted(self.print_rows.items()):
+            sheet = self.sheets[i][0].replace("'", "''")
+            names.append(f'<definedName name="_xlnm.Print_Titles" localSheetId="{i}">'
+                         f"{escape(chr(39) + sheet + chr(39))}!$1:${rows}</definedName>")
+        return f"<definedNames>{''.join(names)}</definedNames>"
 
     def _parts(self) -> List[Tuple[str, bytes]]:
         n = len(self.sheets)
@@ -299,7 +337,7 @@ class Workbook:
                             "</Relationships>"),
             ("xl/workbook.xml", f'{XML_HEAD}<workbook xmlns="{MAIN}" xmlns:r="{REL}">'
                                 f'<bookViews><workbookView activeTab="0"/></bookViews>'
-                                f'<sheets>{sheets}</sheets></workbook>'),
+                                f'<sheets>{sheets}</sheets>{self._print_titles()}</workbook>'),
             ("xl/_rels/workbook.xml.rels",
              f'{XML_HEAD}<Relationships xmlns="{PKG}/relationships">{rels}</Relationships>'),
         ]
@@ -349,6 +387,7 @@ def render_table(wb: Workbook, sheet_name: str, title: str, table: Table,
             cells += [(c + shift, v, st.xf(s)) for c, v, s in spec["side"]["header"]]
         sw.row(cells)
     all_rows = list(table.rows) + list(extra_rows)
+    sw.freeze_row = sw.r                          # the title and headings stay in view and print on every page
     sw.measure()
     # per-column styles and 'unknown' flags, worked out once per tab rather than per cell;
     # data cells never wrap (each value stays on one line - the columns are widened instead)
@@ -379,6 +418,11 @@ def render_table(wb: Workbook, sheet_name: str, title: str, table: Table,
     if table.side and not all_rows:
         sw.row([(11 + shift, table.side[0], st.xf(spec["side"]["values"]["11"])),
                 (12 + shift, table.side[1], st.xf(spec["side"]["values"]["12"]))])
+    body = len(all_rows)
+    while body and all_rows[body - 1].kind == "total":     # totals stay at the bottom when the rows are sorted
+        body -= 1
+    if body and width and not table.side:
+        sw.filter_ref = f"A{sw.freeze_row}:{col_letter(width)}{sw.freeze_row + body}"
     widths = [sw.widths.get(ci + 1, 0) for ci in range(width)]
     for hdr in spec["header"]:                 # a heading word is never broken across lines
         for c, v, _s in hdr:
@@ -501,7 +545,10 @@ def render_report(wb: Workbook, name: str, title: str, headers: Sequence[str], r
     if not rows:                                       # an empty tab says so rather than looking broken
         sw.row([(1, "None", body)])
     elif headers:
-        sw.filter_ref = f"A{sw.freeze_row}:{col_letter(len(headers))}{sw.freeze_row + len(rows)}"
+        body = len(rows)
+        while body and kinds and body - 1 < len(kinds) and kinds[body - 1] == "total":
+            body -= 1                                  # totals stay at the bottom when the rows are sorted
+        sw.filter_ref = f"A{sw.freeze_row}:{col_letter(len(headers))}{sw.freeze_row + max(body, 1)}"
     widths = [max(sw.widths.get(i + 1, 0), max((len(w) for w in str(h).split()), default=0))
               for i, h in enumerate(headers)]
     wb.add(name[:31], sw, fit_columns([(1, len(headers), 10.0)], widths, [font_size(spec["body"]["2"])] * len(headers),

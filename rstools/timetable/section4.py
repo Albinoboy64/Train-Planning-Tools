@@ -692,7 +692,7 @@ def check(plan, statement: Statement, lines=None, others=()) -> CheckResult:
                         "Checked'), so those sections were not checked - most are lines GTR does not run on.")
     if skipped:
         warnings.append(f"{len(skipped)} train(s) were not checked (runs as required and not passenger, or on a "
-                        "MAINT diagram) - see 'Skipped'.")
+                        "MAINT diagram) - see 'Trains Not Checked'.")
     other_trains = len({(c.operator, c.train) for c in kept if c.operator})
     return CheckResult(kept, not_found, checked, trains, used, warnings, exempt, sorted(skipped.items()), settled,
                        other_trains)
@@ -820,7 +820,7 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                ["...where only some lines are blocked (check the line the train uses)", len(result.clashes) - every],
                ["...whose remarks need checking by hand", to_check],
                ["Clashes lifted by the remarks (see 'Exempt')", len(result.exempt)],
-               ["Trains not checked (see 'Skipped')", len(result.skipped)],
+               ["Trains not checked (see 'Trains Not Checked')", len(result.skipped)],
                ["Clashes settled by the running lines in a VPT", result.by_line],
                ["Trains of other operators in the clashes", result.other_trains],
                ["Sections with clashes", len(by_section)],
@@ -840,12 +840,12 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
     add_sheet(wb, "Clashes", _CLASH_HEAD, rows, _CLASH_WIDTHS, fills=fills, center=[3, 10, 11, 13, 15, 16])
     ex = [clash_row(c) for c in sorted(result.exempt, key=_clash_order)]
     add_sheet(wb, "Exempt", _CLASH_HEAD, ex, _CLASH_WIDTHS, center=[3, 10, 11, 13, 15, 16])
-    add_sheet(wb, "Skipped", ["Train", "Why it was not checked"], [list(x) for x in result.skipped], [12, 80])
+    add_sheet(wb, "Trains Not Checked", ["Train", "Why it was not checked"], [list(x) for x in result.skipped], [12, 80])
     sec_rows = [[k, v] for k, v in sorted(by_section.items(), key=lambda kv: (-kv[1], kv[0]))]
     add_sheet(wb, "By Section", ["Section", "Clashes"], sec_rows, [60, 10], center=[2])
     nf = [[k, len(v), "; ".join(v[:6]) + (" ..." if len(v) > 6 else "")] for k, v in
           sorted(result.not_found.items())]
-    add_sheet(wb, "Not Checked", ["Place in Section 4", "Sections", "e.g."], nf, [36, 10, 90], center=[2])
+    add_sheet(wb, "Places Not Checked", ["Place in Section 4", "Sections", "e.g."], nf, [36, 10, 90], center=[2])
     audit = [["Timetable (Attune XML)", os.path.basename(xml)]]
     audit += [["Section 4", os.path.basename(f)] for f in statement.files]
     audit += [["Periods checked", "; ".join(f"{p.name} ({p.start:%d/%m/%Y} to {p.end:%d/%m/%Y})"
@@ -867,7 +867,7 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
                "that is not blocked it is listed on 'Exempt'; where the line is not known it stays 'check the line "
                "used'. " + S4L.CODE_TEXT],
               ["Not checked", "Trains that run as required (unless they are passenger trains) and trains worked "
-                              "by a MAINT diagram (see 'Skipped')."]]
+                              "by a MAINT diagram (see 'Trains Not Checked')."]]
     add_sheet(wb, "What Was Compared", ["Item", "Detail"], audit, [26, 110])
     return wb
 

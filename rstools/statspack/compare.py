@@ -409,6 +409,7 @@ def _read_pack(z: zipfile.ZipFile, path: str) -> List[Tuple[str, Table]]:
         except (zipfile.BadZipFile, OSError, ET.ParseError) as exc:
             raise PackReadError(f"'{os.path.basename(path)}' looks damaged (its text table could not be read: "
                                 f"{exc}). Open it in Excel, save it and try again.")
+    times = _time_formats(z)
     out: List[Tuple[str, Table]] = []
     for sh in wb.iter(NS + "sheet"):
         name = sh.get("name") or ""
@@ -418,7 +419,7 @@ def _read_pack(z: zipfile.ZipFile, path: str) -> List[Tuple[str, Table]]:
         target = (targets.get(sh.get(RNS)) or "").lstrip("/")
         target = target if target.startswith("xl/") else "xl/" + target
         try:
-            rows = _sheet_cells(z.read(target), sst)
+            rows = _sheet_cells(z.read(target), sst, times)
         except (KeyError, ET.ParseError, ValueError, IndexError) as exc:
             raise PackReadError(f"Tab '{name}' could not be read: {exc}")
         out.append((name, _to_table(base, rows)))
@@ -432,7 +433,30 @@ _ATTR = re.compile(rb'(\w+)="([^"]*)"')
 _V = re.compile(rb'<v>([^<]*)</v>')
 _T = re.compile(rb'<t[^>]*>([^<]*)</t>')
 _COLS: Dict[object, int] = {}
-_FAST_CELL = re.compile(rb'<c r="([A-Z]+)(\d+)"(?: s="\d+")?(?: t="(\w*)")?(?:/>|><v>([^<]*)</v></c>)')
+_FAST_CELL = re.compile(rb'<c r="([A-Z]+)(\d+)"(?: s="(\d+)")?(?: t="(\w*)")?(?:/>|><v>([^<]*)</v></c>)')
+
+
+def _time_formats(z: zipfile.ZipFile) -> Dict[int, type]:
+    """{cell format index: Clock or Dur} for the formats that show a number as a time (packs made since 3.36
+    store times as real Excel times; earlier ones as text, which _norm reads)."""
+    try:
+        root = safexml.fromstring(z.read("xl/styles.xml"), "styles.xml")
+    except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile):
+        return {}
+    codes = {int(f.get("numFmtId", "0")): f.get("formatCode", "") for f in root.iter(NS + "numFmt")}
+    xfs = root.find(NS + "cellXfs")
+    out: Dict[int, type] = {}
+    for i, xf in enumerate(xfs if xfs is not None else []):
+        fid = int(xf.get("numFmtId", "0") or 0)
+        if fid in (20, 21, 46):
+            out[i] = Clock
+        elif "[h]" in codes.get(fid, "") or "h:mm" in codes.get(fid, ""):
+            out[i] = Dur
+    return out
+
+
+def _timed(kind, value):
+    return kind(round(float(value) * 86400)) if kind is not None else value
 
 
 def _number(text: str):
@@ -440,16 +464,17 @@ def _number(text: str):
     return int(f) if f.is_integer() and "." not in text and "E" not in text.upper() else f
 
 
-def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
+def _sheet_cells(data: bytes, sst: List[str], times: Optional[Dict[int, type]] = None) -> Dict[int, Dict[int, object]]:
     """{row: {column: value}} for one worksheet.  A regular-expression scan is several times
     faster than building the element tree for these large, flat sheets."""
+    times = times or {}
     if b"<c " not in data and b"<c\n" not in data:
-        return _sheet_cells_et(data, sst)     # prefixed namespaces etc.
+        return _sheet_cells_et(data, sst, times)     # prefixed namespaces etc.
     val: object
     fast = _FAST_CELL.findall(data)
     if len(fast) == data.count(b"<c "):        # every cell in the simple form this app writes
         rows: Dict[int, Dict[int, object]] = {}
-        for letters, r, t, v in fast:
+        for letters, r, s, t, v in fast:
             col = _COLS.get(letters)
             if col is None:
                 col = _COLS[letters] = _col(letters.decode())
@@ -458,7 +483,8 @@ def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
             elif t == b"s":
                 val = sst[int(v)]
             elif t == b"":
-                val = int(v) if v.isdigit() else _number(v.decode())
+                kind = times.get(int(s)) if s else None
+                val = _timed(kind, v.decode()) if kind else int(v) if v.isdigit() else _number(v.decode())
             elif t == b"b":
                 val = v == b"1"
             else:
@@ -489,8 +515,10 @@ def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
                 if t == b"s":
                     val = sst[int(raw)]
                 elif t in (None, b"n"):
+                    kind = times.get(int(attrs[b"s"])) if attrs.get(b"s", b"").isdigit() else None
                     f = float(raw)
-                    val = int(f) if f.is_integer() and "." not in raw and "E" not in raw.upper() else f
+                    val = (_timed(kind, raw) if kind else
+                           int(f) if f.is_integer() and "." not in raw and "E" not in raw.upper() else f)
                 elif t == b"b":
                     val = raw == "1"
                 else:
@@ -499,7 +527,8 @@ def _sheet_cells(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
     return rows
 
 
-def _sheet_cells_et(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]:
+def _sheet_cells_et(data: bytes, sst: List[str],
+                    times: Optional[Dict[int, type]] = None) -> Dict[int, Dict[int, object]]:
     rows: Dict[int, Dict[int, object]] = {}
     for c in safexml.fromstring(data, "sheet").iter(NS + "c"):
         ref = _REF.match(c.get("r", ""))
@@ -513,8 +542,10 @@ def _sheet_cells_et(data: bytes, sst: List[str]) -> Dict[int, Dict[int, object]]
         elif t == "inlineStr":
             val = "".join(x.text or "" for x in c.iter(NS + "t"))
         elif t in (None, "n") and text is not None:
+            sid = c.get("s") or ""
+            kind = (times or {}).get(int(sid)) if sid.isdigit() else None
             f = float(text)
-            val = int(f) if f.is_integer() and "." not in text else f
+            val = _timed(kind, text) if kind else int(f) if f.is_integer() and "." not in text else f
         rows.setdefault(int(ref.group(2)), {})[_col(ref.group(1))] = val
     return rows
 

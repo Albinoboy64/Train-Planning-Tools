@@ -21,7 +21,7 @@ def export(path: str, result, items: Iterable, filt: str, find: str, confirmed: 
              ["Shown", filt + (f", containing '{find}'" if find else "")], ["Items", len(items)],
              ["Confirmed", sum(1 for it in items if it.key in done)]]
     about += [[STATE_TEXT.get(k, k), v] for k, v in sorted(result.counts.items())]
-    add_sheet(wb, "Comparison Details", ["Item", "Detail"], about + [["Note", w] for w in result.warnings], [24, 100])
+    add_sheet(wb, "What Was Compared", ["Item", "Detail"], about + [["Note", w] for w in result.warnings], [24, 100])
     add_sheet(wb, "Trains Listed", ["Section / tab", "Train", "Result", "Status", "Differences", "Confirmed"],
               [[it.group, it.label, STATE_TEXT.get(it.state, it.state), it.status, "\n".join(it.notes[:12]),
                 "Yes" if it.key in done else ""] for it in items], [18, 18, 16, 36, 80, 11],

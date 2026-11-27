@@ -586,7 +586,7 @@ def test_section4_windows_sections_and_check():
     assert both.every_line and not down.every_line and down.direction == "Down"
     assert {c.day for c in res.clashes if c.train == "1A01XX" and c.possession.number == "100.1"} == {1, 2, 3, 4}
     wb = S4.build_workbook(res, S4.Statement([both, down, gone], ["eas.pdf"]), x)
-    assert wb.sheetnames == ["Summary", "Clashes", "Exempt", "Skipped", "By Section", "Not Checked",
+    assert wb.sheetnames == ["Summary", "Clashes", "Exempt", "Trains Not Checked", "By Section", "Places Not Checked",
                              "What Was Compared"]
 
 

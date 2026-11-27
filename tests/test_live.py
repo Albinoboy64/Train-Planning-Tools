@@ -116,7 +116,7 @@ def test_live_export_all_formats():
         export(path, res, items, "Differences only", "")
         assert os.path.getsize(path) > 1000
     wb = openpyxl.load_workbook(os.path.join(d, "export.xlsx"))
-    assert wb.sheetnames == ["Comparison Details", "Trains Listed", "Differences in Detail"]
+    assert wb.sheetnames == ["What Was Compared", "Trains Listed", "Differences in Detail"]
     assert wb["Trains Listed"].max_row == len(items) + 1
 
 

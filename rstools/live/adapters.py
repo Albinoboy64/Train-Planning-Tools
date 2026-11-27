@@ -499,6 +499,24 @@ def documents(cmp) -> LiveResult:
                       list(cmp.warnings))
 
 
+def _chart(read_chart, path: str, locations):
+    """read_chart, kept while neither the chart nor the berth list has changed (the Live View re-compares as soon
+    as one file is saved, and a chart takes a while to read)."""
+    from rstools import filecache
+    key, stamp = filecache.key_of(read_chart, path)
+    try:
+        list_stamp = os.stat(locations.path).st_mtime_ns if locations.path else 0
+    except OSError:
+        list_stamp = 0
+    key = key and key + (os.path.abspath(locations.path or ""),)
+    stamp = stamp and stamp + (list_stamp,)
+    chart = filecache.get(key, stamp)
+    if chart is None:
+        chart = read_chart(path, locations)
+        filecache.put(key, stamp, chart)
+    return chart
+
+
 # --------------------------------------------------------------------------- Section 4 check
 def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
                    others: Sequence[str] = ()) -> LiveResult:
@@ -519,9 +537,10 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
                              "reference data.")
         statement = stored
     log(f"Reading {os.path.basename(xml)}")
+    from rstools.stationbook import _plan_of
     (plan,) = read_jobs([(read_plan, xml)])
-    own = read_plan(vpt) if vpt else None
-    theirs = [read_plan(o) for o in others]
+    own = _plan_of(vpt) if vpt else None              # kept while unchanged, like the XML
+    theirs = [_plan_of(o) for o in others]
     res = check(plan, statement, own, theirs)
     items: List[LiveItem] = []
 
@@ -572,7 +591,7 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
         raise ValueError("The two charts selected are the same file.")
     locations = load_locations()
     log(f"Reading {os.path.basename(old_path)} and {os.path.basename(new_path)}")
-    old, new = read_chart(old_path, locations), read_chart(new_path, locations)
+    old, new = _chart(read_chart, old_path, locations), _chart(read_chart, new_path, locations)
     changes, _marked = diff(old, new)
     unchanged = same_cells(old, new)
     by_berth: Dict[tuple, list] = defaultdict(list)

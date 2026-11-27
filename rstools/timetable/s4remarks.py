@@ -85,8 +85,13 @@ class Remarks:
     understood: bool = False                                   # any rule was read
 
 
+_TYPE_RES: List[Tuple[str, "re.Pattern[str]"]] = []
+
+
 def _type_hits(text: str) -> Set[str]:
-    return {name for name, pat in _TYPE_WORDS if re.search(rf"\b(?:{pat})\b", text, re.I)}
+    if not _TYPE_RES:                          # compiled once, not for every clause
+        _TYPE_RES.extend((name, re.compile(rf"\b(?:{pat})\b", re.I)) for name, pat in _TYPE_WORDS)
+    return {name for name, rx in _TYPE_RES if rx.search(text)}
 
 
 def parse_remarks(text: str) -> Remarks:

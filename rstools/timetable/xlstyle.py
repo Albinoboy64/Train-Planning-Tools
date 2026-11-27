@@ -29,7 +29,6 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
     numbers to a FILLS key (the whole row is shaded); `center` lists 1-based columns to centre."""
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.worksheet.properties import PageSetupProperties
 
     from rstools.fsutil import clean_cell, sheet_title
     ws = wb.create_sheet(sheet_title(title, wb.sheetnames))
@@ -74,14 +73,23 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
     if rows:
         last = len(rows) + 1 - (1 if bold_last else 0)
         ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(last, 2)}"
+    print_setup(ws, 1)
+    from rstools.fsutil import plain_text
+    plain_text(ws)                       # text from the inputs is never stored as a formula
+    return ws
+
+
+def print_setup(ws, heading_rows: int = 1, gridlines: bool = False):
+    """The shared page set-up: A4 landscape, one page wide, the heading rows repeated on every page, and (on
+    screen) no gridlines."""
+    from openpyxl.worksheet.properties import PageSetupProperties
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
-    ws.print_title_rows = "1:1"
-    from rstools.fsutil import plain_text
-    plain_text(ws)                       # text from the inputs is never stored as a formula
-    return ws
+    if heading_rows:
+        ws.print_title_rows = f"1:{heading_rows}"
+    ws.sheet_view.showGridLines = gridlines
 
 
 def save(wb, path: str, title: str, sections=None):

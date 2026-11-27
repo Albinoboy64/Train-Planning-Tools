@@ -1592,11 +1592,11 @@ class App(tk.Tk):
 
         def work():
             try:
-                from rstools.stationbook import read_plan, timetable_name
+                from rstools.stationbook import _plan_of, timetable_name
                 from rstools.statspack.seats import network_stations
                 from rstools.statspack.engine import cached
                 from rstools.statspack.attune import parse_attune_xml
-                plan = read_plan(path)
+                plan = _plan_of(path)              # kept, so making the book does not read the XML again
                 stations = network_stations(cached(parse_attune_xml, path))
                 days = sorted(plan.diagram_days)
                 self.q.put(("bookxml", token, stations, timetable_name(plan), days, "", plan.start))

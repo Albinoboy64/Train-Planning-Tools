@@ -14,10 +14,11 @@ from openpyxl.utils import get_column_letter
 from .compare import Change, CATEGORIES, CATEGORY_LABELS, CATEGORY_ORDER
 from .model import FIELD_LABELS
 from rstools.fsutil import clean_cell
+from rstools.timetable.xlstyle import HEAD_FILL as _HEAD, print_setup     # the shared report look
 
 from .xlsxfix import save_workbook
 
-HEAD_FILL = PatternFill("solid", fgColor="FF1F3864")
+HEAD_FILL = PatternFill("solid", fgColor=_HEAD)
 HEAD_FONT = Font(bold=True, color="FFFFFFFF")
 THIN = Side(style="thin", color="FFBFBFBF")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -81,7 +82,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
     ws = wb.active
     ws.title = "Summary"
     ws["A1"] = "Carriage Working Notice - Change Report"
-    ws["A1"].font = Font(bold=True, size=16, color="FF1F3864")
+    ws["A1"].font = Font(bold=True, size=16, color=_HEAD)
     r = 3
     meta = [
         ("Generated", _dt.datetime.now().strftime("%d/%m/%Y %H:%M")),
@@ -156,7 +157,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
     heads = (["Round"] if multi else []) + ["Tab", "Train", "Category", "Field", "Was", "Now", "Details"]
     end = _table(ws2, 1, heads, rows, widths=([8] if multi else []) + [12, 16, 28, 20, 18, 18, 60],
                  fills=fills if multi else None)              # round colours only matter with rounds
-    ws2.auto_filter.ref = f"A1:{chr(64 + len(heads))}{max(end - 1, 1)}"
+    ws2.auto_filter.ref = f"A1:{get_column_letter(len(heads))}{max(end - 1, 2)}"
     ws2.freeze_panes = "A2"
 
     # by train
@@ -173,7 +174,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
                       "\n".join(dict.fromkeys(_without_train(c) for c in cs))])
     end = _table(ws3, 1, ["Train", "Change types", "Tabs", "Count", "Details"], trows,
                  widths=[16, 40, 40, 8, 90])
-    ws3.auto_filter.ref = f"A1:E{max(end - 1, 1)}"
+    ws3.auto_filter.ref = f"A1:E{max(end - 1, 2)}"
     ws3.freeze_panes = "A2"
 
     # new and cancelled trains, in time order
@@ -192,9 +193,14 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
     if not rws:
         rws = [["None", "", "", ""] + ([""] if multi else [])]
         nfills = []
-    _table(w, 1, ["Status", "Train", "Tabs", "Time and destination"] + (["Round"] if multi else []), rws,
-           widths=[12, 16, 30, 40] + ([8] if multi else []), fills=nfills if multi else None)
+    heads = ["Status", "Train", "Tabs", "Time and destination"] + (["Round"] if multi else [])
+    end = _table(w, 1, heads, rws, widths=[12, 16, 30, 40] + ([8] if multi else []), fills=nfills if multi else None)
     w.freeze_panes = "A2"
+    w.auto_filter.ref = f"A1:{get_column_letter(len(heads))}{max(end - 1, 2)}"
+    ws.freeze_panes = "A2"                       # the Summary's title stays in view
+    print_setup(ws, 0, gridlines=True)
+    for sheet in (ws2, ws3, w):
+        print_setup(sheet, 1)
 
     if path.lower().endswith((".pdf", ".docx")):
         from rstools.docexport import sections_from_workbook, write_document
