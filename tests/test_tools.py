@@ -1,10 +1,13 @@
 """Tests for the shared helpers: parallel ZIP writer, updater logic, and default names."""
 import os
+import sys
 import tempfile
 import zipfile
 
-from rstools import naming, updater
-from rstools.zipw import write_zip
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from rstools import naming, updater  # noqa: E402
+from rstools.zipw import write_zip  # noqa: E402
 
 
 def test_zip_round_trip():
