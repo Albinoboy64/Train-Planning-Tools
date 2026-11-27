@@ -25,6 +25,7 @@ from rstools.naming import file_label
 from .model import ADDED, CHANGED, DIFF_STATES, ISSUE, PAIRED, REMOVED, SAME, view
 
 TITLE = f"{APP_NAME} - Live View"
+EMPTY_HINT = "Choose the files above and press Compare (F5). The trains and their differences show here."
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _PV = _PR + (".vpt",)                                   # train prints, or Attune VPT exports
 _CWN = (".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm")
@@ -96,7 +97,8 @@ class LiveTab(ttk.Frame):
     def __init__(self, master, app):
         super().__init__(master, padding=(12, 8, 12, 10))
         self.app = app
-        self.q: "queue.Queue" = queue.Queue()
+        from rstools.cancel import StopQueue
+        self.q: "queue.Queue" = StopQueue()
         self.running = False
         self.result = None
         self.raw = None                 # the comparison as computed; self.result is it as shown (toggles)
@@ -170,6 +172,9 @@ class LiveTab(ttk.Frame):
         ctl.columnconfigure(3, weight=1)
         self.run_btn = ttk.Button(ctl, text="Compare", style="Run.TButton", command=self.run)
         self.run_btn.grid(row=0, column=0)
+        self.stop_btn = ttk.Button(ctl, text="Stop", command=self.stop_run, state="disabled")
+        self.stop_btn.grid(row=0, column=2, padx=(12, 0))
+        Tooltip(self.stop_btn, "Stop the comparison (Esc).")
         self.auto_var = tk.BooleanVar(value=True)
         self.auto_var.trace_add("write", lambda *_a: self._keep_watching())
         ttk.Checkbutton(ctl, text="Refresh when a file is saved", variable=self.auto_var).grid(row=0, column=1,
@@ -311,7 +316,7 @@ class LiveTab(ttk.Frame):
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
-        self.head = ttk.Label(right, text="", style="Head.TLabel", wraplength=640, justify="left")
+        self.head = ttk.Label(right, text=EMPTY_HINT, style="Head.TLabel", wraplength=640, justify="left")
         self.head.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         self.detail = ttk.Treeview(right, show="headings", selectmode="browse", height=6)
         self.detail.grid(row=1, column=0, sticky="nsew")
@@ -748,6 +753,14 @@ class LiveTab(ttk.Frame):
                 msg = errorlog.describe(exc)
             self.q.put(("error", msg, refresh, stamps))
 
+    def stop_run(self, _event=None):
+        """Stop the running task at its next step (Stop button or Esc)."""
+        if getattr(self, "running", False) and not self.q.stopping:
+            self.q.stop()
+            self.stop_btn.state(["disabled"])
+            self.status.configure(text="Stopping...")
+        return "break"
+
     def _finished(self):
         self.running = False
         self.run_btn.state(["!disabled"])
@@ -852,7 +865,7 @@ class LiveTab(ttk.Frame):
         self.export_btn.state(["disabled"])
         self.listv.delete(*self.listv.get_children())
         self.detail.delete(*self.detail.get_children())
-        self.head.configure(text="")
+        self.head.configure(text=EMPTY_HINT)
         self._set_notes([])
         self.count_lbl.configure(text="")
         if not self.running:
@@ -1216,6 +1229,9 @@ class LiveTab(ttk.Frame):
                         if warn:
                             messagebox.showwarning(TITLE, warn)
                         self.app.open_outputs([path])
+                elif item[0] == "stopped":
+                    self._finished()
+                    self.status.configure(text="Stopped.")
                 elif item[0] == "error":
                     _k, msg, refresh, stamps = item
                     self._finished()

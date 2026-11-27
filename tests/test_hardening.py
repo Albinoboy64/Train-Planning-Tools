@@ -160,3 +160,56 @@ def test_ignored_option_combinations_are_refused(cmd, argv, msg, capsys, tmp_pat
     with pytest.raises(SystemExit):
         T.main(([] if cmd == "compare" else [cmd]) + argv + ["--out", str(tmp_path)])
     assert msg in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- stopping a run
+def test_a_stopped_run_ends_at_its_next_step():
+    import threading
+    from rstools.cancel import Cancelled, StopQueue
+    q = StopQueue()
+    q.put(("log", "before"))
+    q.stop()
+    q.put(("done", "the window may still post its own messages"))
+    seen = []
+
+    def worker():
+        try:
+            q.put(("log", "step 2"))
+            seen.append("carried on")
+        except Cancelled:
+            seen.append("stopped")
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+    items = [q.get_nowait() for _ in range(q.qsize())]
+    assert seen == ["stopped"] and items[-1] == ("stopped",) and ("log", "step 2") not in items
+    q.reset()
+    assert not q.stopping
+
+
+def test_the_stop_buttons_follow_each_tabs_run(monkeypatch, tmp_path):
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    try:
+        import cwn_compare.gui as g
+        app = g.App()
+    except tk.TclError:
+        return
+    try:
+        tab = app.stats_tab
+        assert "disabled" in tab.stop_btn.state()
+        tab.running = True
+        app.set_busy(True)
+        assert "disabled" not in tab.stop_btn.state() and "disabled" in app.tt_tab.stop_btn.state()
+        app.notebook.select(1)
+        app._stop_current_tab()
+        assert tab.q.stopping and "disabled" in tab.stop_btn.state()
+        tab.q.put(("stopped",))
+        tab._poll()
+        assert not tab.running and "Stopped" in tab.status.cget("text")
+        tab.running = True
+        app.set_busy(True)
+        assert not tab.q.stopping                                       # a new run starts afresh
+    finally:
+        app.destroy()

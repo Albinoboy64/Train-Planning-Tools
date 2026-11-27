@@ -186,14 +186,18 @@ def test_outputs_never_contain_formulas_from_input_text():
     assert openpyxl.load_workbook(p).active["A2"].value == '=cmd|"/c calc"!A1'
 
 
-def test_zip_bomb_is_refused(tmp_path):
+def test_zip_bomb_is_refused(tmp_path, monkeypatch):
     import zipfile
+    from rstools import limits
     from rstools.fsutil import UnsafeFileError, check_office_file
     from cwn_compare.loader import LoadError, load_any
+    # the limits scaled down 1000 times, so the test needs 600 KB rather than 600 MB of memory and time
+    monkeypatch.setattr(limits, "_cache", {**limits.DEFAULTS, "ZIP_PART_LIMIT": 512 * 1024,
+                                           "ZIP_RATIO_FROM": 50 * 1024})
     p = str(tmp_path / "bomb.xlsx")
     with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", "<Types/>")
-        z.writestr("xl/worksheets/sheet1.xml", b"\0" * (600 * 1024 * 1024))   # 600 MB of nothing, ~0.6 MB packed
+        z.writestr("xl/worksheets/sheet1.xml", b"\0" * (600 * 1024))     # 600 KB of nothing, ~1 KB packed
     import pytest
     with pytest.raises(UnsafeFileError):
         check_office_file(p)

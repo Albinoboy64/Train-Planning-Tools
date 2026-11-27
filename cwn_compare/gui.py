@@ -161,7 +161,8 @@ class App(tk.Tk):
         self.title(f"{APP_NAME}  v{__version__}")
         self._set_icon()
         self.opts = Options.load()
-        self.q: "queue.Queue" = queue.Queue()
+        from rstools.cancel import StopQueue
+        self.q: "queue.Queue" = StopQueue()
         self.pump = QueuePump(self)          # reads every tab's worker queue (often only while work runs)
         self.running = False
         self.result = None
@@ -195,6 +196,7 @@ class App(tk.Tk):
             self.notebook.select(pages[self.opts.last_tab])
         for key in ("<F5>", "<Control-Return>"):
             self.bind(key, self._run_current_tab)
+        self.bind("<Escape>", self._stop_current_tab)                 # Esc: stop the current tab's run
         for key in ("<Control-Shift-P>", "<Control-Shift-p>"):    # Live View in its own window / back
             self.bind(key, lambda _e: self.live_window.toggle() or "break")
         for i in range(4):                                   # Ctrl+1 / 2 / 3 / 4: switch tab
@@ -838,12 +840,29 @@ class App(tk.Tk):
         return box
 
     # ------------------------------------------------------------ window
+    def _stop_current_tab(self, _event=None):
+        tab = self._tabs()[self.notebook.index("current")]
+        if getattr(tab, "running", False):
+            return tab.stop_run()
+        return None
+
     def _run_current_tab(self, _event=None):
         self._tabs()[self.notebook.index("current")].run()
         return "break"
 
     def set_busy(self, busy: bool):
-        """Busy cursor while either tab is working."""
+        """Busy cursor while either tab is working; each tab's Stop button is on only while that tab runs."""
+        for tab in self._tabs():
+            running = bool(getattr(tab, "running", False))
+            if running and not getattr(tab, "_was_running", False):
+                tab.q.reset()                          # a new run: an earlier Stop no longer applies
+            tab._was_running = running
+            btn = getattr(tab, "stop_btn", None)
+            if btn is not None:
+                try:
+                    btn.state(["!disabled"] if running and not tab.q.stopping else ["disabled"])
+                except tk.TclError:
+                    pass
         busy = busy or self.running or self.stats_tab.running or self.tt_tab.running or self.live_tab.running
         try:
             self.configure(cursor="watch" if busy else "")
@@ -1270,6 +1289,9 @@ class App(tk.Tk):
         self.run_btn.grid(row=0, column=0)
         self.prog = ttk.Progressbar(top, mode="determinate", maximum=1.0)
         self.prog.grid(row=0, column=1, sticky="ew", padx=8)
+        self.stop_btn = ttk.Button(top, text="Stop", command=self.stop_run, state="disabled")
+        self.stop_btn.grid(row=0, column=2)
+        Tooltip(self.stop_btn, "Stop the run (Esc). Nothing is saved from a stopped run.")
         self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
         self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
         self.progress = Progress(self.prog, self.status)
@@ -1959,6 +1981,14 @@ class App(tk.Tk):
         self._run()
 
     # ------------------------------------------------------------ day variants in order (one CWN)
+    def stop_run(self, _event=None):
+        """Stop the running task at its next step (Stop button or Esc)."""
+        if getattr(self, "running", False) and not self.q.stopping:
+            self.q.stop()
+            self.stop_btn.state(["disabled"])
+            self.status.configure(text="Stopping...")
+        return "break"
+
     def _start(self):
         """Common start of a run: buttons, log and progress reset."""
         self.running = True
@@ -2494,6 +2524,13 @@ class App(tk.Tk):
                     if results:
                         self.open_outputs([os.path.dirname(results[0]["cwn"])])
                     (messagebox.showwarning if failed or warn else messagebox.showinfo)(APP_NAME, summary)
+                elif kind == "stopped":
+                    self.running = False
+                    self.set_busy(False)
+                    self.run_btn.state(["!disabled"])
+                    self.progress.finish(False)
+                    self.status.configure(text="Stopped - nothing was saved")
+                    self._append_log("Stopped - nothing was saved.")
                 elif kind == "error":
                     self.running = False
                     self.set_busy(False)

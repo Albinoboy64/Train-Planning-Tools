@@ -32,6 +32,6 @@ branch = false
 
 [tool.coverage.report]
 # a floor that catches large untested additions; raise it as coverage grows (measured in CI on Windows)
-fail_under = 72        # measured 78% (Python 3.12, Linux, with the window tests) when this was added
+fail_under = 75        # measured 78.7% (Python 3.12, Linux, with the window tests) at 3.36.0
 skip_empty = true
 show_missing = false

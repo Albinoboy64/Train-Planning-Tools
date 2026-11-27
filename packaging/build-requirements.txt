@@ -8,10 +8,10 @@ et-xmlfile==2.0.0
 xlrd==2.0.2
 pyxlsb==1.0.10
 tkinterdnd2==0.7.0
-reportlab==5.1.0
-charset-normalizer==3.5.2
+reportlab==5.1.2
+charset-normalizer==3.5.3
 pillow==13.0.0
-pypdf==7.1.1
+pypdf==7.2.0
 pypdfium2==5.15.2
 
 # tests and checks
@@ -22,7 +22,7 @@ iniconfig==2.3.1
 pluggy==1.7.0
 pygments==2.21.0
 colorama==0.4.6
-packaging==26.3
+packaging==26.4
 ruff==0.17.6
 mypy==2.4.1
 mypy_extensions==1.2.0

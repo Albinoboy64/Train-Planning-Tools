@@ -51,13 +51,19 @@ def _workers(paths: Sequence[str]) -> int:
     return min(len(paths), cores - 1)
 
 
-def read_all(reader: Callable, paths: Sequence[str]) -> list:
+def read_all(reader: Callable, paths: Sequence[str], step: Optional[Callable[[int, int], None]] = None) -> list:
     """reader(path) for every path, across CPU cores when the files are big enough to benefit.
-    Falls back to reading here if helper processes cannot be started. Results keep the input order."""
-    return read_jobs([(reader, p) for p in paths])
+    Falls back to reading here if helper processes cannot be started. Results keep the input order.
+    step(done, total) is called as each file is read (for the progress bar)."""
+    return read_jobs([(reader, p) for p in paths], step)
 
 
-def read_jobs(jobs: Sequence[tuple]) -> list:
+def _reading(p, start: float, end: float):
+    """A step callback moving the progress bar from `start` to `end` as files are read."""
+    return lambda done, total: p(start + (end - start) * done / max(total, 1), f"Read {done} of {total} file(s)...")
+
+
+def read_jobs(jobs: Sequence[tuple], step: Optional[Callable[[int, int], None]] = None) -> list:
     """reader(path) for each (reader, path), in parallel when it pays; results in the same order.
     A file read before and unchanged since (same time stamp and size) is not read again - the Live
     view re-compares within a moment of one file being saved."""
@@ -71,8 +77,10 @@ def read_jobs(jobs: Sequence[tuple]) -> list:
             out[i] = hit
         else:
             todo.append((i, reader, path, key, stamp))
+    total, cached = len(jobs), len(jobs) - len(todo)
     if todo:
-        results = _read_jobs([(reader, path) for _i, reader, path, _k, _s in todo])
+        each = (lambda n: step(cached + n, total)) if step else None
+        results = _read_jobs([(reader, path) for _i, reader, path, _k, _s in todo], each)
         for (i, _reader, _path, key, stamp), res in zip(todo, results):
             out[i] = res
             filecache.put(key, stamp, res)
@@ -89,7 +97,7 @@ def _sendable(reader) -> bool:
         return False
 
 
-def _read_jobs(jobs: Sequence[tuple]) -> list:
+def _read_jobs(jobs: Sequence[tuple], each: Optional[Callable[[int], None]] = None) -> list:
     paths = [p for _r, p in jobs]
     workers = _workers(paths)
     if workers:
@@ -107,15 +115,24 @@ def _read_jobs(jobs: Sequence[tuple]) -> list:
                 for (reader, p), fut in zip(jobs, futures):
                     try:
                         out.append(fut.result())
+                        if each:
+                            each(len(out))
                     except (OSError, RuntimeError, EOFError) as exc:
                         if type(exc).__name__ == "BrokenProcessPool" or isinstance(exc, EOFError):
                             out.append(reader(p))              # helper died: read this one here
+                            if each:
+                                each(len(out))
                         else:
                             raise
                 return out
             finally:
                 pool.shutdown(cancel_futures=True)
-    return [reader(p) for reader, p in jobs]
+    out = []
+    for reader, p in jobs:
+        out.append(reader(p))
+        if each:
+            each(len(out))
+    return out
 
 
 def default_name(mode: str, first: Sequence[str], second: Sequence[str]) -> str:
@@ -232,7 +249,7 @@ def _cmp_timetables(gtr_path, nr_path, p, lg):
     from .parse import read_timetable
     p(0.05, "Reading the two timetables...")
     lg(f"Reading {os.path.basename(gtr_path)} and {os.path.basename(nr_path)}")
-    gtr, nr = read_all(read_timetable, [gtr_path, nr_path])
+    gtr, nr = read_all(read_timetable, [gtr_path, nr_path], _reading(p, 0.05, 0.4))
     if gtr.identifier and not nr.identifier:            # chosen the other way round
         gtr, nr = nr, gtr
         lg("WARNING: the files looked to be the other way round (the Network Rail table was in the GTR box) "
@@ -251,7 +268,7 @@ def _cmp_prints(first, second, p, lg, passenger_only=False):
     from .prints import compare_prints, read_print
     p(0.05, "Reading the train prints...")
     lg(f"Reading {len(first)} original and {len(second)} updated print file(s)")
-    results = read_all(read_print, list(first) + list(second))
+    results = read_all(read_print, list(first) + list(second), _reading(p, 0.05, 0.6))
     orig = [t for r in results[:len(first)] for t in r]
     upd = [t for r in results[len(first):] for t in r]
     warnings = []
@@ -285,7 +302,7 @@ def _cmp_prints(first, second, p, lg, passenger_only=False):
 def _cmp_lists(a_path, b_path, p, lg):
     from .trainlist import compare_train_lists, describe, read_train_list
     p(0.05, "Reading the train lists...")
-    a, b = read_all(read_train_list, [a_path, b_path])
+    a, b = read_all(read_train_list, [a_path, b_path], _reading(p, 0.05, 0.45))
     lg(describe(a))
     lg(describe(b))
     p(0.5, "Comparing trains...")
@@ -316,7 +333,8 @@ def _cmp_docs(mode, first, second, p, lg):
     p(0.05, "Reading the documents...")
     lg(f"Reading {len(first)} original and {len(second)} updated PDF(s)")
     try:
-        results = read_all(read_section4_pdf if s4 else read_tpr_pdf, list(first) + list(second))
+        results = read_all(read_section4_pdf if s4 else read_tpr_pdf, list(first) + list(second),
+                           _reading(p, 0.05, 0.6))
     except (Section4Error, TPRError) as exc:
         raise TimetableRunError(str(exc))
     sides = []

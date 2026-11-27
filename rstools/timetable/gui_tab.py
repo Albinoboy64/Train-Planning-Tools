@@ -137,7 +137,8 @@ class TimetableTab(ttk.Frame):
     def __init__(self, master, app):
         super().__init__(master, padding=(12, 8, 12, 10))
         self.app = app
-        self.q: "queue.Queue" = queue.Queue()
+        from rstools.cancel import StopQueue
+        self.q: "queue.Queue" = StopQueue()
         self.running = False
         self.outputs = []
         self._started = 0.0
@@ -283,6 +284,9 @@ class TimetableTab(ttk.Frame):
         self.run_btn.grid(row=0, column=0)
         self.prog = ttk.Progressbar(top, mode="determinate", maximum=1.0)
         self.prog.grid(row=0, column=1, sticky="ew", padx=8)
+        self.stop_btn = ttk.Button(top, text="Stop", command=self.stop_run, state="disabled")
+        self.stop_btn.grid(row=0, column=2)
+        Tooltip(self.stop_btn, "Stop the run (Esc). Nothing is saved from a stopped run.")
         self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
         self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
         self.progress = Progress(self.prog, self.status)
@@ -797,6 +801,14 @@ class TimetableTab(ttk.Frame):
                 return
             self.q.put(("error", errorlog.describe(exc)))
 
+    def stop_run(self, _event=None):
+        """Stop the running task at its next step (Stop button or Esc)."""
+        if getattr(self, "running", False) and not self.q.stopping:
+            self.q.stop()
+            self.stop_btn.state(["disabled"])
+            self.status.configure(text="Stopping...")
+        return "break"
+
     def _finish(self, ok: bool):
         self.running = False
         self.app.set_busy(False)
@@ -853,6 +865,10 @@ class TimetableTab(ttk.Frame):
                     messagebox.showinfo(TITLE, f"{summary}\n\n{path}"
                                         + (f"\n\n{nwarn} warning(s) - see the log." if nwarn else ""))
                     self.app.rules_reminder(start)
+                elif item[0] == "stopped":
+                    self._finish(False)
+                    self.status.configure(text="Stopped - nothing was saved")
+                    self._append("Stopped - nothing was saved.", "warn")
                 elif item[0] == "error":
                     self._finish(False)
                     self._append("ERROR: " + item[1], "error")
