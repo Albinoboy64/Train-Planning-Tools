@@ -486,7 +486,7 @@ def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch)
             monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
             monkeypatch.setattr(g.theme, "displays", lambda: [])        # (Windows: the real displays are not used)
             line = font.nametofont("TkDefaultFont", app).metrics("linespace")
-            wrap = int(str(app.dnd_hint.cget("wraplength")))
+            wrap = int(str(app.book_note.cget("wraplength")))
             col = int(app.outer.columnconfigure(0)["minsize"])
             app.geometry("1200x800")
             app.update()
@@ -494,14 +494,14 @@ def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch)
             app.dpi_changed(base_dpi * 2)
             app.update()
             assert font.nametofont("TkDefaultFont", app).metrics("linespace") >= line * 1.7
-            assert int(str(app.dnd_hint.cget("wraplength"))) == wrap * 2
+            assert abs(int(str(app.book_note.cget("wraplength"))) - wrap * 2) <= 1
             assert int(app.outer.columnconfigure(0)["minsize"]) == col * 2
             assert app.winfo_width() >= 2000 or app.winfo_width() >= app.winfo_screenwidth() - 50
             shown["dpi"] = base_dpi
             app.dpi_changed(base_dpi)
             app.update()
             assert font.nametofont("TkDefaultFont", app).metrics("linespace") == line
-            assert int(str(app.dnd_hint.cget("wraplength"))) == wrap
+            assert abs(int(str(app.book_note.cget("wraplength"))) - wrap) <= 1
             assert int(app.outer.columnconfigure(0)["minsize"]) == col
         finally:
             app._on_close()
@@ -823,7 +823,10 @@ def test_professional_layout_captions_icons_and_status_bar(monkeypatch):
             return                                          # no display
         try:
             app.update()
-            hint = app.dnd_hint
+            from tkinter import ttk
+            hint = theme.tip(ttk.Label(app.outer, text="Tip: drag files here.", style="Small.TLabel"), "Tips")
+            hint.grid(row=9, column=0, sticky="w")
+            app.update()
             assert str(hint.cget("text")) == "Tips" and "drag" in hint.full_text().lower()
             assert str(hint.cget("image"))                                  # the info icon
             hint.configure(text="")

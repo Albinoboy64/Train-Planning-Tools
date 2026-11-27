@@ -14,7 +14,7 @@ from tkinter import ttk, filedialog, messagebox
 from rstools import errorlog, theme
 from rstools.autocomplete import Suggest
 from rstools.widgets import FAILED, READY, STOPPED, Progress, TaskBox, Tooltip, day_buttons, debounce, \
-    duration, local_folder_box, log_box
+    Placeholder, duration, local_folder_box, log_box
 from rstools.branding import APP_NAME
 from rstools.naming import file_label, plural
 from rstools.fsutil import write_json
@@ -50,8 +50,6 @@ FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):"
          "mileage": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
          "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT VL29 print(s):")],
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
-NOTE = ("Several VL29 prints can go in one box, e.g. the LTP print and a week's STP print. The XML must be from the "
-        "same plan as the TRENT print; unit reports can be made from the TRENT print alone.")
 MILEAGE_PERIODS = (("timetable", "Whole timetable"), ("month", "One month:"), ("custom", "From:"))
 UNIT_POSSIBLE = (("every", "Every unit"), ("over", "Only units overdue for it"), ("off", "Off"))
 UNIT_PERIODS = (("week", "Whole week (follows each unit with the next-day workings)"),
@@ -124,10 +122,6 @@ class StatsPackTab(ttk.Frame):
         self.columnconfigure(0, weight=1, minsize=520)
         self.columnconfigure(1, weight=1, minsize=470)
         self.rowconfigure(2, weight=1)
-        theme.tip(ttk.Label(self, text="Stats packs, unit reports and capacity reports from an Attune XML and the "
-                                       "TRENT VL29 print.",
-                            style="Small.TLabel", wraplength=1000, justify="left")).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
         left, right = ttk.Frame(self), ttk.Frame(self)
         left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         right.grid(row=2, column=1, sticky="nsew")
@@ -198,11 +192,6 @@ class StatsPackTab(ttk.Frame):
                 clear.grid(row=r, column=3, padx=(4, 0), pady=2)
                 self.file_rows[key] += (clear,)
             self.vars[key].trace_add("write", lambda *_a, k=key: self._file_changed(k))
-        self.note = theme.tip(ttk.Label(ff, text=NOTE, style="Small.TLabel", wraplength=480, justify="left"),
-                              "About the files")
-        self.note.grid(row=10, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(ff, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
-        self.dnd_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # 3. output
         of = self.out_frame = ttk.LabelFrame(left, text="3. Output", padding=8)
@@ -241,13 +230,13 @@ class StatsPackTab(ttk.Frame):
         self.out_dir = tk.StringVar()
         out_box = local_folder_box(ttk.Entry(of, textvariable=self.out_dir), self.out_dir)
         out_box.grid(row=5, column=1, sticky="ew", padx=4, pady=(6, 0))
+        Placeholder(out_box, "Downloads")
         ttk.Button(of, text="Browse...", command=self._browse_dir).grid(row=5, column=2, pady=(6, 0))
         ttk.Label(of, text="Output name:").grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
-        ttk.Entry(of, textvariable=self.out_name).grid(row=6, column=1, sticky="ew", padx=4, pady=(6, 0))
-        self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left"),
-                                   "Default name and folder")
-        self.name_hint.grid(row=7, column=0, columnspan=3, sticky="w")
+        name_box = ttk.Entry(of, textvariable=self.out_name)
+        name_box.grid(row=6, column=1, sticky="ew", padx=4, pady=(6, 0))
+        self.name_hint = Placeholder(name_box)          # the name the output gets if the box is left blank
         fmtf = ttk.Frame(of)
         fmtf.grid(row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(fmtf, text="Save as:").grid(row=0, column=0, padx=(0, 6))
@@ -327,8 +316,6 @@ class StatsPackTab(ttk.Frame):
         """Called by the window once tkdnd is loaded: drop files on a box, or anywhere on the tab."""
         self._dnd = dnd_files
         self._add_drop_target(self)
-        self.dnd_hint.configure(text="Tip: drag and drop the files anywhere on this tab - each goes to the "
-                                     "right box by its type.")
 
     def _add_drop_target(self, widget):
         if not self._dnd or isinstance(widget, tk.Text):
@@ -607,7 +594,6 @@ class StatsPackTab(ttk.Frame):
                 (w.grid if key in shown else w.grid_remove)()
             if key in shown:
                 lab.configure(text=shown[key])
-        (self.note.grid_remove if mode == "packs" else self.note.grid)()
         self.run_btn.configure(text=MODES[mode][1])
         self._set_state(self.sel_frame, mode != "packs")
         if mode == "mileage":                  # every date of the period is counted: the day ticks are not used
@@ -688,10 +674,8 @@ class StatsPackTab(ttk.Frame):
                 name = plans_name(self._prints[0], self._prints[1], get["xml_a"], get["xml_b"], ticked)
         except Exception:
             name = None
-        what = f"'{name}'" if name else ("a name from the two packs" if mode == "packs" else
-                                          "a name from the timetable, e.g. 'Stats pack for DEC26'")
-        self.name_hint.configure(text=f"Leave the name blank for {what}. Leave the folder blank to save to "
-                                      "Downloads.")
+        self.name_hint.configure(text=name or ("named from the two packs" if mode == "packs" else
+                                               "named from the timetable, e.g. Stats pack for DEC26"))
 
     def _browse(self, key):
         cur = self.vars[key].get().strip() or self.vars.get(key.replace("_b", "_a"), tk.StringVar()).get().strip()

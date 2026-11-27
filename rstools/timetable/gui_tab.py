@@ -11,8 +11,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme, icons
-from rstools.widgets import (FAILED, READY, STOPPED, Progress, TaskBox, Tooltip, debounce, duration,
-                             local_folder_box, log_box)
+from rstools.widgets import (FAILED, READY, STOPPED, Placeholder, Progress, TaskBox, Tooltip, debounce,
+                             duration, local_folder_box, log_box)
 from rstools.branding import APP_NAME, settings_dir
 from rstools.naming import file_label, plural
 from rstools.fsutil import output_folder, write_json
@@ -52,23 +52,6 @@ EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL),
         "lists": (_LI, _LI), "s4docs": ((".pdf",), (".pdf",)), "tprs": ((".pdf",), (".pdf",))}
 MULTI = {"print_tt": (True, False), "prints": (True, True), "s4docs": (True, True),     # boxes that take several
          "tprs": (True, True)}                                                          # files
-NOTES = {
-    "timetables": ("Network Rail is the reference: every NR time at a GTR location is checked. Saved in the "
-                   "Consolidated TT Comparison template, named after the NR timetable."),
-    "print_tt": ("The Single Train Report prints are the reference: each train's public times are checked against "
-                 "the timetable (GTR or Network Rail layout), in the same template. Passes, working-only stops and "
-                 "empty stock are not compared."),
-    "list_tt": ("The train list is the reference. A list only has each train's origin and destination times, so "
-                "only those are checked (use train prints to check every stop). Empty stock is left out."),
-    "prints": ("Each train is compared location by location (times, platform, line, activities), with its "
-               "heading details."),
-    "lists": ("Trains are paired by UID and days (or headcode, days and departure time; a retimed train still pairs "
-              "when it is the only one left with its headcode, days and origin), and every column is compared."),
-    "s4docs": ("Each possession row is paired by section number and night, and its times, dates, locations, what "
-               "is blocked and the remarks / notes are compared. Page headings and the route title are not."),
-    "tprs": ("Every table row (paired by section, table and first column) and every paragraph is compared. Running "
-             "headers, footers and page numbers are not."),
-}
 SEP = " ; "
 S4 = "section4"                 # Utilities: the Section 4 possession check
 TASK_GROUPS = [          # the Task list: each group in the order the work goes
@@ -78,10 +61,6 @@ TASK_GROUPS = [          # the Task list: each group in the order the work goes
     ("Section 4 and Planning Rules", [(S4, "Check an Attune XML against Section 4 possessions"),
                                       ("s4docs", MODE_TEXT["s4docs"][0]), ("tprs", MODE_TEXT["tprs"][0])]),
 ]
-S4_NOTE = ("Lists every train that runs through a section during one of its Section 4 possessions. The XML has no "
-           "running lines, so where only some lines are blocked the report says to check the line used - unless you "
-           "add a VPT of the same timetable, which gives the line each train runs on. Other operators' VPTs add "
-           "their trains to the check.")
 
 
 def is_section4(path: str) -> bool:
@@ -155,11 +134,6 @@ class TimetableTab(ttk.Frame):
         self.columnconfigure(0, weight=1, minsize=520)
         self.columnconfigure(1, weight=1, minsize=470)
         self.rowconfigure(2, weight=1)
-        theme.tip(ttk.Label(self, text="Checks a timetable against the Network Rail timetable, Attune train prints or "
-                                       "a train list; compares train prints, train lists, Section 4 documents or "
-                                       "Timetable Planning Rules; and checks an Attune XML against Section 4 "
-                                       "possessions.", style="Small.TLabel", wraplength=1000,
-                            justify="left")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
         left, right = ttk.Frame(self), ttk.Frame(self)
         left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         right.grid(row=2, column=1, sticky="nsew")
@@ -198,11 +172,6 @@ class TimetableTab(ttk.Frame):
             self.clear_btns[key] = clear
             self.vars[key].trace_add("write", lambda *_a: self._update_name_hint())
         ttk.Button(mf, text="Swap the two files", command=self._swap).grid(row=3, column=2, pady=(2, 0))
-        self.note = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=480, justify="left"),
-                              "What is checked")
-        self.note.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
-        self.dnd_hint.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.pax_var = tk.BooleanVar(value=False)
         self.pax_cb = ttk.Checkbutton(mf, text="Passenger times only (leave out passing and working-only times)",
                                       variable=self.pax_var)
@@ -242,11 +211,6 @@ class TimetableTab(ttk.Frame):
         self.s4_set = theme.collapse_empty(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480,
                                                      justify="left"))
         self.s4_set.grid(row=5, column=0, columnspan=4, sticky="w", pady=(4, 0))
-        self.s4_note = theme.tip(ttk.Label(uf, text=S4_NOTE, style="Small.TLabel", wraplength=480, justify="left"),
-                                 "About this check")
-        self.s4_note.grid(row=6, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        self.s4_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=480, justify="left"), "Tips")
-        self.s4_hint.grid(row=7, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.s4_vars["pdf"].trace_add("write", lambda *_a: debounce(self, "rules", 400, self.show_rule_set))
         self.show_rule_set()
         self._last_cmp = "timetables"
@@ -258,13 +222,13 @@ class TimetableTab(ttk.Frame):
         self.out_dir = tk.StringVar()
         out_box = local_folder_box(ttk.Entry(of, textvariable=self.out_dir), self.out_dir)
         out_box.grid(row=0, column=1, sticky="ew", padx=4)
+        Placeholder(out_box, "Downloads")
         ttk.Button(of, text="Browse...", command=self._browse_dir).grid(row=0, column=2)
         ttk.Label(of, text="Output name:").grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
-        ttk.Entry(of, textvariable=self.out_name).grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
-        self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left"),
-                                   "Default name and folder")
-        self.name_hint.grid(row=2, column=0, columnspan=3, sticky="w")
+        name_box = ttk.Entry(of, textvariable=self.out_name)
+        name_box.grid(row=1, column=1, sticky="ew", padx=4, pady=(6, 0))
+        self.name_hint = Placeholder(name_box)          # the name the output gets if the box is left blank
         fmtf = ttk.Frame(of)
         fmtf.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(fmtf, text="Save as:").grid(row=0, column=0, padx=(0, 6))
@@ -307,10 +271,6 @@ class TimetableTab(ttk.Frame):
     def enable_drag_and_drop(self, dnd_files: str):
         self._dnd = dnd_files
         self._add_drop_target(self)
-        self.dnd_hint.configure(text="Tip: drag and drop the files onto this box or anywhere on the tab - the "
-                                     "comparison and boxes are picked from the files.")
-        self.s4_hint.configure(text="Tip: drag and drop the Attune XML, the Section 4 PDF(s) and any VPT(s) onto this "
-                                    "box - each goes to the right row.")
 
     def _add_drop_target(self, widget, util=False):
         if not self._dnd or isinstance(widget, tk.Text):
@@ -505,7 +465,6 @@ class TimetableTab(ttk.Frame):
             current = self.vars[key].get()
             if current and not all(p.lower().endswith(EXTS[cmp][side]) for p in split_paths(current)):
                 self.vars[key].set("")
-        self.note.configure(text=NOTES[cmp])
         (self.pax_cb.grid if cmp == "prints" else self.pax_cb.grid_remove)()
         (self.hl_cb.grid if cmp in ("s4docs", "tprs") else self.hl_cb.grid_remove)()
         self.run_btn.configure(text="Check Section 4" if util else MODE_TEXT[cmp][1])
@@ -527,16 +486,16 @@ class TimetableTab(ttk.Frame):
         if mode == S4:
             xml = self.s4_vars["xml"].get().strip()
             stem = os.path.splitext(os.path.basename(xml))[0] if xml else "XML name"
-            self.name_hint.configure(text=f"Default name: 'Section 4 check - {stem}'. Leave the box blank to use it.")
+            self.name_hint.configure(text=f"Section 4 check - {stem}")
             return
         if mode == "timetables":
-            hint = "Default name: '[NR timetable] Consolidated TT Comparison' (e.g. K_D26 Consolidated TT Comparison)"
+            hint = "[NR timetable] Consolidated TT Comparison"
         elif mode in ("print_tt", "list_tt"):
-            hint = "Default name: '[reference] vs [timetable] Consolidated TT Comparison'"
+            hint = "[reference] vs [timetable] Consolidated TT Comparison"
         else:
             name = default_name(mode, split_paths(self.vars["a"].get()), split_paths(self.vars["b"].get()))
-            hint = f"Default name: {name}" if name else "Default name: today's date and 'original vs updated'"
-        self.name_hint.configure(text=hint + ". Leave the box blank to use it.")
+            hint = name or "today's date and 'original vs updated'"
+        self.name_hint.configure(text=hint)
 
     def _browse(self, key):
         self._pick_section("compare")

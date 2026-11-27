@@ -17,7 +17,7 @@ import tkinter as tk
 from typing import Dict, List, Tuple
 from tkinter import ttk, filedialog, messagebox
 
-from rstools import errorlog, theme, icons
+from rstools import errorlog, icons
 from rstools.widgets import FAILED, Progress, TaskBox, Tooltip, day_buttons
 from rstools.branding import APP_NAME
 from rstools.naming import file_label, plural
@@ -25,7 +25,6 @@ from rstools.naming import file_label, plural
 from .model import ADDED, CHANGED, DIFF_STATES, ISSUE, PAIRED, REMOVED, SAME, view
 
 TITLE = f"{APP_NAME} - Live View"
-EMPTY_HINT = "Choose the files and press Compare: the trains and their differences show here."
 READY = "Ready - press F5 to compare"
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _PV = _PR + (".vpt",)                                   # train prints, or Attune VPT exports
@@ -129,11 +128,6 @@ class LiveTab(ttk.Frame):
         from .adapters import MODE_GROUPS
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)
-        theme.tip(ttk.Label(self, text="Browse any comparison train by train: click a train to see it side by side "
-                                       "with its match and every difference. Tick 'Refresh when a file is saved' to "
-                                       "see changes as you save the files.", style="Small.TLabel", wraplength=1100,
-                            justify="left")).grid(
-            row=1, column=0, sticky="w", pady=(0, 6))
 
         top = ttk.Frame(self)
         top.grid(row=2, column=0, sticky="ew")
@@ -328,7 +322,7 @@ class LiveTab(ttk.Frame):
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
-        self.head = ttk.Label(right, text=EMPTY_HINT, style="Head.TLabel", wraplength=640, justify="left")
+        self.head = ttk.Label(right, text="", style="Head.TLabel", wraplength=640, justify="left")
         self.head.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         self.detail = ttk.Treeview(right, show="headings", selectmode="browse", height=6)
         self.detail.grid(row=1, column=0, sticky="nsew")
@@ -925,7 +919,7 @@ class LiveTab(ttk.Frame):
             w.state(["disabled"])
         self.listv.delete(*self.listv.get_children())
         self.detail.delete(*self.detail.get_children())
-        self.head.configure(text=EMPTY_HINT)
+        self.head.configure(text="")
         self._set_notes([])
         self.count_lbl.configure(text="")
         if not self.running:

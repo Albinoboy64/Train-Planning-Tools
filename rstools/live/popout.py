@@ -78,8 +78,6 @@ class LiveWindow:
         self.note = ttk.Frame(tab, padding=24)
         ttk.Label(self.note, text="The results are in their own window.", font="AppBold").grid(row=0, column=0,
                                                                                                sticky="w")
-        ttk.Label(self.note, text="Choose the files and press Compare here; the window shows the comparison.",
-                  style="Small.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
         ttk.Button(self.note, text="Show the window", command=self.show).grid(row=2, column=0, sticky="w",
                                                                               pady=(8, 0))
         ttk.Button(self.note, text="Bring back", command=self.bring_back).grid(row=2, column=1, sticky="w",

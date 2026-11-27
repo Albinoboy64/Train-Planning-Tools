@@ -20,8 +20,8 @@ from rstools.naming import plural
 from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.update_dialog import UpdateDialog
-from rstools.widgets import (FAILED, READY, STOPPED, Progress, QueuePump, ScrollPage, TaskBox, Tooltip, day_buttons,
-                             debounce, local_folder_box, log_box)
+from rstools.widgets import (FAILED, READY, STOPPED, Placeholder, Progress, QueuePump, ScrollPage, TaskBox, Tooltip,
+                             day_buttons, debounce, local_folder_box, log_box)
 
 from . import __version__
 from .compare import CATEGORIES
@@ -90,18 +90,6 @@ STOCK_GROUPS = [
                                                                      "berth_compare")]),
     ("Station books", [("station", "Create a station working book from an Attune XML (TRACS-RS layout)")]),
 ]
-INTROS = {                  # what each task of the tab does, shown at the top
-    "compare": "Compares an original and an updated CWN (or platform workings): saves a copy of the updated file "
-               "with every change highlighted and noted, and a change report.",
-    "batch": "Compares every CWN in one folder with its partner in another, paired by name: a highlighted copy "
-             "and a change report for each pair.",
-    "cumulative": "Adds a new round of changes to a comparison CWN made earlier by this app: earlier highlights "
-                  "are kept and the new changes are shown in another colour.",
-    "reorder": "Saves a copy of a multi-day CWN with each train's day variants in order. The CWN itself is not "
-               "changed.",
-    "station": "Creates a station working book in the TRACS-RS layout from an Attune XML: one sheet each for SX, "
-               "SO and Su.",
-}
 CATEGORY_GROUPS = [["CANCELLED", "NEW"],                                  # whole trains
                    ["DAYS", "LOCATION", "PLATFORM", "TIME"],             # timing and route
                    ["BERTHING", "FORMATION", "STOCK"],                   # stock and workings
@@ -1085,8 +1073,6 @@ class App(tk.Tk):
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
 
-        self.intro = theme.tip(ttk.Label(outer, text="", style="Small.TLabel", wraplength=1000, justify="left"))
-        self.intro.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
         left = ttk.Frame(outer)
         left.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
@@ -1128,8 +1114,6 @@ class App(tk.Tk):
         self.upd_browse.grid(row=2, column=2, pady=(6, 0))
         self.swap_btn = ttk.Button(mf, text="Swap original and updated", command=self._swap)
         self.swap_btn.grid(row=3, column=1, sticky="w", padx=4, pady=(6, 0))
-        self.dnd_hint = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=430, justify="left"), "Tips")
-        self.dnd_hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.prev_info = theme.collapse_empty(ttk.Label(mf, text="", style="Small.TLabel", wraplength=430,
                                                         justify="left"))
         self.prev_info.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1148,8 +1132,6 @@ class App(tk.Tk):
         ttk.Button(uf, text="Browse...", command=lambda: self._browse(self.util, True)).grid(row=1, column=2,
                                                                                           pady=(6, 0))
         self.util_entry.bind("<FocusIn>", lambda _e: self._pick_section("util"), add="+")
-        self.util_hint = theme.tip(ttk.Label(uf, text="", style="Small.TLabel", wraplength=430, justify="left"), "Tips")
-        self.util_hint.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
         # --- berthing charts: made from Attune XMLs, a round of changes added, two charts compared
         self._build_berthing(left)
@@ -1205,13 +1187,13 @@ class App(tk.Tk):
         self.out_dir = tk.StringVar()
         out_box = local_folder_box(ttk.Entry(of, textvariable=self.out_dir), self.out_dir)
         out_box.grid(row=5, column=1, sticky="ew", padx=4, pady=(6, 0))
+        Placeholder(out_box, "Downloads")
         ttk.Button(of, text="Browse...", command=self._browse_dir).grid(row=5, column=2, pady=(6, 0))
         ttk.Label(of, text="Output name:").grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.out_name = tk.StringVar()
-        ttk.Entry(of, textvariable=self.out_name).grid(row=6, column=1, sticky="ew", padx=4, pady=(6, 0))
-        self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=440, justify="left"),
-                                   "Default name and folder")
-        self.name_hint.grid(row=7, column=0, columnspan=3, sticky="w")
+        self.name_box = ttk.Entry(of, textvariable=self.out_name)
+        self.name_box.grid(row=6, column=1, sticky="ew", padx=4, pady=(6, 0))
+        self.name_hint = Placeholder(self.name_box)      # the name the output gets if the box is left blank
         dayf = ttk.Frame(of)
         dayf.grid(row=8, column=0, columnspan=3, sticky="w", pady=(8, 0))
         ttk.Label(dayf, text="Days to check:").grid(row=0, column=0, padx=(0, 6))
@@ -1459,9 +1441,6 @@ class App(tk.Tk):
         self.berth_notes_btn.grid(row=10, column=2, pady=(2, 0))
         Tooltip(notes_cb, "The notes about each location (e.g. 'Max 12 CET'), with any changed for the timetable "
                           "in Settings > Berthing notes. Untick to leave every note off the chart.")
-        self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
-                                    "Tips")
-        self.berth_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
         for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue, self.berth_operator,
                                                                          self.berth_timetable]:
             var.trace_add("write", lambda *_a: self._update_name_hint())
@@ -1959,16 +1938,13 @@ class App(tk.Tk):
         if self.mode.get() == "station":
             v = {k: x.get().strip() for k, x in self.book_vars.items()}
             if ";" in v["list"] or (v["list"] and v["station"]):
-                self.name_hint.configure(text="Several stations: one book each, named after its station (the name "
-                                              "and sheet name boxes are not used). Leave the folder blank to save "
-                                              "to Downloads.")
+                self.name_hint.configure(text="several stations: each book is named after its station")
                 return
             from rstools.stationbook import BOOK_OPERATORS
             v["operator"] = BOOK_OPERATORS[self._book_group_key()][0]
             name = (f"{v['operator'] + ' ' if v['operator'] else ''}{v['timetable'] + ' ' if v['timetable'] else ''}"
                     f"Station Working Book - {v['station'] or v['list'] or 'station'}")
-            self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save to "
-                                          "Downloads.")
+            self.name_hint.configure(text=name)
             return
         mode = self.mode.get()
         if mode in BERTH_MODES:
@@ -1994,24 +1970,20 @@ class App(tk.Tk):
                 name = f"{stem} (other operators added)"
             else:
                 name = default_name(files[0], files[1])
-            self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save to "
-                                          "Downloads.")
+            self.name_hint.configure(text=name)
             return
         if self.mode.get() == "reorder":
             p = self.util.get().strip().strip('"')
             stem = os.path.splitext(os.path.basename(p))[0] if p else "CWN name"
             from .reorder import variants_suffix
             what = variants_suffix(self.variant_order.get() == "time", bool(self.merge_var.get()))
-            self.name_hint.configure(text=f"Leave the name blank for '{stem}{what}'. Leave the folder blank "
-                                          "to save to Downloads.")
+            self.name_hint.configure(text=f"{stem}{what}")
             return
         if self.mode.get() == "batch":
-            self.name_hint.configure(text="Each pair's output is named after its two CWNs (the name box is not "
-                                          "used). Leave the folder blank to save them in a folder in Downloads.")
+            self.name_hint.configure(text="each pair is named after its two CWNs")
             return
         name = default_name(self.orig.get().strip().strip('"'), self.upd.get().strip().strip('"'))
-        self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save "
-                                      "to Downloads.")
+        self.name_hint.configure(text=name)
 
     def _reset_cats(self):
         d = default_categories()
@@ -2098,12 +2070,10 @@ class App(tk.Tk):
         (self.open_rep.grid if not single or mode in ("berth_round", "berth_compare") else self.open_rep.grid_remove)()
         self.run_frame.configure(text="3. Run" if single else "4. Run")
         self.out_frame.configure(text="2. Stations and output" if station else "2. Output")
-        self.intro.configure(text=BERTH_MODES[mode][3] if berth else INTROS.get(mode, INTROS["compare"]))
         if not self.running:
             self.status.configure(text=READY)
         if station:
             self._read_book_xml()
-        self._show_dnd_hint()
         self.upd_lbl.configure(text="Updated CWN folder:" if batch else "Updated CWN:")
         self.colour_lbl.configure(text="Colour for new amendments:" if mode in ("cumulative", "berth_round")
                                   else "Highlight colour:")
@@ -2119,18 +2089,6 @@ class App(tk.Tk):
         self._schedule_days()
 
     # ------------------------------------------------------- drag & drop
-    def _show_dnd_hint(self):
-        if not getattr(self, "_dnd_on", False):
-            return
-        self.dnd_hint.configure(text="Tip: drag and drop two CWNs (or two folders of CWNs) onto this box; drop one "
-                                     "on a file's row to replace it.")
-        self.util_hint.configure(text="Tip: drag and drop a CWN (day variants in order) or an Attune XML (station "
-                                      "working book) onto this box.")
-        self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts (or platform workings) "
-                                       "onto this box; other operators' VPT or CIF files go to 'Other operators'. "
-                                       "For a chart, leave 'Layout from chart' blank to use the app's built-in "
-                                       "layout.")
-
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""
         try:
@@ -2180,7 +2138,6 @@ class App(tk.Tk):
                 register(child, section)
         register(outer)
         self._dnd_on = True
-        self._show_dnd_hint()
         self.stats_tab.enable_drag_and_drop(self._dnd)
         self.tt_tab.enable_drag_and_drop(self._dnd)
         self.live_tab.enable_drag_and_drop(self._dnd)

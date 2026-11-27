@@ -439,3 +439,43 @@ class TaskBox(ttk.Combobox):
         text = self.label_of(mode)
         if text and self.get() != text:
             self.set(text)
+
+
+class Placeholder:
+    """Greyed text inside an empty entry box (e.g. the name an output gets when the box is left blank); it goes as
+    soon as anything is typed. configure(text=...) changes it, so it can stand in for a hint label."""
+
+    def __init__(self, entry, text: str = ""):
+        self.entry, self.text = entry, text
+        self.label = tk.Label(entry, text="", anchor="w", borderwidth=0, padx=0, pady=0, cursor="xterm")
+        self.label.bind("<Button-1>", lambda _e: self.entry.focus_set())
+        var = entry.cget("textvariable")
+        if var:
+            entry.tk.call("trace", "add", "variable", var, "write", entry.register(lambda *_a: self._update()))
+        entry.bind("<FocusIn>", lambda _e: self._update(), add="+")
+        entry.bind("<FocusOut>", lambda _e: self._update(), add="+")
+        entry.bind("<Configure>", lambda _e: self._update(), add="+")
+        self._update()
+
+    def configure(self, text: str = "", **_kw):
+        self.text = text
+        self._update()
+
+    config = configure
+
+    def cget(self, key: str):
+        return self.text if key == "text" else ""
+
+    def _update(self):
+        try:
+            show = bool(self.text) and not self.entry.get()
+            if not show:
+                self.label.place_forget()
+                return
+            from rstools import theme
+            p = theme.CURRENT or theme.PALETTES["light"]
+            self.label.configure(text=self.text, background=p["field"], foreground=p.get("muted", "#777777"),
+                                 font=self.entry.cget("font") or "TkDefaultFont")
+            self.label.place(x=4, rely=0.5, anchor="w", relwidth=1.0, width=-8)
+        except tk.TclError:
+            pass

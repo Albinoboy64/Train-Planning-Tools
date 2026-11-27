@@ -39,9 +39,11 @@ TIPS = {
     "Other operators (optional; VPT preferred, or F3 print):": "Other operators' trains, checked too. A VPT export "
         "is preferred; an Attune Single Train Report (F3) print, PDF or Word, also works (its Line column gives the "
         "running lines).",
-    "Check an Attune XML against Section 4 possessions": "Check the Attune XML against the "
-        "Engineering Access Statement Section 4: every train running through a section during one of its "
-        "possessions.",
+    "Check an Attune XML against Section 4 possessions": (
+        "Check the Attune XML against the Engineering Access Statement Section 4: every train running through "
+        "a section during one of its possessions. The XML has no running lines, so where only some lines are "
+        "blocked the report says to check the line used, unless you add a VPT of the same timetable. Other "
+        "operators' files add their trains to the check."),
     "Section 4 PDF(s):": "The Section 4 PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Leave "
                          "blank to use the rule set in use: the built-in 2027 EAS v4 rules, or a newer set added "
                          "in Settings > Rules.",
@@ -179,28 +181,34 @@ TIPS = {
     "Fleet data...": "Settings > Fleet data: each unit type's operator, seats, vehicles per unit, fleet size and "
                      "unit length.",
     # ---------------------------------------------------------------- Timing Tools
-    "Check the GTR timetable against the Network Rail timetable": "Check the GTR timetable against the Network Rail "
-                                                         "timetable (the reference). Output: the Consolidated "
-                                                         "TT Comparison workbook.",
-    "Check a timetable against train prints (Attune Single Train Report)": "Use Attune 'Single Train Report' prints as "
-                                                                      "the reference and check a timetable "
-                                                                      "against their public times.",
-    "Check a timetable against an Attune train list": "Use an Attune train list as the reference and check "
-                                                      "each train's origin departure and destination arrival "
-                                                      "in a timetable.",
+    "Check the GTR timetable against the Network Rail timetable": (
+        "Check the GTR timetable against the Network Rail timetable (the reference): every NR time at a GTR "
+        "location is checked. Output: the Consolidated TT Comparison workbook, named after the NR timetable."),
+    "Check a timetable against train prints (Attune Single Train Report)": (
+        "Use Attune 'Single Train Report' prints as the reference and check each train's public times in a "
+        "timetable (GTR or Network Rail layout). Passes, working-only stops and empty stock are not compared."),
+    "Check a timetable against an Attune train list": (
+        "Use an Attune train list as the reference: a list only has each train's origin and destination "
+        "times, so only those are checked (use train prints to check every stop). Empty stock is left out."),
     "GTR timetable:": "The GTR timetable check workbook (sheets such as 'OT SNGX TT Checks K - OUT SX').",
     "Network Rail timetable:": "The Network Rail timetable workbook - the reference.",
     "Attune train list - reference:": "The Attune train list export (Excel or CSV).",
     "Timetable to check:": "The timetable workbook to check (GTR or Network Rail layout).",
     # ---------------------------------------------------------------- Live View
-    "Compare two sets of train prints (PDF or Word) or Attune VPT exports": "Compare two versions of the same "
-        "trains location by location: times, platforms, lines and activities.",
-    "Compare two Attune train list exports (Excel or CSV)": "Compare two Attune train lists column by column, "
-        "train by train.",
-    "Compare two sets of Section 4 documents (PDF)": "Compare two issues of Network Rail's Section 4 possession "
-        "tables: every possession's times, dates, places, lines blocked and remarks.",
-    "Compare two sets of Timetable Planning Rules (PDF)": "Compare two issues of the Timetable Planning Rules: "
-        "every table row and paragraph.",
+    "Compare two sets of train prints (PDF or Word) or Attune VPT exports": (
+        "Compare two versions of the same trains location by location: times, platforms, lines and "
+        "activities, with each train's heading details."),
+    "Compare two Attune train list exports (Excel or CSV)": (
+        "Compare two Attune train lists column by column. Trains are paired by UID and days (or headcode, "
+        "days and departure time; a retimed train still pairs when it is the only one left with its headcode, "
+        "days and origin)."),
+    "Compare two sets of Section 4 documents (PDF)": (
+        "Compare two issues of Network Rail's Section 4 possession tables: each possession row is paired by "
+        "section number and night, and its times, dates, places, lines blocked and remarks are compared. Page "
+        "headings and route titles are not."),
+    "Compare two sets of Timetable Planning Rules (PDF)": (
+        "Compare two issues of the Timetable Planning Rules: every table row (paired by section, table and "
+        "first column) and every paragraph. Running headers, footers and page numbers are not compared."),
     "Refresh when a file is saved": "Watch the files: when one is saved, compare again within a moment and "
                                     "mark the trains that changed.",
     "Find:": "Show only trains whose section, headcode or status contains this text.",
