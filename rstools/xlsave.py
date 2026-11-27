@@ -264,9 +264,13 @@ def save_workbook(wb, path: str, progress=None, trim: str = "visible"):
     cores (instead of compressing, re-reading and compressing again).
     trim: 'visible' trims formatting outside the data but keeps fills and borders just past it (an output's
     own frame); 'data' trims everything outside the data (a CWN read in, whose formatting can run to the
-    end of the sheet); '' trims nothing. progress(fraction) is called as each tab is written."""
+    end of the sheet); '' trims nothing. progress(fraction) is called as each tab is written.
+    Every formula-looking string is saved as text (fsutil.plain_text): the app writes no formulas of its own."""
     import datetime
     from openpyxl.writer.excel import ExcelWriter
+    from rstools.fsutil import plain_text
+    for ws in wb.worksheets:
+        plain_text(ws)                   # text copied from an input is never stored as a live formula
     if trim:
         for ws in wb.worksheets:
             trim_unused_formatting(ws, keep_visible=trim == "visible")

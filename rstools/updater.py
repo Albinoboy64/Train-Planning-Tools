@@ -111,7 +111,7 @@ def latest_release(token: str = "") -> Release:
         if exc.code in (401, 403, 404):
             raise UpdateError("GitHub did not allow access to the releases. Check the internet connection; if "
                               "you use a private copy of the repository, add a read-only access token in "
-                              f"Help > GitHub access token. (HTTP {exc.code})")
+                              f"Settings > Updates. (HTTP {exc.code})")
         raise UpdateError(f"GitHub returned an error (HTTP {exc.code}).")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise UpdateError(f"Could not reach GitHub - check the internet connection or proxy. ({exc})")
@@ -263,7 +263,10 @@ def running_exe() -> Optional[str]:
 
 def can_replace_in_place() -> bool:
     exe = running_exe()
-    return bool(exe and sys.platform.startswith("win") and os.access(os.path.dirname(exe), os.W_OK))
+    if not (exe and sys.platform.startswith("win")):
+        return False
+    from rstools.branding import _writable             # a real write test: os.access ignores Windows ACLs
+    return _writable(os.path.dirname(exe))
 
 
 def download_target(rel: Release) -> str:

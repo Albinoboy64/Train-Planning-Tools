@@ -29,6 +29,9 @@ class ScrollPage(ttk.Frame):
         if not pages:                       # one wheel handler for every page: it finds the page under the mouse
             for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
                 self.bind_all(seq, lambda e, pages=pages: ScrollPage._route(pages, e), add="+")
+                # the wheel over a drop-down scrolls the page: Tk's own binding would change the choice (and
+                # with it the task, clearing the files chosen) as the pointer passes over it
+                self.bind_class("TCombobox", seq, lambda e, pages=pages: (ScrollPage._route(pages, e), "break")[1])
         pages.append(self)
 
     @staticmethod
@@ -247,25 +250,37 @@ class QueuePump:
 
     def _tick(self):
         self._after = None
-        active = time.monotonic() < self._fast_until
+        self._schedule(self.FAST_MS)           # before the handlers: one may open a message box (a nested event
+        active = time.monotonic() < self._fast_until    # loop), and the other tabs must still be read meanwhile
         threads = getattr(self, "_threads", None)
         if threads:
             self._threads = [t for t in threads if t.is_alive()]
             active = active or bool(self._threads)            # a helper thread may still send something
+        handling = self.__dict__.setdefault("_handling", set())
         for q, handle, busy in self.parts:
             had = not q.empty()
-            if had:
+            if had and id(q) not in handling:  # a tab whose handler is showing a message box waits for it
+                handling.add(id(q))
                 try:
                     handle()
                 except Exception:              # one tab's failure must not stop the others being read
                     import traceback
                     from rstools import errorlog
                     errorlog.write(traceback.format_exc())
+                finally:
+                    handling.discard(id(q))
             try:
                 active = active or had or busy()
             except Exception:
                 pass
-        self._schedule(self.FAST_MS if active else self.SLOW_MS)
+        if not active and self._after is not None:     # nothing going on: look again less often
+            try:
+                self.root.after_cancel(self._after)
+            except tk.TclError:
+                pass
+            self._after = None
+        if self._after is None:
+            self._schedule(self.SLOW_MS)
 
     def stop(self):
         if self._after is not None:

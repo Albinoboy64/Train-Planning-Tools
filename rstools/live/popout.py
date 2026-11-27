@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 try:
     import tkinter as tk
@@ -34,16 +34,21 @@ def parse_geometry(text: str) -> Optional[Tuple[int, int, int, int]]:
     return int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
 
 
-def fit_geometry(saved: str, desktop: Tuple[int, int, int, int], screen: Tuple[int, int]) -> str:
+def fit_geometry(saved: str, desktop: Tuple[int, int, int, int], screen: Tuple[int, int],
+                 monitors: Sequence[Tuple[int, int, int, int]] = ()) -> str:
     """The geometry to open the window at: `saved` when enough of it is on the desktop (x, y, width, height of
-    every monitor together), otherwise a default size centred on the main screen (width, height)."""
+    every monitor together) - and, given the `monitors` (left, top, right, bottom of each), when its title bar is
+    on one of them (monitors of different sizes leave parts of the desktop no monitor shows) - otherwise a
+    default size centred on the main screen (width, height)."""
     g = parse_geometry(saved)
     dx, dy, dw, dh = desktop
     if g:
         w, h, x, y = g
         seen_w = min(x + w, dx + dw) - max(x, dx)
         seen_h = min(y + h, dy + dh) - max(y, dy)
-        if w >= 200 and h >= 150 and seen_w >= MIN_VISIBLE[0] and seen_h >= MIN_VISIBLE[1] and y >= dy:
+        on_one = not monitors or any(min(x + w, r) - max(x, left) >= MIN_VISIBLE[0] and top <= y < bottom - 20
+                                     for left, top, r, bottom in monitors)
+        if w >= 200 and h >= 150 and seen_w >= MIN_VISIBLE[0] and seen_h >= MIN_VISIBLE[1] and y >= dy and on_one:
             return f"{w}x{h}+{x}+{y}"
     sw, sh = screen
     w, h = min(DEFAULT_SIZE[0], sw - 40), min(DEFAULT_SIZE[1], sh - 80)
@@ -62,6 +67,11 @@ def desktop_area(widget) -> Tuple[int, int, int, int]:
         except Exception:
             pass
     return 0, 0, widget.winfo_screenwidth(), widget.winfo_screenheight()
+
+
+def _displays():
+    from rstools import theme
+    return theme.displays()
 
 
 class LiveWindow:
@@ -104,7 +114,8 @@ class LiveWindow:
         self.holder.tk.call("wm", "geometry", w, fit_geometry(getattr(self.app.opts, "live_window", ""),
                                                               desktop_area(self.holder),
                                                               (self.holder.winfo_screenwidth(),
-                                                               self.holder.winfo_screenheight())))
+                                                               self.holder.winfo_screenheight()),
+                                                              [a for a, _dpi in _displays()]))
         self.holder.tk.call("wm", "protocol", w, "WM_DELETE_WINDOW", self.holder.register(self.bring_back))
         self._apply_on_top()
         keys: List[Tuple[str, Callable[[], object]]] = [

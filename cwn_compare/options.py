@@ -115,6 +115,8 @@ class Options:
         try:
             with open(cls.settings_path(), encoding="utf-8") as fh:
                 d = json.load(fh)
+            if not isinstance(d, dict):    # 'null', a list...: the defaults
+                return o
             defaults = cls()
             for k, v in d.items():         # ignore unknown keys and values of the wrong type
                 if k != "categories" and hasattr(o, k) and isinstance(v, type(getattr(defaults, k))):
@@ -134,10 +136,11 @@ class Options:
             o.saved = {k: v for k, v in o.saved.items() if isinstance(k, str) and isinstance(v, dict)
                        and isinstance(v.get("tab"), int) and isinstance(v.get("state"), dict)}
             cats = default_categories()
-            for k, v in (d.get("categories") or {}).items():
-                if k in cats:
+            saved_cats = d.get("categories")
+            for k, v in (saved_cats.items() if isinstance(saved_cats, dict) else ()):
+                if k in cats and isinstance(v, dict):
                     cats[k].update({kk: bool(vv) for kk, vv in v.items() if kk in cats[k]})
             o.categories = cats
-        except (OSError, ValueError, TypeError):
-            pass
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass                           # an unreadable or odd file: the window still opens, with defaults
         return o

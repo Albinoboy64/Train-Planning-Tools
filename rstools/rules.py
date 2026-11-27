@@ -219,7 +219,9 @@ def _read_set(name: str, pdfs: Sequence[str], log) -> Tuple[dict, dict]:
 
 
 def _write_gz(path: str, data: dict):
-    with gzip.open(path, "wt", encoding="utf-8") as fh:
+    """Written to a temporary file first, so a failed save (a full disk, a crash) leaves the old set as it was."""
+    from rstools.fsutil import atomic_path
+    with atomic_path(path) as tmp, gzip.open(tmp, "wt", encoding="utf-8") as fh:
         json.dump(data, fh, separators=(",", ":"))
 
 

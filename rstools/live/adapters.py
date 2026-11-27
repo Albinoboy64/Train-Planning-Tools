@@ -355,20 +355,27 @@ def lists(cmp) -> LiveResult:
     for i, j, h, old, new in cmp.changes:
         changed[(i, j)][h] = (old, new)
     items: List[LiveItem] = []
+    seen: Dict[str, int] = {}
+
+    def key(base: str) -> str:
+        """The row's key from the train itself, not its row number (a row put in above must not change every
+        key below it, which would lose their confirmations); a second identical train gets '#2'."""
+        seen[base] = seen.get(base, 0) + 1
+        return base if seen[base] == 1 else f"{base}#{seen[base]}"
     cols = [(h, a.headers.index(h), b.headers.index(h)) for h in cmp.common]
     for i, j in cmp.pairs:
         diff = changed.get((i, j), {})
         ra, rb = a.rows[i], b.rows[j]
         rows = [LiveRow([h, ra[ca], rb[cb]], CHANGED if h in diff else SAME) for h, ca, cb in cols]
         label = " ".join(x for x in _ident(a, i)[:3] if x)
-        items.append(LiveItem(f"pair|{'|'.join(_ident(a, i))}|{i}", "Paired", label, CHANGED if diff else SAME,
+        items.append(LiveItem(key(f"pair|{'|'.join(_ident(a, i))}"), "Paired", label, CHANGED if diff else SAME,
                               ", ".join(diff) + " changed" if diff else "No change", rows,
                               [f"{h}: {o or '-'} -> {n or '-'}" for h, (o, n) in diff.items()], len(items)))
     for lst, idxs, state, word in ((a, cmp.removed, REMOVED, "Removed"), (b, cmp.added, ADDED, "Added")):
         for r in idxs:
             rows = [LiveRow([h, v if state == REMOVED else "", v if state == ADDED else ""], state)
                     for h, v in zip(lst.headers, lst.rows[r]) if v]
-            items.append(LiveItem(f"{word}|{'|'.join(_ident(lst, r))}|{r}", word,
+            items.append(LiveItem(key(f"{word}|{'|'.join(_ident(lst, r))}"), word,
                                   " ".join(x for x in _ident(lst, r)[:3] if x), state, f"Train {word.lower()}", rows,
                                   [], len(items)))
     return LiveResult("Attune train lists", ["Column", "Original", "Updated"], items, list(cmp.warnings))

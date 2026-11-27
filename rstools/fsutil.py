@@ -2,6 +2,7 @@
 full disk part-way through never leaves a damaged output or settings file behind."""
 from __future__ import annotations
 
+import errno
 import json
 import os
 from contextlib import contextmanager
@@ -146,6 +147,24 @@ def excel_warning(paths) -> str:
             "shorter 'Save to folder' (e.g. Documents or the desktop), or move the file to a shorter folder.")
 
 
+def move_new(tmp: str, final: str):
+    """Move a finished temporary file to `final` only if nothing is there yet (an output is never written over,
+    even when another run took the same name after unique_stem chose it): FileExistsError instead."""
+    if os.name == "nt":
+        os.rename(tmp, final)            # Windows: refuses (FileExistsError) when `final` exists
+        return
+    try:
+        os.link(tmp, final)              # elsewhere: a hard link is made only if `final` does not exist
+    except FileExistsError:
+        raise
+    except OSError:                      # a file system without hard links
+        if os.path.exists(final):
+            raise FileExistsError(errno.EEXIST, "A file with this name was saved meanwhile", final) from None
+        os.replace(tmp, final)
+        return
+    os.remove(tmp)
+
+
 @contextmanager
 def atomic_path(path: str):
     """Yield a temporary path next to `path`; on success it replaces `path`, on failure it is removed."""
@@ -206,11 +225,12 @@ def plain_text(ws):
     """Store every formula-looking value on a sheet the app generated as text. openpyxl turns any string
     starting with '=' into a live formula, so text copied from an input file (a destination, a note, a
     cell of an Attune list) could otherwise run as a formula - e.g. a DDE command - when the output is
-    opened. The app never writes formulas of its own, so this changes nothing else."""
-    for row in ws.iter_rows():
-        for cell in row:
-            if cell.data_type == "f":
-                cell.data_type = "s"
+    opened. The app never writes formulas of its own, so this changes nothing else.
+    Only cells that exist are visited (iter_rows would make every empty cell of the used range)."""
+    cells = getattr(ws, "_cells", None)
+    for cell in (cells.values() if isinstance(cells, dict) else (c for row in ws.iter_rows() for c in row)):
+        if cell.data_type == "f":
+            cell.data_type = "s"
 
 
 

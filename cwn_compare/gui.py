@@ -290,6 +290,9 @@ class App(tk.Tk):
         if not m or not area:
             return False
         w, h, x, y = map(int, m.groups())
+        found = theme.pick_display((x + w // 2, y + h // 2), theme.displays())   # the display it was on last
+        if found is not None:                                                     # time, if still there
+            area = found[0]
         left, top, right, bottom = area
         if w < 200 or h < 200 or x < left - 8 or y < top - 8 or x + w > right + 8 or y + h > bottom + 8:
             return False
@@ -579,6 +582,8 @@ class App(tk.Tk):
     def _fill_saved_menu(self):
         m = self.saved_menu
         m.delete(0, "end")
+        for sub in m.winfo_children():           # the submenus made last time (delete() leaves them behind)
+            sub.destroy()
         idx = self.notebook.index("current")
         m.add_command(label=f"Save {TAB_NAMES[idx]} settings as...", command=self._save_settings_as)
         here = self._saved(idx)                  # this tab's settings in the menu itself, the other tabs' below
@@ -699,7 +704,17 @@ class App(tk.Tk):
         return updater.unprotect(self.opts.github_token)
 
     def check_for_updates(self, release=None):
-        UpdateDialog(self, __version__, self._token(), release)
+        """One update window at a time: asking again brings the open one to the front."""
+        win = getattr(self, "_update_win", None)
+        try:
+            if win is not None and win.winfo_exists():
+                win.deiconify()
+                win.lift()
+                win.focus_force()
+                return
+        except tk.TclError:
+            pass
+        self._update_win = UpdateDialog(self, __version__, self._token(), release)
 
     def _startup_update_check(self):
         if not self.opts.check_updates:
@@ -968,11 +983,28 @@ class App(tk.Tk):
         line = f"{time.strftime('%H:%M')} {title}" + (f" - {message}" if message else "")
         self._set_status(line, "" if ok else "Warn.TLabel", paths)
 
-    def _on_close(self):
+    def _on_close(self, ask: bool = True):
+        """Close the app: asks first about a run in progress and unsaved Settings tables (unless `ask` is False,
+        e.g. when an update is installed), stops every run and its helper processes, saves the settings."""
         busy = self.running or self.stats_tab.running or self.tt_tab.running or self.live_tab.running
-        if busy and not messagebox.askyesno(
+        if ask and busy and not messagebox.askyesno(
                 APP_NAME, "A run is still in progress and its output will not be saved.\n\nClose anyway?", parent=self):
             return
+        from rstools import settings_dialog
+        win = settings_dialog._OPEN.get("win")
+        if ask and win is not None:
+            try:
+                win.close()                     # asks to save edited tables; Cancel keeps the app open
+            except tk.TclError:
+                pass
+            if settings_dialog._OPEN.get("win") is not None:
+                return
+        for tab in (self, self.stats_tab, self.tt_tab, self.live_tab):     # stop every run at its next step
+            stop = getattr(getattr(tab, "q", None), "stop", None)
+            if stop:
+                stop()
+        from rstools.pools import stop_all
+        stop_all()                              # helper processes end now, not after their queued jobs
         for save in (self.live_window._save_place, self.save_app_settings):   # one failing never skips the other
             try:
                 save()
@@ -2037,6 +2069,10 @@ class App(tk.Tk):
             self.upd.set("")
         if mode != self._last_mode and {mode, self._last_mode} == {"reorder", "station"}:
             self.util.set("")                       # a CWN and an XML do not mix
+        if mode != self._last_mode:                 # a reading started for the last task no longer applies
+            self.prev_info_token += 1
+            self._book_token = getattr(self, "_book_token", 0) + 1
+            self._run_when_days_known = False
         self._last_mode = mode
         station = mode == "station"
         reorder = mode == "reorder"
@@ -2415,11 +2451,17 @@ class App(tk.Tk):
         self._start()
         self._append_log(f"Comparing {plural(len(pairs), 'pair')}, {workers_for(pairs)} at a time")
 
+        def one_done(n, total, a, b, res, err):
+            self.q.put(("batch_one", n, total, a, b, res, err))
+            if self.q.stopping and n < total:   # Stop: the pairs already compared are kept, the rest not started
+                self.q.put(("batch_stopped", n, total))
+                from rstools.cancel import Cancelled
+                raise Cancelled()
+
         def work():
             from .batch import run_batch
             try:
-                results = run_batch(pairs, o, lambda n, total, a, b, res, err: self.q.put(
-                    ("batch_one", n, total, a, b, res, err)))
+                results = run_batch(pairs, o, one_done)
                 self.q.put(("batch_done", results))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
@@ -2525,6 +2567,8 @@ class App(tk.Tk):
         for b in self.day_btns:
             b.state(["!disabled"] if days else ["disabled"])
         self.day_note.configure(text=note)
+        if not days:                                # the days could not be read: a loaded setting is not run later
+            self._run_when_days_known = False
         if days:
             self._pending_days = None
             if self._run_when_days_known:
@@ -2784,6 +2828,11 @@ class App(tk.Tk):
                         self._append_log(f"{os.path.basename(b)}: {plural(res['changes'], 'change')} -> {res['cwn']}")
                     else:
                         self._append_log(f"ERROR {os.path.basename(b)}: {err}")
+                elif kind == "batch_stopped":
+                    self._finish("stopped")
+                    self.status.configure(text=f"Stopped after {item[1]} of {item[2]}")
+                    self._append_log(f"Stopped: {plural(item[1], 'pair')} of {item[2]} compared and saved (listed "
+                                     "above); the others were not compared.")
                 elif kind == "batch_done":
                     self._finish()
                     results = [r for r in item[1] if r]

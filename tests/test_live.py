@@ -580,3 +580,14 @@ def test_live_output_display_options(tmp_path, monkeypatch):
         assert str(tab.left) in [str(p) for p in tab.pane.panes()]
     finally:
         app.destroy()
+
+
+def test_live_window_geometry_needs_a_real_monitor():
+    """Monitors of different sizes leave parts of the desktop no monitor shows: a window saved there is not
+    reopened there (its title bar would be out of reach)."""
+    from rstools.live.popout import fit_geometry
+    desk = (0, -400, 3286, 1480)                          # a tall monitor right of a 1366 x 768 laptop screen
+    monitors = [(0, 0, 1366, 768), (1366, -400, 3286, 1080)]
+    default = fit_geometry("", desk, (1366, 768), monitors)
+    assert fit_geometry("1000x700+100+-300", desk, (1366, 768), monitors) == default     # above the laptop
+    assert fit_geometry("1000x700+1500+-300", desk, (1366, 768), monitors) == "1000x700+1500+-300"

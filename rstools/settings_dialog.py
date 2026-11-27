@@ -346,19 +346,33 @@ class BerthingPage(ttk.Frame):
         self.make_btn.state(["disabled"])
         self.info_lbl.configure(text="Reading the XML...")
 
+        box: list = []                       # the helper thread's result, picked up here (Tk is not thread-safe)
+
         def work():
             try:
                 from rstools.berthing import engine
-                sheets = engine.make_location_set(list(paths), op)
-                self.after(0, lambda: self._made(sheets, paths, ""))
+                box.append((engine.make_location_set(list(paths), op), ""))
             except Exception as exc:
-                self.after(0, lambda e=str(exc): self._made(None, paths, e))
-        threading.Thread(target=work, daemon=True).start()
+                box.append((None, str(exc)))
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
 
-    def _made(self, sheets, paths, error: str):
+        def wait():
+            if not self.winfo_exists():
+                return
+            if box:
+                self._made(box[0][0], paths, box[0][1], op)
+            else:
+                self.after(100, wait)
+        self.after(100, wait)
+
+    def _made(self, sheets, paths, error: str, op: str = ""):
         if not self.winfo_exists():
             return
         self.make_btn.state(["!disabled"])
+        if op and op != self.op.get():       # another chart type was chosen meanwhile: not its locations
+            self._describe()
+            return
         if error:
             self._describe()
             messagebox.showwarning(TITLE, error, parent=self)

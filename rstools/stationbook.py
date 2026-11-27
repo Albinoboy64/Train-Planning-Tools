@@ -919,7 +919,8 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
         log(f"Making {len(entries)} books on {workers} CPU cores...")
         progress(0.02, f"Making {len(entries)} books...")
         try:                                        # one job per station: each helper reads the XML once (cached)
-            with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
+            from rstools.pools import stoppable
+            with stoppable(ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"))) as pool:
                 jobs = {pool.submit(_books_job, xml, [e], kw): i for i, e in enumerate(entries)}
                 done = {}
                 for fut in as_completed(jobs):

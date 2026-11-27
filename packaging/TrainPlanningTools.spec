@@ -4,7 +4,7 @@
 #
 # Size optimisation without losing functionality:
 #  * modules the app never uses are excluded (numpy, test frameworks, bz2/lzma
-#    compression). SSL is kept: Options > Check for updates talks to GitHub over HTTPS;
+#    compression). SSL is kept: Help > Check for updates talks to GitHub over HTTPS;
 #  * only the drag-and-drop (tkdnd) binary for this platform is bundled, not all 14;
 #  * Tcl/Tk time-zone tables, translated message catalogues, demo images and East-Asian
 #    text encodings are left out (the app's dialogs are English and it uses no time zones).

@@ -109,6 +109,7 @@ class TableEditor(ttk.Frame):
         self.load, self.save_fn, self.default, self.open_file, self.on_saved = load, save, default, open_file, on_saved
         self.rows: Rows = []
         self.dirty = False
+        self.watch_path: Optional[Callable[[], str]] = None     # the file, to re-read only when it changes
         self._edit: Optional[ttk.Entry] = None
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -295,13 +296,32 @@ class TableEditor(ttk.Frame):
             self.open_file()
         self.status.configure(text="Opened in Excel. Save and close it there, then come back here: the rows are "
                                    "read again.")
+        self._seen = self._stamp()
         if not getattr(self, "_watching", False):
             self._watching = True
-            self.winfo_toplevel().bind("<FocusIn>", lambda _e: self._reread(), add="+")
+            top = self.winfo_toplevel()
+            top.bind("<FocusIn>", lambda e: self._reread() if e.widget is top else None, add="+")
+
+    def _stamp(self):
+        """The file's modified time and size (None when the editor has no file, or it cannot be read)."""
+        path_fn = getattr(self, "watch_path", None)
+        if path_fn is None:
+            return None
+        try:
+            st = os.stat(path_fn())
+            return (st.st_mtime, st.st_size)
+        except OSError:
+            return None
 
     def _reread(self):
-        if not self.dirty and self.winfo_exists():
-            self.reload()
+        """The window came back (from Excel): the rows are read again, only if the file was changed there."""
+        if self.dirty or not self.winfo_exists():
+            return
+        now = self._stamp()
+        if now is not None and now == getattr(self, "_seen", None):
+            return
+        self._seen = now
+        self.reload()
 
 
 def csv_editor(master, path_fn: Callable[[], str], default_path: str, numbers: Sequence[str] = (),
@@ -314,8 +334,10 @@ def csv_editor(master, path_fn: Callable[[], str], default_path: str, numbers: S
         if n not in names:
             names.append(n)
     columns = [Column(n, (widths or {}).get(n, max(80, min(260, 9 * len(n)))), n in numbers) for n in names]
-    return TableEditor(master, columns, load=lambda: read_csv(path_fn()),
-                       save=lambda rows: (os.path.abspath(path_fn()) != os.path.abspath(default_path)
-                                          and write_csv(path_fn(), columns, rows)),     # never the built-in file
-                       default=lambda: read_csv(default_path),
-                       open_file=(lambda: open_path(path_fn())) if open_path else None, on_saved=on_saved)
+    editor = TableEditor(master, columns, load=lambda: read_csv(path_fn()),
+                         save=lambda rows: (os.path.abspath(path_fn()) != os.path.abspath(default_path)
+                                            and write_csv(path_fn(), columns, rows)),     # never the built-in file
+                         default=lambda: read_csv(default_path),
+                         open_file=(lambda: open_path(path_fn())) if open_path else None, on_saved=on_saved)
+    editor.watch_path = path_fn             # re-read after Excel only when the file has changed
+    return editor

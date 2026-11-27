@@ -493,6 +493,10 @@ def timetable_cli(argv):
     if a.passenger_only and not a.prints:
         ap.error("--passenger-only is used with --prints")
     if a.s4_check:
+        bad = _s4_files_problem(a)
+        if bad:                              # reported as before the section4 subcommand: ERROR, exit code 1
+            print("ERROR:", bad)
+            sys.exit(1)
         _section4_cli(a)
         return
     if a.s4_compare:
@@ -566,23 +570,26 @@ def _check_vpts(ap, a):
         ap.error("these are not Attune VPT exports (.vpt) or F3 prints (.pdf / .docx): " + ", ".join(bad))
 
 
+def _s4_files_problem(a) -> str:
+    """What is wrong with the Section 4 check's files ('' if nothing): checked before any of them is read."""
+    missing = [p for p in [a.s4_check] + a.s4 if not os.path.isfile(p)]
+    if missing:
+        return "These files could not be found:\n" + "\n".join(missing)
+    from rstools.timetable.vpt import is_vpt
+    bad = [p for p in ([a.vpt] if a.vpt else []) if not is_vpt(p)] + [p for p in a.other_vpt if not _other_ok(p)]
+    if bad:
+        return "These are not Attune VPT exports (.vpt) or F3 prints (.pdf / .docx):\n" + "\n".join(bad)
+    return ""
+
+
 def _section4_cli(a):
-    """Run the Section 4 check for `section4` and `timetable --s4-check` and print its summary."""
+    """Run the Section 4 check for `section4` and `timetable --s4-check` and print its summary. Both callers
+    have already checked the files; the check's own errors (Section4Error) end the run with an ERROR line."""
+    from rstools.fsutil import output_folder
     from rstools.timetable.engine import TimetableRunError
     from rstools.timetable.section4 import Section4Error, run_check
     try:
-        if not os.path.isfile(a.s4_check):
-            raise Section4Error(f"This file could not be found:\n{a.s4_check}")
-        missing = [p for p in a.s4 if not os.path.isfile(p)]
-        if missing:
-            raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
-        from rstools.timetable.vpt import is_vpt
-        bad = [p for p in ([a.vpt] if a.vpt else []) if not (os.path.isfile(p) and is_vpt(p))]
-        bad += [p for p in a.other_vpt if not _other_ok(p)]
-        if bad:
-            raise Section4Error("These are not Attune VPT exports (.vpt) or F3 prints (.pdf / .docx):\n"
-                                + "\n".join(bad))
-        path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print,
+        path, res, st, _start = run_check(a.s4_check, a.s4, output_folder(a.out), a.name, a.format, log=print,
                                           vpt=a.vpt or "", others=a.other_vpt)
     except (Section4Error, TimetableRunError) as exc:
         print("ERROR:", exc)
@@ -825,8 +832,29 @@ def main(argv):
     elif argv:
         cli(argv)
     else:
+        _open_window()
+
+
+def _open_window():
+    """The window. The exe has no console, so a failure while it opens goes in error.log and a message box -
+    never a silent exit."""
+    try:
         from cwn_compare.gui import main as open_window
         open_window()
+    except Exception as exc:
+        import traceback
+        from rstools import errorlog
+        errorlog.write(traceback.format_exc())
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Train Planning Tools", errorlog.describe(exc), parent=root)
+            root.destroy()
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":

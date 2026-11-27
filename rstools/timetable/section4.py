@@ -887,6 +887,8 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
     too. Returns (path, result, statement, plan start)."""
     from rstools.stationbook import StationBookError, _plan_of
     from rstools import naming, rules
+    from rstools.fsutil import output_folder
+    out_dir = output_folder(out_dir)       # a folder on this PC (blank or a network path: Downloads)
     if pdfs:
         progress(0.05, "Reading the Section 4 PDF(s)...")
         statement = read_statement(pdfs, log)

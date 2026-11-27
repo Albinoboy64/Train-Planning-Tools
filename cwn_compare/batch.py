@@ -137,6 +137,20 @@ def workers_for(pairs: List[Tuple[str, str]]) -> int:
     return max(1, min(cores, len(pairs), by_memory))
 
 
+def _distinct_names(pairs: List[Tuple[str, str]]) -> List[str]:
+    """Each pair's output name: '' (the usual name) unless two pairs would get the same one, when the later ones
+    get ' (2)', ' (3)'... - pairs compared at the same time must not choose the same file name."""
+    from .options import default_name
+    seen: dict = {}
+    out = []
+    for o, u in pairs:
+        name = default_name(o, u)
+        key = name.casefold()
+        seen[key] = seen.get(key, 0) + 1
+        out.append("" if seen[key] == 1 else f"{name} ({seen[key]})")
+    return out
+
+
 def _one(opts: Options) -> dict:
     from .engine import run
     return run(opts)
@@ -150,8 +164,8 @@ def run_batch(pairs: List[Tuple[str, str]], base: Options,
     if pairs and folder != base.output_dir:   # no folder chosen: a folder in Downloads named after the updated CWNs'
         folder = os.path.join(folder, os.path.basename(os.path.dirname(os.path.abspath(pairs[0][1]))) or "CWNs")
         os.makedirs(folder, exist_ok=True)
-    jobs = [dataclasses.replace(base, original=o, updated=u, output_name="", days=[], output_dir=folder)
-            for o, u in pairs]
+    jobs = [dataclasses.replace(base, original=o, updated=u, output_name=name, days=[], output_dir=folder)
+            for (o, u), name in zip(pairs, _distinct_names(pairs))]
     results: List[dict] = []
     workers = workers_for(pairs)
     if workers > 1:
@@ -160,7 +174,8 @@ def run_batch(pairs: List[Tuple[str, str]], base: Options,
         except Exception:
             pool = None
         if pool is not None:
-            with pool:
+            from rstools.pools import stoppable
+            with stoppable(pool):                 # Stop (raised by done()) ends the helpers at once
                 futures = {pool.submit(_one, job): i for i, job in enumerate(jobs)}
                 for n, fut in enumerate(as_completed(futures), start=1):
                     i = futures[fut]

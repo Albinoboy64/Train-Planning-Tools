@@ -70,7 +70,7 @@ def write_zip(path: str, items: Iterable[Tuple[str, object]]):
     else:
         packed = [pack(d) for _n, d in parts]
     dos_t, dos_d = _dos_time()
-    from .fsutil import long_path, temp_path
+    from .fsutil import long_path, move_new, temp_path
     tmp, final = long_path(temp_path(path)), long_path(path)
     try:
         with open(tmp, "xb") as fh:          # a new file only: never one already there
@@ -93,7 +93,7 @@ def write_zip(path: str, items: Iterable[Tuple[str, object]]):
                 fh.write(entry)
             size = fh.tell() - start
             fh.write(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(central), len(central), size, start, 0))
-        os.replace(tmp, final)
+        move_new(tmp, final)                 # never over a file already there
     except BaseException:
         try:
             os.remove(tmp)

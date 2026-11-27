@@ -705,6 +705,7 @@ class LiveTab(ttk.Frame):
     def window_changed(self, out: bool):
         """The Live View was moved into its own window (out) or back into its tab: show the window's controls."""
         self.pop_btn.configure(text="Bring back" if out else "Pop out")
+        icons.refresh_button(self.pop_btn)          # 'Bring back' has no pop-out arrow
         if out and self.window is not None:
             self.top_cb.configure(variable=self.window.on_top)
             self.full_btn.configure(text="Leave full screen (Esc)" if self.window.fullscreen else "Full screen (F11)")
@@ -817,7 +818,12 @@ class LiveTab(ttk.Frame):
         self._finished()
         if mode != self.mode():
             return
+        if files and files != self._files_now():   # the files were changed while it ran: not these files' result
+            self._clear()
+            self.status.configure(text="The files were changed - press Compare.")
+            return
         old = {k: it.signature() for k, it in self.items.items()} if refresh else {}
+        self._result_files = dict(files or {})       # confirmations are saved against the files compared
         self.raw = res
         self.result = res = view(res, self.ignore_var.get(), self.check_var.get())
         self.items = {it.key: it for it in res.items}
@@ -907,8 +913,15 @@ class LiveTab(ttk.Frame):
             return ""
 
     def _clear(self):
+        if getattr(self, "_autosave_after", None):          # ticks made just before: saved, not lost
+            self.after_cancel(self._autosave_after)
+            self._autosave(background=True)
+        self._fill_gen = getattr(self, "_fill_gen", 0) + 1   # a list still being filled stops
         self.result, self.raw, self.items, self.fresh, self.watch = None, None, {}, set(), {}
         self.confirmed, self.reopened, self._progress_for = {}, set(), ""
+        self._result_files = {}
+        if hasattr(self, "days_note"):
+            self.days_note.configure(text="(available after Compare)")
         if hasattr(self, "progress_lbl"):
             self.progress_lbl.configure(text="")
         self._days_known = set()
@@ -1084,7 +1097,7 @@ class LiveTab(ttk.Frame):
         slow drive never holds up the window."""
         from .progress import autosave_path, save
         self._autosave_after = None
-        files = self._files_now()
+        files = getattr(self, "_result_files", None) or {}
         if files and self.items:
             args = (autosave_path(self.mode(), files), self.mode(), files, dict(self.confirmed), self.get_state(),
                     set(self.reopened))

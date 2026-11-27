@@ -19,7 +19,15 @@ VERSION = 1
 
 
 def fingerprint(item) -> str:
-    """A short fingerprint of everything the Live View shows for an item."""
+    """A short fingerprint of the item's details (the cells of its table): it changes when a file is corrected,
+    not when a view option is changed (checking header or timing differences, error checking on or off), which
+    only changes how the same details are marked."""
+    cells = tuple(tuple(r.cells) for r in item.rows)
+    return "v2:" + hashlib.sha1(repr(cells).encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _legacy_fingerprint(item) -> str:
+    """The fingerprint saved before 3.38.6 (everything shown, marks included), still accepted when loading."""
     return hashlib.sha1(repr(item.signature()).encode("utf-8", "replace")).hexdigest()[:16]
 
 
@@ -38,13 +46,18 @@ def autosave_path(mode: str, files: Dict[str, List[str]]) -> str:
 def reconcile(confirmed: Dict[str, str], items: Iterable) -> Tuple[Dict[str, str], Set[str]]:
     """(confirmations still valid, keys whose item changed since it was confirmed). Items no longer in the
     comparison keep their confirmation (they may come back when a day or filter is changed)."""
-    now = {it.key: fingerprint(it) for it in items}
+    shown = {it.key: it for it in items}
     kept, changed = {}, set()
     for key, fp in confirmed.items():
-        if key in now and now[key] != fp:
-            changed.add(key)
-        else:
+        it = shown.get(key)
+        if it is None:
             kept[key] = fp
+            continue
+        now = fingerprint(it)
+        if fp == now or (not fp.startswith("v2:") and fp == _legacy_fingerprint(it)):
+            kept[key] = now                 # an older save's fingerprint is moved to the new kind
+        else:
+            changed.add(key)
     return kept, changed
 
 

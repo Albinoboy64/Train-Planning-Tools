@@ -119,7 +119,11 @@ class UpdateDialog(tk.Toplevel):
                 except (updater.UpdateError, OSError) as exc:
                     messagebox.showerror(TITLE, str(exc), parent=self)
                     return
-                self.app.destroy()
+                closing = getattr(self.app, "_on_close", None)     # saves Live View progress, stops helpers
+                if closing:
+                    closing(ask=False)
+                else:
+                    self.app.destroy()
             return
         self.sub.configure(text=f"Saved to {path}")
         messagebox.showinfo(TITLE, f"The new version was saved to:\n{path}\n\nClose this app and "
