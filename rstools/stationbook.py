@@ -735,7 +735,7 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         for p in merge_xml:
             log(f"Merging {os.path.basename(p)}")
             try:
-                others.append(_plan_of(p, keep=True))
+                others.append(_plan_of(p))
             except Exception as exc:                  # a VPT that cannot be read (PrintError)
                 if p.lower().endswith(".vpt"):
                     raise StationBookError(str(exc))
@@ -792,22 +792,16 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     return path, warnings, summary
 
 
-_PLANS: Dict[tuple, Plan] = {}
-
-
-def _plan_of(xml: str, keep: bool = False) -> Plan:
-    """read_plan, kept while the file is unchanged (several books from one XML read it once). `keep` keeps the
-    plans already read (the main XML and those merged into it)."""
-    try:
-        st = os.stat(xml)
-        key = (os.path.abspath(xml), st.st_mtime_ns, st.st_size)
-    except OSError:
-        return read_plan(xml)
-    if key not in _PLANS:
-        if not keep:
-            _PLANS.clear()
-        _PLANS[key] = read_plan(xml)
-    return _PLANS[key]
+def _plan_of(xml: str) -> Plan:
+    """read_plan, kept while the file is unchanged (several books from one XML read it once), in the app's
+    shared store of files read (rstools.filecache). A file that fails to read is never kept."""
+    from rstools import filecache
+    key, stamp = filecache.key_of(_plan_of, xml)
+    plan = filecache.get(key, stamp)
+    if plan is None:
+        plan = read_plan(xml)
+        filecache.put(key, stamp, plan)
+    return plan
 
 
 def merge_plans(plan: Plan, others: Sequence[Plan]) -> Plan:

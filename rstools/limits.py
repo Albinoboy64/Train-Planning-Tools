@@ -56,6 +56,18 @@ def get(name: str) -> int:
     return _cache[name]
 
 
+def current() -> Dict[str, int]:
+    """Every limit now in force (to hand to a helper process, see use)."""
+    return {name: get(name) for name in DEFAULTS}
+
+
+def use(values: Optional[Dict[str, int]]):
+    """Use these limits (from current() in the app) instead of reading limits.json again."""
+    global _cache
+    if values:
+        _cache = {**DEFAULTS, **values}
+
+
 def reload():
     """Forget the limits read, so limits.json is read again (tests, or after editing it)."""
     global _cache

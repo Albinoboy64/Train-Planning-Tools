@@ -234,12 +234,12 @@ def test_summary_file_sits_beside_any_output_name(tmp_path, monkeypatch):
 def test_repeated_section4_checks_read_the_xml_once(tmp_path, monkeypatch):
     import openpyxl
     import test_timetable as tt
-    from rstools import stationbook as SB
+    from rstools import filecache, stationbook as SB
     from rstools.timetable import section4 as S4
     xml, pdf = str(tmp_path / "plan.xml"), str(tmp_path / "s4.pdf")
     tt.write_s4_xml(xml)
     tt.write_s4_pdf(pdf, tt.S4_ROWS)
-    SB._PLANS.clear()
+    filecache.clear()
     reads = []
     real = SB.read_plan
     monkeypatch.setattr(SB, "read_plan", lambda path: reads.append(path) or real(path))
@@ -261,7 +261,7 @@ def test_repeated_section4_checks_read_the_xml_once(tmp_path, monkeypatch):
 
 def test_section4_check_reports_a_cut_off_xml_every_time(tmp_path, monkeypatch):
     import test_timetable as tt
-    from rstools import stationbook as SB
+    from rstools import filecache, stationbook as SB
     from rstools.timetable import section4 as S4
     xml, pdf = str(tmp_path / "plan.xml"), str(tmp_path / "s4.pdf")
     tt.write_s4_xml(xml)
@@ -269,14 +269,14 @@ def test_section4_check_reports_a_cut_off_xml_every_time(tmp_path, monkeypatch):
     data = open(xml, "rb").read()
     with open(xml, "wb") as fh:
         fh.write(data[: len(data) // 2])
-    SB._PLANS.clear()
+    filecache.clear()
     reads = []
     real = SB.read_plan
     monkeypatch.setattr(SB, "read_plan", lambda path: reads.append(path) or real(path))
     for _ in range(2):
         with pytest.raises(S4.Section4Error, match="could not be read"):
             S4.run_check(xml, [pdf], str(tmp_path), "cut")
-    assert len(reads) == 2 and not SB._PLANS                        # a failed read is never kept
+    assert len(reads) == 2 and filecache.get(*filecache.key_of(SB._plan_of, xml)) is None   # failed: never kept
 
 
 # --------------------------------------------------------------------------- 6. reorder flag checks

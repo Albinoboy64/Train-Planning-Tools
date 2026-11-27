@@ -208,7 +208,7 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
                 state, status = SAME, "No change"
             items.append(LiveItem(f"{sk}|{blk.key}|{'o' if n is None else 'n'}", title, blk.label(), state, status,
                                   rows, [c.description for c in mine], len(items)))
-        if so and sn and (so.footer or sn.footer):
+        if (so and so.footer) or (sn and sn.footer):         # also when only one file has the day's tab
             _footer_item(items, sk, title, so, sn, by_block)
     return LiveResult(f"{os.path.basename(orig)}  vs  {os.path.basename(upd)}",
                       ["Field", "Original", "Updated"], items, warnings)
@@ -216,19 +216,22 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
 
 def _footer_item(items: List[LiveItem], sk: str, title: str, so, sn, by_block):
     """Platform workings: a day's berthing arrangements as one entry, a row per platform or siding."""
-    old = {e["label"].casefold(): e for e in so.footer}
-    new = {e["label"].casefold(): e for e in sn.footer}
+    old = {e["label"].casefold(): e for e in (so.footer if so else [])}
+    new = {e["label"].casefold(): e for e in (sn.footer if sn else [])}
     changed = {c.target_key.casefold(): c for c in _footer_changes(by_block, sk)}
     rows = []
-    for k, e in new.items():
+    for k in list(new) + [k for k in old if k not in new]:          # lines only in the original come last
         if "berthing arrangements" in k:
             continue
-        o = old.get(k)
-        rows.append(LiveRow([e["label"], o["text"] if o else "", e["text"]], CHANGED if k in changed else SAME))
-    head = next((e["label"] for e in sn.footer if "berthing arrangements" in e["label"].casefold()),
-                f"{title} berthing arrangements")
-    items.append(LiveItem(f"{sk}|footer|n", title, head.rstrip(":- "), CHANGED if changed else SAME,
-                          "Berthing arrangements changed" if changed else "No change", rows,
+        o, e = old.get(k), new.get(k)
+        state = REMOVED if e is None else ADDED if o is None else CHANGED if k in changed else SAME
+        label = (e or o or {}).get("label", "")
+        rows.append(LiveRow([label, o["text"] if o else "", e["text"] if e else ""], state))
+    differs = bool(changed) or any(r.state != SAME for r in rows)
+    head = next((e["label"] for e in list(new.values()) + list(old.values())
+                 if "berthing arrangements" in e["label"].casefold()), f"{title} berthing arrangements")
+    items.append(LiveItem(f"{sk}|footer|n", title, head.rstrip(":- "), CHANGED if differs else SAME,
+                          "Berthing arrangements changed" if differs else "No change", rows,
                           [c.description for c in changed.values()], len(items)))
 
 

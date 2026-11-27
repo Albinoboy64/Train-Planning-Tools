@@ -57,41 +57,25 @@ def read_all(reader: Callable, paths: Sequence[str]) -> list:
     return read_jobs([(reader, p) for p in paths])
 
 
-_CACHE: "dict" = {}                     # (reader, path) -> (mtime, size, result)
-_CACHE_SIZE = 12
-
-
-def _cache_key(reader, path):
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None, None
-    return (getattr(reader, "__module__", ""), getattr(reader, "__qualname__", repr(reader)),
-            os.path.abspath(path)), (st.st_mtime_ns, st.st_size)
-
-
 def read_jobs(jobs: Sequence[tuple]) -> list:
     """reader(path) for each (reader, path), in parallel when it pays; results in the same order.
     A file read before and unchanged since (same time stamp and size) is not read again - the Live
     view re-compares within a moment of one file being saved."""
+    from rstools import filecache
     out: list = [None] * len(jobs)
     todo = []
     for i, (reader, path) in enumerate(jobs):
-        key, stamp = _cache_key(reader, path)
-        hit = _CACHE.get(key) if key else None
-        if hit is not None and hit[0] == stamp:
-            out[i] = hit[1]
+        key, stamp = filecache.key_of(reader, path)
+        hit = filecache.get(key, stamp)
+        if hit is not None:
+            out[i] = hit
         else:
             todo.append((i, reader, path, key, stamp))
     if todo:
         results = _read_jobs([(reader, path) for _i, reader, path, _k, _s in todo])
         for (i, _reader, _path, key, stamp), res in zip(todo, results):
             out[i] = res
-            if key is not None:
-                _CACHE.pop(key, None)
-                _CACHE[key] = (stamp, res)
-                while len(_CACHE) > _CACHE_SIZE:
-                    _CACHE.pop(next(iter(_CACHE)))
+            filecache.put(key, stamp, res)
     return out
 
 

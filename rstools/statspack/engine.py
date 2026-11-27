@@ -59,25 +59,11 @@ class LoadedPlan:
     warnings: List[str] = field(default_factory=list)
 
 
-_CACHE: "dict" = {}
-_CACHE_SIZE = 4
-
-
 def cached(parser, path: str):
     """parser(path), remembered while the file is unchanged - the app reads a TRENT print when it
-    is chosen (to list its fleets) and again when the pack is run."""
-    try:
-        st = os.stat(path)
-    except OSError:
-        return parser(path)
-    key = (parser.__name__, os.path.abspath(path), st.st_mtime_ns, st.st_size)
-    hit = _CACHE.get(key)
-    if hit is None:
-        hit = parser(path)
-        while len(_CACHE) >= _CACHE_SIZE:
-            _CACHE.pop(next(iter(_CACHE)))
-        _CACHE[key] = hit
-    return hit
+    is chosen (to list its fleets) and again when the pack is run (rstools.filecache)."""
+    from rstools import filecache
+    return filecache.remember(parser, path)
 
 
 def split_paths(text: str) -> List[str]:

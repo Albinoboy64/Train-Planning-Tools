@@ -263,6 +263,9 @@ class App(tk.Tk):
         left, top, right, bottom = area
         if w < 200 or h < 200 or x < left - 8 or y < top - 8 or x + w > right + 8 or y + h > bottom + 8:
             return False
+        # at least the size the layout needs now (the text size or scaling may have grown since), kept on screen
+        w, h = max(w, min(need_w, right - left)), max(h, min(need_h, bottom - top))
+        x, y = max(left, min(x, right - w)), max(top, min(y, bottom - h))
         self.geometry(f"{w}x{h}+{x}+{y}")
         return True
 
@@ -886,7 +889,8 @@ class App(tk.Tk):
         self._set_status(line, "" if ok else "Warn.TLabel", paths)
 
     def _on_close(self):
-        if (self.running or self.stats_tab.running or self.tt_tab.running) and not messagebox.askyesno(
+        busy = self.running or self.stats_tab.running or self.tt_tab.running or self.live_tab.running
+        if busy and not messagebox.askyesno(
                 APP_NAME, "A run is still in progress and its output will not be saved.\n\nClose anyway?"):
             return
         for save in (self.live_window._save_place, self.save_app_settings):   # one failing never skips the other

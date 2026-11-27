@@ -85,15 +85,13 @@ def is_section4(path: str) -> bool:
     """A Section 4 (Engineering Access Statement) PDF, judged from its first page."""
     if not path.lower().endswith(".pdf"):
         return False
-    try:
-        import pypdfium2 as pdfium
+    try:                                    # pypdf (pure Python): PDFium only ever runs in helper processes
+        from pypdf import PdfReader
+
         from rstools import limits
         limits.check_pdf(path)
-        pdf = pdfium.PdfDocument(path)
-        try:
-            text = pdf[0].get_textpage().get_text_range() if len(pdf) else ""
-        finally:
-            pdf.close()
+        reader = PdfReader(path)
+        text = reader.pages[0].extract_text() if len(reader.pages) else ""
     except Exception:
         return False
     return "Engineering Access Statement" in text and "Section 4" in text

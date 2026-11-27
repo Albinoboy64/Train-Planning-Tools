@@ -61,7 +61,7 @@ def read_tpr(paths: Sequence[str], log=lambda m: None) -> TPRDoc:
     for path in paths:
         log(f"Reading {os.path.basename(path)}")
         before = (len(doc.tables), len(doc.paragraphs))
-        _read_pdf(path, doc)
+        _read_isolated(path, doc)
         doc.files.append(path)
         for t in doc.tables[before[0]:]:
             t.source = os.path.basename(path)
@@ -95,6 +95,31 @@ def _flush(doc: TPRDoc, st: _State, page: int):
         doc.para_refs.append([(st.file, pg, tuple(box)) for pg, box in sorted(st.para_boxes.items())])
         st.para.clear()
         st.para_boxes.clear()
+
+
+def _read_one(path: str, limit_values=None) -> TPRDoc:
+    from rstools import limits
+    limits.use(limit_values)                     # the same limits as the app (a helper process starts afresh)
+    one = TPRDoc()
+    _read_pdf(path, one)
+    return one
+
+
+def _read_isolated(path: str, doc: TPRDoc):
+    """_read_pdf in a helper process (PDFium is native code: see rstools.isolate)."""
+    from rstools.isolate import ReaderCrashed, run
+    try:
+        from rstools import limits
+        one = run(_read_one, path, limits.current(), name=f"'{os.path.basename(path)}'")
+    except ReaderCrashed as exc:
+        raise TPRError(str(exc))
+    doc.tables += one.tables
+    doc.paragraphs += one.paragraphs
+    doc.para_refs += one.para_refs
+    doc.warnings += one.warnings
+    doc.info += one.info
+    doc.skipped += one.skipped
+    doc.deleted += one.deleted
 
 
 def _read_pdf(path: str, doc: TPRDoc):

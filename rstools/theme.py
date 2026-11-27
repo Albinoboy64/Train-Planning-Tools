@@ -100,6 +100,42 @@ def row_height(root) -> int:
 BASE_DPI = 96                  # Windows' 100% scaling
 
 
+_WIN = None
+
+
+def win():
+    """user32, shcore and dwmapi with their argument and return types declared, as private copies (so other code
+    calling the same functions is not affected). Without the types, ctypes passes and returns window and display
+    handles as 32-bit numbers, which can cut a 64-bit handle short. Raises OSError / AttributeError off Windows."""
+    global _WIN
+    if _WIN is None:
+        import ctypes
+        from ctypes import wintypes
+        user32, shcore = ctypes.WinDLL("user32"), ctypes.WinDLL("shcore")
+        dwm = ctypes.WinDLL("dwmapi")
+        protos = [
+            (user32.GetAncestor, [wintypes.HWND, wintypes.UINT], wintypes.HWND),
+            (user32.GetParent, [wintypes.HWND], wintypes.HWND),
+            (user32.GetDpiForWindow, [wintypes.HWND], wintypes.UINT),
+            (user32.MonitorFromWindow, [wintypes.HWND, wintypes.DWORD], wintypes.HMONITOR),
+            (user32.MonitorFromPoint, [wintypes.POINT, wintypes.DWORD], wintypes.HMONITOR),
+            (user32.GetMonitorInfoW, [wintypes.HMONITOR, ctypes.c_void_p], wintypes.BOOL),
+            (user32.SendMessageW, [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM],
+             ctypes.c_ssize_t),
+            (user32.RedrawWindow, [wintypes.HWND, ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT], wintypes.BOOL),
+            (user32.EnumDisplayMonitors, [wintypes.HDC, ctypes.c_void_p, ctypes.c_void_p, wintypes.LPARAM],
+             wintypes.BOOL),
+            (shcore.GetDpiForMonitor, [wintypes.HMONITOR, ctypes.c_int, ctypes.POINTER(wintypes.UINT),
+                                       ctypes.POINTER(wintypes.UINT)], ctypes.c_long),
+            (dwm.DwmSetWindowAttribute, [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD],
+             ctypes.c_long),
+        ]
+        for fn, args, res in protos:
+            fn.argtypes, fn.restype = args, res
+        _WIN = (user32, shcore, dwm)
+    return _WIN
+
+
 def enable_dpi_awareness():
     """Per-monitor DPI awareness (call before the first window): Windows then draws the app sharply at each
     display's own scaling instead of stretching a 100% image (blurry on a 4K laptop next to a 1440p monitor)."""
@@ -126,9 +162,9 @@ def window_dpi(root) -> int:
     """The DPI of the display the window is on (96 at 100% scaling, 192 at 200%)."""
     if sys.platform.startswith("win"):
         try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)             # GA_ROOT: the frame
-            dpi = ctypes.windll.user32.GetDpiForWindow(hwnd)
+            user32 = win()[0]
+            hwnd = user32.GetAncestor(root.winfo_id(), 2)                           # GA_ROOT: the frame
+            dpi = user32.GetDpiForWindow(hwnd)
             if dpi:
                 return int(dpi)
         except (AttributeError, OSError, tk.TclError):
@@ -148,11 +184,11 @@ def freeze_redraw(root):
     client = frame = 0
     if sys.platform.startswith("win"):
         try:
-            import ctypes
+            user32 = win()[0]
             client = root.winfo_id()
-            frame = ctypes.windll.user32.GetAncestor(client, 2)                      # GA_ROOT: the frame
+            frame = user32.GetAncestor(client, 2) or 0                               # GA_ROOT: the frame
             if client:
-                ctypes.windll.user32.SendMessageW(client, 0x000B, 0, 0)            # WM_SETREDRAW off
+                user32.SendMessageW(client, 0x000B, 0, 0)                          # WM_SETREDRAW off
         except (AttributeError, OSError, tk.TclError):
             client = 0
     try:
@@ -160,10 +196,10 @@ def freeze_redraw(root):
     finally:
         if client:
             try:
-                import ctypes
-                ctypes.windll.user32.SendMessageW(client, 0x000B, 1, 0)            # WM_SETREDRAW on
+                user32 = win()[0]
+                user32.SendMessageW(client, 0x000B, 1, 0)                          # WM_SETREDRAW on
                 # RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW
-                ctypes.windll.user32.RedrawWindow(frame or client, None, None, 0x1 | 0x4 | 0x80 | 0x400 | 0x100)
+                user32.RedrawWindow(frame or client, None, None, 0x1 | 0x4 | 0x80 | 0x400 | 0x100)
             except (AttributeError, OSError):
                 pass
 
@@ -189,11 +225,12 @@ def work_area(root):
         class MONITORINFO(ctypes.Structure):
             _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
                         ("dwFlags", wintypes.DWORD)]
-        hwnd = ctypes.windll.user32.GetAncestor(root.winfo_id(), 2)
-        mon = ctypes.windll.user32.MonitorFromWindow(hwnd, 2)                        # nearest display
+        user32 = win()[0]
+        hwnd = user32.GetAncestor(root.winfo_id(), 2)
+        mon = user32.MonitorFromWindow(hwnd, 2)                                      # nearest display
         info = MONITORINFO()
         info.cbSize = ctypes.sizeof(MONITORINFO)
-        if ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(info)):
+        if user32.GetMonitorInfoW(mon, ctypes.byref(info)):
             r = info.rcWork
             return r.left, r.top, r.right, r.bottom
     except (AttributeError, OSError, tk.TclError):
@@ -268,6 +305,7 @@ def displays() -> List[Tuple[Area, int]]:
             _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
                         ("dwFlags", wintypes.DWORD)]
         found: List[Tuple[Area, int]] = []
+        user32, shcore, _dwm = win()
         proc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT),
                                   wintypes.LPARAM)
 
@@ -275,12 +313,12 @@ def displays() -> List[Tuple[Area, int]]:
             info = MONITORINFO()
             info.cbSize = ctypes.sizeof(MONITORINFO)
             x, y = ctypes.c_uint(), ctypes.c_uint()
-            if (ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(info))
-                    and ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(x), ctypes.byref(y)) == 0):
+            if (user32.GetMonitorInfoW(hmon, ctypes.byref(info))
+                    and shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(x), ctypes.byref(y)) == 0):
                 r = info.rcWork
                 found.append(((r.left, r.top, r.right, r.bottom), int(x.value)))
             return 1
-        ctypes.windll.user32.EnumDisplayMonitors(None, None, proc(each), 0)
+        user32.EnumDisplayMonitors(None, None, proc(each), 0)
         return found
     except (AttributeError, OSError, ValueError):
         return []
@@ -388,10 +426,11 @@ def _dark_title_bar(root: tk.Tk, dark: bool):
         return
     try:
         import ctypes
-        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        user32, _shcore, dwm = win()
+        hwnd = user32.GetParent(root.winfo_id())
         value = ctypes.c_int(1 if dark else 0)
         for attr in (20, 19):            # DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 11 / older Windows 10)
-            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(value),
+            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(value),
                                                           ctypes.sizeof(value)) == 0:
                 break
     except Exception:
@@ -649,15 +688,16 @@ def monitor_dpis() -> List[int]:
         import ctypes
         from ctypes import wintypes
         found: List[int] = []
+        user32, shcore, _dwm = win()
         proc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT),
                                   wintypes.LPARAM)
 
         def each(hmon, _hdc, _rect, _data):
             x, y = ctypes.c_uint(), ctypes.c_uint()
-            if ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(x), ctypes.byref(y)) == 0:   # effective
+            if shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(x), ctypes.byref(y)) == 0:   # effective
                 found.append(int(x.value))
             return 1
-        ctypes.windll.user32.EnumDisplayMonitors(None, None, proc(each), 0)
+        user32.EnumDisplayMonitors(None, None, proc(each), 0)
         return sorted(set(found))
     except (AttributeError, OSError, ValueError):
         return []

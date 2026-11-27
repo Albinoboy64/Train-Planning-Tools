@@ -347,6 +347,21 @@ def remove_previous_version():
             os.remove(exe + ".old")
         except OSError:
             pass
+    remove_partial_downloads(os.path.dirname(exe) if exe else "")
+
+
+def remove_partial_downloads(*folders: str, older_than: float = 3600):
+    """Delete half-finished update downloads ('~tptdl*.part') left when the app was closed mid-download."""
+    import glob
+    import time
+    from rstools.fsutil import downloads_dir
+    for folder in [f for f in folders if f] + [downloads_dir()]:
+        for path in glob.glob(os.path.join(folder, "~tptdl*.part")):
+            try:
+                if time.time() - os.path.getmtime(path) > older_than:
+                    os.remove(path)
+            except OSError:
+                pass
 
 
 # ------------------------------------------------------------------ keeping the logo after an update

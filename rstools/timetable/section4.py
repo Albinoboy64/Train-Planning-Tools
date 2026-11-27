@@ -162,7 +162,7 @@ def read_statement(paths: Sequence[str], log=lambda m: None) -> Statement:
     for path in paths:
         log(f"Reading {os.path.basename(path)}")
         before = len(st.possessions)
-        _read_pdf(path, st)
+        _read_isolated(path, st)
         st.files.append(path)
         found = len(st.possessions) - before
         if not found:
@@ -171,6 +171,28 @@ def read_statement(paths: Sequence[str], log=lambda m: None) -> Statement:
         else:
             log(f"  {found} possession row(s)")
     return st
+
+
+def _read_one(path: str, limit_values=None) -> Statement:
+    from rstools import limits
+    limits.use(limit_values)                     # the same limits as the app (a helper process starts afresh)
+    one = Statement()
+    _read_pdf(path, one)
+    return one
+
+
+def _read_isolated(path: str, st: Statement):
+    """_read_pdf in a helper process (PDFium is native code: see rstools.isolate)."""
+    from rstools.isolate import ReaderCrashed, run
+    try:
+        from rstools import limits
+        one = run(_read_one, path, limits.current(), name=f"'{os.path.basename(path)}'")
+    except ReaderCrashed as exc:
+        raise Section4Error(str(exc))
+    st.possessions += one.possessions
+    st.warnings += one.warnings
+    st.notes += one.notes
+    st.info += one.info
 
 
 def _read_pdf(path: str, st: Statement):
@@ -885,10 +907,10 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
     try:
         if vpt:
             log(f"Reading {os.path.basename(vpt)} for the running lines")
-            own = _plan_of(vpt, keep=True)
+            own = _plan_of(vpt)
         for o in others:
             log(f"Reading {os.path.basename(o)} (another operator)")
-            theirs.append(_plan_of(o, keep=True))
+            theirs.append(_plan_of(o))
     except (StationBookError, PrintError) as exc:
         raise Section4Error(str(exc))
     progress(0.6, "Checking...")

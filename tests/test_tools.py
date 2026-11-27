@@ -1450,9 +1450,8 @@ def test_painting_is_held_on_the_client_window_and_always_switched_back(monkeypa
         SendMessageW=lambda hwnd, msg, w, l: calls.append(("send", hwnd, msg, w)),
         GetAncestor=lambda hwnd, flag: 999,
         RedrawWindow=lambda hwnd, *a: calls.append(("redraw", hwnd)))
-    fake = types.SimpleNamespace(windll=types.SimpleNamespace(user32=user32))
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setitem(sys.modules, "ctypes", fake)
+    monkeypatch.setattr(theme, "win", lambda: (user32, None, None))
     root = types.SimpleNamespace(winfo_id=lambda: 123)
     try:
         with theme.freeze_redraw(root):

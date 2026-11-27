@@ -162,6 +162,15 @@ def read_days(path: str) -> Tuple[List[int], bool]:
 LARGE_CWN = 3 * 1024 * 1024         # a CWN this big is read in a helper process (smaller: quicker to read here)
 
 
+def _note_failure():
+    """Keep the reason a helper process could not be used in the error log (the file is then read here)."""
+    import traceback
+
+    from rstools import errorlog
+    errorlog.write("Reading a CWN's days in a helper process failed; read in the app instead.\n"
+                   + traceback.format_exc())
+
+
 def _read_here(path: str, mtime: float) -> Optional[tuple]:
     try:
         days, assumed = read_days(path)
@@ -173,7 +182,7 @@ def _read_here(path: str, mtime: float) -> Optional[tuple]:
 def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str, Optional[tuple]]:
     """The days each CWN covers: {path: (modified time, days, assumed?)}, or None for a file that cannot be read.
     `cache` holds earlier results (a file is read again only when it has changed). Small files are read here; all
-    the large ones go to ONE helper process (starting one takes a moment, so not one per file), with every file
+    the large ones go to ONE pool of helper processes (started once, not once per file), with every file
     sent before any result is waited for. If the helper process cannot be used, or a file's job fails, that file is
     read here instead."""
     found: Dict[str, Optional[tuple]] = {}
@@ -207,9 +216,9 @@ def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str,
                         days, assumed = job.result()
                         found[path] = (mtime, days, assumed)
                     except Exception:
-                        pass                                    # read below, here
+                        _note_failure()                         # read below, here
         except Exception:
-            pass                                                # no helper process: read them here
+            _note_failure()                                     # no helper process: read them here
         for path, mtime in large:
             if path not in found:
                 found[path] = _read_here(path, mtime)

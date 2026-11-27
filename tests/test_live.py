@@ -137,7 +137,8 @@ def test_live_parallel_reading():
     t.make(os.path.join(d, "b.xlsx"), b, v)
     g, n = tt._books(d)
     old, engine.PARALLEL_BYTES = engine.PARALLEL_BYTES, 0          # force the parallel path
-    engine._CACHE.clear()
+    from rstools import filecache
+    filecache.clear()
     try:
         cwn = adapters.compute("cwn", {"a": [os.path.join(d, "a.xlsx")], "b": [os.path.join(d, "b.xlsx")]})
         ttr = adapters.compute("timetables", {"a": [g], "b": [n]})

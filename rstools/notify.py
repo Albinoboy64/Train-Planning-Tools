@@ -31,7 +31,8 @@ def flash_taskbar(root: tk.Tk):
         class FlashInfo(ctypes.Structure):
             _fields_ = [("cbSize", wintypes.UINT), ("hwnd", wintypes.HWND), ("dwFlags", wintypes.DWORD),
                         ("uCount", wintypes.UINT), ("dwTimeout", wintypes.DWORD)]
-        hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+        from rstools.theme import win
+        hwnd = win()[0].GetParent(root.winfo_id()) or root.winfo_id()
         info = FlashInfo(ctypes.sizeof(FlashInfo), hwnd, 0x3 | 0xC, 0, 0)   # FLASHW_ALL | FLASHW_TIMERNOFG
         ctypes.windll.user32.FlashWindowEx(ctypes.byref(info))
     except Exception:

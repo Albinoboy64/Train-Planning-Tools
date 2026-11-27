@@ -335,3 +335,14 @@ def test_a_class_with_a_sub_class_still_finds_its_road(tmp_path):
     unit = wb.Unit(8, "377/4", "", "05+28", 1, 5 * 60 + 28, False, "train")
     got = dict(wb._assign_roads(0, sid, [unit], roads, lay, lambda _m: None))
     assert got[sid.roads[1][0]].startswith("8 377")
+
+
+def test_live_view_shows_berthing_lines_only_in_the_original(tmp_path):
+    from rstools.live import adapters
+    a = wf.make(str(tmp_path / "a.xlsx"), "victoria", footer={"MO": [("Platform 14", "8 387 for 05 05 TO"),
+                                                                     ("Platform 9", "EMPTY")]})
+    b = wf.make(str(tmp_path / "b.xlsx"), "victoria", footer={"MO": [("Platform 14", "8 387 for 05 05 TO")]})
+    res = adapters.compute("cwn", {"a": [a], "b": [b]})
+    foot = next(i for i in res.items if i.key.endswith("|footer|n") and "MO" in i.key)
+    gone = [r for r in foot.rows if r.cells[0] == "Platform 9"]
+    assert gone and gone[0].state == adapters.REMOVED and foot.state == adapters.CHANGED
