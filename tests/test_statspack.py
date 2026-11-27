@@ -3,6 +3,7 @@
 Builds a tiny TRENT VehicleLayout29 print (.docx) and Attune XML, then runs every Stats Pack mode.
 Run with:  python -m pytest tests
 """
+import json
 import os
 import sys
 import tempfile
@@ -735,6 +736,35 @@ def test_retired_701_5_removed_unless_edited():
             got = {r["Class Name"] for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
             assert ("701/5" in got) is expect_kept
             assert {r["Class Name"] for r in rows if r["Class Name"] != "701/5"} <= got
+
+
+def test_withdrawn_313_455_removed_once():
+    """313s and 455s are withdrawn: not in the built-in table, every row of them (edited or not, 'nQ' rows too)
+    is removed from a user's copy once, and a row the user adds back afterwards is kept."""
+    import csv
+    from rstools.statspack import fleet as F
+    table = F.FleetTable._read(F.DEFAULT_CSV)
+    assert not [r.cls for r in table.rows if "313" in r.cls or "455" in r.cls]
+    assert [F._withdrawn_class(n) for n in ("313/2", "3 313Q", "455/8", "4 455Q", "377/4", "4 377Q")] == \
+        ["313", "313", "455", "455", "", ""]
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "fleet.csv")
+        _h, rows = F._read_csv(F.DEFAULT_CSV)
+        old = [dict(rows[0], **{"Class Name": n, "Units Available": "9"}) for n in ("313/2", "3 313Q", "455/8")]
+        F._write(path, rows + old)
+        F._upgrade(path)
+
+        def names():
+            return {r["Class Name"] for r in csv.DictReader(open(path, encoding="utf-8-sig"))}
+        assert not {"313/2", "3 313Q", "455/8"} & names()
+        assert {r["Class Name"] for r in rows} <= names()
+        F._write(path, rows + old[2:])                     # the user adds a 455 back
+        F._upgrade(path)
+        assert "455/8" in names()
+    with tempfile.TemporaryDirectory() as d:               # a new copy never gets them back
+        path = os.path.join(d, "fleet.csv")
+        F._upgrade(path)
+        assert sorted(json.load(open(os.path.join(d, "fleet_withdrawn.json")))) == ["313", "455"]
 
 
 def test_vl11_vl05_and_merged_layouts():

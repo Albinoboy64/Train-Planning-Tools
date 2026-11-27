@@ -8,7 +8,9 @@ classes / columns from later versions without touching the user's own values.
 from __future__ import annotations
 
 import csv
+import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -154,6 +156,29 @@ _OLD_VALUES = {("171/8", "Unit Length (metres)"): "94.48"}
 _RETIRED = {"701/5": dict(zip(COLUMNS, ("701/5", "", "Unknown", "5", "0", "275", "360", "635", "27", "0", "")))}
 
 
+# classes withdrawn from service: every row of the class (its units and its 'nQ' rows) is removed from a user's
+# copy once, edited or not. The removal is recorded in fleet_withdrawn.json, so a row the user adds back stays.
+_WITHDRAWN = ("313", "455")
+
+
+def _withdrawn_class(name: str) -> str:
+    m = re.search(r"\b(\d{3})(?=[/A-Z]|$)", name.strip().upper())
+    return m.group(1) if m and m.group(1) in _WITHDRAWN else ""
+
+
+def _withdrawn_path(path: str) -> str:
+    return os.path.join(os.path.dirname(path), "fleet_withdrawn.json")
+
+
+def _done_withdrawn(path: str) -> List[str]:
+    try:
+        with open(_withdrawn_path(path), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    return [str(x) for x in data] if isinstance(data, list) else []
+
+
 def _is_retired(row: Dict[str, str], hdr: List[str]) -> bool:
     shipped = _RETIRED.get(row.get("Class Name", ""))
     return shipped is not None and all(str(row.get(c, "")).strip() == v for c, v in shipped.items() if c in hdr)
@@ -165,11 +190,15 @@ def _upgrade(path: str):
     _dh, default = _read_csv(DEFAULT_CSV)
     if not os.path.exists(path):
         _write(path, default)
+        from rstools.fsutil import write_json
+        write_json(_withdrawn_path(path), list(_WITHDRAWN))
         return
     hdr, user = _read_csv(path)
     if not hdr:
         return                                  # unreadable - leave it for the user to fix
-    kept = [r for r in user if not _is_retired(r, hdr)]
+    done = _done_withdrawn(path)
+    todo = [c for c in _WITHDRAWN if c not in done]
+    kept = [r for r in user if not _is_retired(r, hdr) and _withdrawn_class(r.get("Class Name", "")) not in todo]
     changed = len(kept) != len(user) or any(c not in hdr for c in COLUMNS)
     user = kept
     by_name = {r.get("Class Name", ""): r for r in user}
@@ -194,6 +223,9 @@ def _upgrade(path: str):
                 changed = True
     if changed:
         _write(path, user)
+    if todo:
+        from rstools.fsutil import write_json
+        write_json(_withdrawn_path(path), done + todo)
 
 
 def _write(path: str, rows: List[Dict[str, str]]):

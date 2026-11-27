@@ -465,6 +465,10 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.38.5** - Class 313 and 455 removed
+* **313s and 455s are gone**: the built-in fleet data no longer lists Class 313 or 455 (313/2, 455/8 or their *3 313Q* / *4 455Q* rows), so they no longer appear in Stats Packs, fleet choices or berthing charts. Your own fleet data (Settings > Fleet data) has them removed once on the first run of this version, even if you changed them; if you add one back later it is kept.
+* The built-in berthing chart's Stew Lane Goods Loop note no longer mentions 455 units.
+
 **3.38.4** - TLGN berthing charts: a station and its sidings on one sheet
 * **TLGN sheets by station**: locations that are part of one station or siding now share a sheet, a siding location each with its own *Location - ...* banner, as on SNGX's charts (Brighton's platforms and Wall Siding, for example). A location joins the station whose name starts its own (*Bedford* takes *Bedford Carriage Sidings*), or one with the same name before a word such as *Sidings*, *Up*, *Down* or *Yard* (*Hitchin Up Sidings* and *Hitchin Down Sidings*); other names, such as *London Bridge* and *London St Pancras*, keep their own sheets. Each siding location keeps its own TIPLOC line, so a later round of changes finds every berth, and *Choose locations...* can still leave out one location (by TIPLOC) and keep the rest of its sheet.
 * **Settings > Berthing locations** has a *Location* column for the siding location each berth is in, so a saved TLGN (or SNGX) set keeps its banners.
