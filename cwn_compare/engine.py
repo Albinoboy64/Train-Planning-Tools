@@ -5,6 +5,7 @@ import dataclasses
 import datetime as _dt
 import os
 import re
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 from typing import Callable, Optional
@@ -238,7 +239,11 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
         if (c.kind == "remove_block") != present:     # skip re-instated trains and vanished ones
             kept_prev.append(c)
     all_changes = kept_prev + changes
+    left_out = Counter(c.category for c in changes
+                       if not opts.cat(c.category, "cwn") and not opts.cat(c.category, "report"))
     lg(f"Round {this_round}: {len(changes)} change(s) found"
+       + (f" ({sum(left_out.values())} left out, as asked: "
+          + ", ".join(f"{CATEGORY_LABELS.get(k, k)} {v}" for k, v in left_out.items()) + ")" if left_out else "")
        + (f"; {len(kept_prev)} earlier change(s) carried forward" if cumulative else ""))
 
     # ---- output CWN
@@ -269,7 +274,7 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
                                 progress=lambda f: p(0.82 + 0.1 * f, "Saving output CWN...")), cwn_path)
     lg(f"Saved CWN: {cwn_path}")
 
-    result = {"cwn": cwn_path, "report": None, "changes": len(changes),
+    result = {"cwn": cwn_path, "report": None, "changes": len(changes) - sum(left_out.values()),
               "carried": len(kept_prev), "tabs": len(summary)}
     if opts.make_report:
         p(0.93, "Writing change report...")

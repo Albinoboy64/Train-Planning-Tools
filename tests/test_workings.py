@@ -346,3 +346,24 @@ def test_live_view_shows_berthing_lines_only_in_the_original(tmp_path):
     foot = next(i for i in res.items if i.key.endswith("|footer|n") and "MO" in i.key)
     gone = [r for r in foot.rows if r.cells[0] == "Platform 9"]
     assert gone and gone[0].state == adapters.REMOVED and foot.state == adapters.CHANGED
+
+
+def test_the_change_report_lists_day_tabs_monday_first_without_trailing_spaces(tmp_path):
+    wf.make_smoke(str(tmp_path))
+    opts = Options(original=str(tmp_path / "wk_a.xlsx"), updated=str(tmp_path / "wk_b.xlsx"),
+                   output_dir=str(tmp_path), output_name="cmp")
+    res = engine.run(opts, log=lambda _m: None)
+    rep = openpyxl.load_workbook(res["report"])
+    order = ["MO", "TO", "WO", "ThO", "FO", "SO", "SuO"]
+    assert [r[0] for r in rep["All Changes"].iter_rows(min_row=2, values_only=True) if r[0]] == order
+    assert rep["Changes by Train"]["C2"].value == ", ".join(order)
+    summary = [r[0] for r in rep["Summary"].iter_rows(values_only=True)]
+    start = summary.index("Tab") + 1
+    assert summary[start:start + 7] == order
+
+
+def test_the_command_line_says_saved_once(tmp_path, capsys):
+    import TrainPlanningTools as cli
+    src = wf.make(str(tmp_path / "w.xlsx"), "brighton")
+    cli.main(["workings-berthing", "--workings", src, "--out", str(tmp_path), "--name", "done"])
+    assert capsys.readouterr().out.count("Saved:") == 1

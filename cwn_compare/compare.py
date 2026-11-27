@@ -15,6 +15,7 @@ from dataclasses import dataclass, asdict, fields
 from typing import Dict, List, Optional, Tuple
 
 from .model import Block, CWNModel, SheetModel, FIELD_LABELS, UnitRow, is_next_working
+from rstools.days import DAY_CODES
 
 # key, label, has "show previous value" option, tooltip
 CATEGORIES = [
@@ -298,8 +299,18 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
             _compare_forms(ctx, so, sn, pair_map)
             _compare_footer(ctx, so, sn)
         changes.extend(_dedupe(ctx.out))
-    changes.sort(key=lambda c: (c.sheet_title.upper(), c.sort_time if c.sort_time is not None else 9999))
+    changes.sort(key=lambda c: (tab_order(c.sheet_title), c.sort_time if c.sort_time is not None else 9999))
     return changes
+
+
+_DAY_TAB = {c.upper(): i for i, c in enumerate(DAY_CODES)}
+
+
+def tab_order(title: str) -> tuple:
+    """Sort key for tab names: the day tabs of platform workings Monday first (their names can end in a space),
+    other tabs (CWN locations) alphabetically."""
+    t = title.strip().upper()
+    return (0, _DAY_TAB[t], "") if t in _DAY_TAB else (1, 0, t)
 
 
 def _footer_text(text: str) -> str:

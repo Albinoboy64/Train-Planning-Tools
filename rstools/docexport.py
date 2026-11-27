@@ -50,6 +50,10 @@ def split_wide(sec: Section, max_cols: int = MAX_COLS) -> List[Section]:
     n = len(sec.headers)
     if n <= max_cols:
         return [sec]
+    if len(sec.rows) <= 1 and sum(1 for v in (sec.rows or [[]])[0] if v not in (None, "")) <= 1:
+        # nothing but a 'None identified' line: one narrow table, not several parts of an empty one
+        return [Section(sec.title, sec.headers[:max_cols], [list(r[:max_cols]) for r in sec.rows], {}, set(),
+                        sec.note, sec.key_cols)]
     keys = list(range(min(sec.key_cols, max_cols - 1)))
     rest = [c for c in range(n) if c not in keys]
     step = max_cols - len(keys)
@@ -94,8 +98,8 @@ _STYLES = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:styles 
            '</w:tblCellMar></w:tblPr></w:style></w:styles>')
 
 
-def _para(text: str, style: str = "", page_break: bool = False) -> str:
-    inner = ('<w:pStyle w:val="%s"/>' % style if style else "") + ("<w:pageBreakBefore/>" if page_break else "")
+def _para(text: str, style: str = "") -> str:
+    inner = '<w:pStyle w:val="%s"/>' % style if style else ""
     ppr = f"<w:pPr>{inner}</w:pPr>" if inner else ""
     return f'<w:p>{ppr}<w:r><w:t xml:space="preserve">{escape(text)}</w:t></w:r></w:p>'
 
@@ -143,11 +147,9 @@ def write_docx(path: str, title: str, sections: Sequence[Section]):
     doc = Deflated()                    # compressed section by section: never the whole document in memory
     doc.write(f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="{W}"><w:body>')
     doc.write(_para(title, "Title") + _para(f"Created {_dt.datetime.now():%d/%m/%Y %H:%M} by {APP_NAME}", "Note"))
-    first = True
     for sec in sections:
         for part in split_wide(sec):
-            doc.write(_para(part.title, "Heading1", page_break=not first))
-            first = False
+            doc.write(_para(part.title, "Heading1"))     # kept with its table (keepNext); sections flow on
             if part.note:
                 doc.write(_para(part.note, "Note"))
             if part.headers:
@@ -184,7 +186,7 @@ def write_pdf(path: str, title: str, sections: Sequence[Section]):
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import LongTable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, TableStyle
+    from reportlab.platypus import CondPageBreak, LongTable, Paragraph, SimpleDocTemplate, Spacer, TableStyle
 
     page = landscape(A4)
     margin = 10 * mm
@@ -209,8 +211,8 @@ def write_pdf(path: str, title: str, sections: Sequence[Section]):
     first = True
     for sec in sections:
         for part in split_wide(sec):
-            if not first:
-                story.append(PageBreak())
+            if not first:                       # a new page only when the heading and a few rows would not fit
+                story.append(CondPageBreak(45 * mm))
             first = False
             story.append(Paragraph(escape(part.title), h_sec))
             if part.note:

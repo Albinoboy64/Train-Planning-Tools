@@ -213,3 +213,45 @@ def test_the_stop_buttons_follow_each_tabs_run(monkeypatch, tmp_path):
         assert not tab.q.stopping                                       # a new run starts afresh
     finally:
         app.destroy()
+
+
+def test_left_out_categories_are_not_counted_as_changes(tmp_path):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import test_compare as tc
+    from cwn_compare import engine
+    from cwn_compare.options import Options
+    a, b = str(tmp_path / "a.xlsx"), str(tmp_path / "b.xlsx")
+    tc.make(a, tc.BTN_ORIG, tc.VIC_ORIG)
+    tc.make(b, *tc._upd_rows())
+    opts = Options(original=a, updated=b, output_dir=str(tmp_path), output_name="x")
+    for k in ("PLATFORM", "STOCK"):
+        opts.categories[k] = {"cwn": False, "show_old": False, "report": False}
+    lines = []
+    res = engine.run(opts, log=lines.append)
+    import openpyxl
+    listed = list(openpyxl.load_workbook(res["report"])["All Changes"].iter_rows(min_row=2, values_only=True))
+    assert res["changes"] == len(listed) == 5
+    assert any("2 left out, as asked" in m for m in lines)
+
+
+def test_a_vpt_is_refused_for_a_timetable_check_with_the_reason(tmp_path):
+    from rstools.timetable.engine import read_attune_print
+    from rstools.timetable.prints import PrintError
+    p = tmp_path / "plan.vpt"
+    p.write_text("x")
+    with pytest.raises(PrintError, match="no public times"):
+        read_attune_print(str(p))
+
+
+def test_short_sections_share_a_page_and_empty_wide_tables_are_not_split(tmp_path):
+    import zipfile
+    import pypdf
+    from rstools.docexport import Section, split_wide, write_docx, write_pdf
+    secs = [Section(f"Table {i}", ["A", "B"], [["1", "2"]]) for i in range(6)]
+    write_pdf(str(tmp_path / "s.pdf"), "T", secs)
+    assert len(pypdf.PdfReader(str(tmp_path / "s.pdf")).pages) == 1
+    write_docx(str(tmp_path / "s.docx"), "T", secs)
+    assert "pageBreakBefore" not in zipfile.ZipFile(tmp_path / "s.docx").read("word/document.xml").decode()
+    wide = Section("Clashes", [f"H{i}" for i in range(30)], [["None identified"]])
+    assert len(split_wide(wide)) == 1
+    assert len(split_wide(Section("Full", [f"H{i}" for i in range(30)], [[str(i) for i in range(30)]]))) == 2

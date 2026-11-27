@@ -70,7 +70,7 @@ def cli(argv):
                     help="change report as Excel (default), PDF or Word")
     ap.add_argument("--exact-text", action="store_true",
                     help="report differences in spacing / punctuation in destinations and notes")
-    ap.add_argument("--exclude", default="", help="comma separated categories to strip, e.g. PLATFORM,DIAGRAM")
+    ap.add_argument("--exclude", default="", help="comma separated categories to strip, e.g. PLATFORM,STOCK")
     ap.add_argument("--days", default="", help="check and output only trains running on these days, e.g. MO,FO")
     a = _local_out(ap, ap.parse_args(argv))
     import re
@@ -614,8 +614,7 @@ def workings_berthing_cli(argv):
     except WorkingsError as exc:
         print("ERROR:", exc)
         sys.exit(1)
-    print(res.summary)
-    print("Saved:", res.chart)
+    print(res.summary)                          # add_berthing has logged where it saved
 
 
 def selftest_cli(argv):

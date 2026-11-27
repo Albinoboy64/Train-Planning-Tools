@@ -11,7 +11,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-from .compare import Change, CATEGORIES, CATEGORY_LABELS, CATEGORY_ORDER
+from .compare import Change, CATEGORIES, CATEGORY_LABELS, CATEGORY_ORDER, tab_order
 from .model import FIELD_LABELS
 from rstools.fsutil import clean_cell
 from rstools.timetable.xlstyle import HEAD_FILL as _HEAD, print_setup     # the shared report look
@@ -27,6 +27,11 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 def _fill(c):
     from rstools.xlsave import fill
     return fill(c)
+
+
+def _tabs(cs) -> str:
+    """The tabs a train's changes are on, in tab order."""
+    return ", ".join(sorted({c.sheet_title.strip() for c in cs}, key=tab_order))
 
 
 def _table(ws, start_row, headers, rows, widths=None, fills=None):
@@ -94,7 +99,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
         ("Days checked", info.get("days_label", "All days in the CWNs")),
         ("Total changes in this report", len(changes)),
         ("Trains affected", len({c.train for c in changes})),
-        ("Location tabs affected", len({c.sheet_title for c in changes})),
+        ("Location tabs affected", len({c.sheet_title.strip() for c in changes})),
     ]
     for k, v in meta:
         ws.cell(row=r, column=1, value=k).font = Font(bold=True)
@@ -134,10 +139,10 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
     r += 1
     loc: Dict[str, Counter] = defaultdict(Counter)
     for c in changes:
-        loc[c.sheet_title][c.category] += 1
+        loc[c.sheet_title.strip()][c.category] += 1
     loc_rows = [[t, sum(cn.values()), ", ".join(f"{CATEGORY_LABELS[k]} ({v})" for k, v in
                                                sorted(cn.items(), key=lambda kv: CATEGORY_ORDER[kv[0]]))]
-                for t, cn in sorted(loc.items())]
+                for t, cn in sorted(loc.items(), key=lambda kv: tab_order(kv[0]))]
     _table(ws, r, ["Tab", "Changes", "Breakdown"], loc_rows)
     for col, w in zip("ABCD", (30, 16, 70, 22)):
         ws.column_dimensions[col].width = w
@@ -146,10 +151,10 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
     ws2 = wb.create_sheet("All Changes")
     rows, fills = [], []
     colour_of = {rd["round"]: rd["colour"] for rd in rounds}
-    for c in sorted(changes, key=lambda c: (c.round, c.sheet_title.upper(),
+    for c in sorted(changes, key=lambda c: (c.round, tab_order(c.sheet_title),
                                             c.sort_time if c.sort_time is not None else 9999, c.train)):
         rows.append(([c.round] if multi else []) + [
-            c.sheet_title, c.train, CATEGORY_LABELS.get(c.category, c.category),
+            c.sheet_title.strip(), c.train, CATEGORY_LABELS.get(c.category, c.category),
             FIELD_LABELS.get(c.field, c.field) if c.field else "Whole train",
             c.old if c.kind == "modify" or c.kind == "remove_row" else "",
             c.new if c.kind == "modify" or c.kind == "add_row" else "", _details(c)])
@@ -170,7 +175,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
         cs = tr[t]
         cats = sorted({c.category for c in cs}, key=lambda k: CATEGORY_ORDER[k])
         trows.append([t, ", ".join(CATEGORY_LABELS[k] for k in cats),
-                      ", ".join(sorted({c.sheet_title for c in cs})), len(cs),
+                      _tabs(cs), len(cs),
                       "\n".join(dict.fromkeys(_without_train(c) for c in cs))])
     end = _table(ws3, 1, ["Train", "Change types", "Tabs", "Count", "Details"], trows,
                  widths=[16, 40, 40, 8, 90])
@@ -187,7 +192,7 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
                                                        default=9999), kv[0][1]))
     rws, nfills = [], []
     for (cat, t), cs in entries:
-        rws.append(["New" if cat == "NEW" else "Cancelled", t, ", ".join(sorted({c.sheet_title for c in cs})),
+        rws.append(["New" if cat == "NEW" else "Cancelled", t, _tabs(cs),
                     _details(cs[0])] + ([cs[0].round] if multi else []))
         nfills.append((5, _fill(colour_of.get(cs[0].round, cs[0].colour or "FFFF00"))) if multi else None)
     if not rws:

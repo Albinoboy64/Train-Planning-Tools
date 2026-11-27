@@ -435,6 +435,12 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.36.1** - every process run and its outputs checked: fixes
+* **PDF and Word outputs** no longer start every table on a new page: short tables share a page, and a new page starts only when the next heading and its first rows would not fit (a change report goes from 7 pages to 2, a stats pack from about 100 to about 20). A wide table with nothing in it (*None identified*) is no longer split into parts.
+* **Platform workings change reports** list the day tabs Monday first in every sheet, without the trailing space of the tab names.
+* **Left-out change types**: when categories are switched off (or `--exclude` is used), the count of changes found now matches the report and says how many were left out.
+* **Command line**: a VPT given to check a timetable is refused with the reason (it has no public times); the `--exclude` help example is a real category; `workings-berthing` reports the saved file once.
+
 **3.36.0** - review: safety, stability, clean-up, faster Live View, tidier outputs, Stop button
 * **Stop button** (and **Esc**) on every tab: a long run stops at its next step, and nothing half-written is saved.
 * **Stats Pack outputs**: times and durations are now **real Excel times** (they look the same, but sort and add up; a negative difference stays as text). Every tab has frozen headings and a filter (totals stay at the bottom), and prints **landscape**, one page wide, with the headings on every page. Packs from earlier versions are still read when comparing.

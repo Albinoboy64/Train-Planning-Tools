@@ -383,6 +383,9 @@ def read_attune_print(path: str) -> list:
     """The trains of an Attune Single Train Report print (the only print layout with public times)."""
     from .attune_print import is_attune_report, parse_attune
     from .prints import PrintError, read_pages
+    if os.path.splitext(path)[1].lower() == ".vpt":
+        raise PrintError(f"'{os.path.basename(path)}' is a VPT export, which has no public times, so it cannot be "
+                         "checked against a timetable. Use the Attune 'Single Train Report' print (PDF or Word).")
     pages = read_pages(path)
     if not is_attune_report(pages):
         raise PrintError(f"'{os.path.basename(path)}' is not an Attune 'Single Train Report' print. That layout is "
