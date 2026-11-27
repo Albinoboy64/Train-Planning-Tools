@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, cast
 
 from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, books_of, content_key, norm
 from .tpr import Table, TPRDoc
+from rstools.naming import plural
 
 
 def _plain_heading(text: str) -> str:
@@ -58,7 +59,7 @@ def compare_tprs(a: TPRDoc, b: TPRDoc) -> DocComparison:
     cmp.compared = ["Every table row: tables paired by section heading and table title, rows by their first "
                     "column, and each cell compared under its column heading (times, locations, values, notes).",
                     "Every paragraph and note outside the tables, section by section, sentence by sentence.",
-                    f"{len(a.tables)} table(s) and {len(a.paragraphs)} paragraph(s) in the original, "
+                    f"{plural(len(a.tables), 'table')} and {plural(len(a.paragraphs), 'paragraph')} in the original, "
                     f"{len(b.tables)} and {len(b.paragraphs)} in the updated."]
     cmp.not_compared = ["Running page headers and footers (found by repetition, whatever the page size), page numbers, "
                         "contents pages, and section numbers in headings (so a renumbered section still pairs)."]
@@ -66,7 +67,8 @@ def compare_tprs(a: TPRDoc, b: TPRDoc) -> DocComparison:
         cmp.info += [(f"{side} document", f"{name}: {what}") for name, what in doc.info]
         cmp.not_compared += [f"{side}: {note}" for note in doc.skipped]
         if doc.deleted:
-            cmp.not_compared.append(f"{side}: {doc.deleted} piece(s) of text deleted in the issue (green, struck "
+            cmp.not_compared.append(f"{side}: {plural(doc.deleted, 'piece')} of text deleted in the issue (green, "
+                                    "struck "
                                     "through) were ignored, so the document is compared as its final wording.")
     return cmp
 

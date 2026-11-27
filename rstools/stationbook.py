@@ -26,6 +26,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 from rstools.fsutil import output_folder
 from rstools.days import DAY_NAMES, days_of_mask
+from rstools.naming import agree, plural
 
 DAY_GROUPS = {"SX": (0, 1, 2, 3, 4), "SO": (5,), "Su": (6,)}
 SINGLE_DAYS = {"MO": (0,), "TO": (1,), "WO": (2,), "ThO": (3,), "FO": (4,), "SO": (5,), "Su": (6,)}
@@ -796,7 +797,8 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
                         "no unit diagrams: their stock is blank, and working times are shown where there are no public "
                         "times. An Attune XML gives the stock as well.")
     if unknown:
-        warnings.append(f"{len(unknown)} train(s) at {station.strip()} are worked by no unit diagram from a TLGN "
+        warnings.append(f"{plural(len(unknown), 'train')} at {station.strip()} {agree(len(unknown), 'is', 'are')} "
+                        "worked by no unit diagram from a TLGN "
                         f"(HE, TB) or SNGX (BI, SU, SL) depot in the XML, so they are left out of the {group} book "
                         "(e.g. "
                         + ", ".join(unknown[:5]) + "). Choose All GTR to include them.")
@@ -818,7 +820,7 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     write_book(path, sheets, header)
     log(f"Saved: {path}")
     progress(1.0, "Done")
-    summary = f"{total} departure row(s) on {len(sheets)} sheet(s) for {station.strip()}."
+    summary = f"{plural(total, 'departure row')} on {plural(len(sheets), 'sheet')} for {station.strip()}."
     return path, warnings, summary
 
 

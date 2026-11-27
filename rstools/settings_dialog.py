@@ -189,6 +189,12 @@ class GeneralPage(ttk.Frame):
             ttk.Checkbutton(self, text=text, variable=var, command=cmd).grid(row=r, column=0, columnspan=2,
                                                                              sticky="w", pady=(8 if r == 2 else 2, 0))
             r += 1
+        ttk.Button(self, text="Clear remembered inputs...", command=app.clear_remembered).grid(
+            row=r, column=0, columnspan=2, sticky="w", pady=(16, 0))
+        r += 1
+        ttk.Label(self, text="Empties the files, folders, names, stations and locations filled in from earlier runs. "
+                             "Colours, options and saved settings are kept.", style="Small.TLabel",
+                  wraplength=520, justify="left").grid(row=r, column=0, columnspan=2, sticky="w", pady=(2, 0))
         self.columnconfigure(1, weight=1)
 
 
@@ -327,7 +333,7 @@ class BerthingPage(ttk.Frame):
         i = sets.info(op)
         if i["saved"]:
             text = (f"Your {op} locations: {i['sheets']} sheet(s), {i['berths']} berth(s), from {i['source']} "
-                    f"({i['made']}). Every {op} chart starts from these; Choose locations... on a chart leaves "
+                    f"({i['made']}). Every {op} chart starts from these; 'Choose locations...' on a chart leaves "
                     "some out or adds others.")
         elif op == "SNGX":
             text = (f"The app's built-in SNGX locations: {i['sheets']} sheet(s), {i['berths']} berth(s). Change "

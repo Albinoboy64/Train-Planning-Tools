@@ -77,7 +77,7 @@ def cli(argv):
                     help="change report as Excel (default), PDF or Word")
     ap.add_argument("--exact-text", action="store_true",
                     help="report differences in spacing / punctuation in destinations and notes")
-    ap.add_argument("--exclude", default="", help="comma separated categories to strip, e.g. PLATFORM,STOCK")
+    ap.add_argument("--exclude", default="", help="comma-separated categories to strip, e.g. PLATFORM,STOCK")
     ap.add_argument("--days", default="", help="check and output only trains running on these days, e.g. MO,FO")
     a = _local_out(ap, ap.parse_args(argv))
     import re
@@ -278,7 +278,7 @@ def statspack_cli(argv):
     ap.add_argument("--new-pack", help="updated stats pack (compare two packs)")
     ap.add_argument("--days", default=",".join(DAYS), help="e.g. MO,TO,WO (default: every day)")
     ap.add_argument("--operators", default="SNGX,TLGN")
-    ap.add_argument("--fleets", default="", help="comma separated fleets (default: all)")
+    ap.add_argument("--fleets", default="", help="comma-separated fleets (default: all)")
     ap.add_argument("--output", choices=sorted(OUTPUTS), default="totals_days",
                     help="totals_days: totals + every day (default); totals: totals only; days: a file per day")
     ap.add_argument("--name", default="")

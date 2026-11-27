@@ -31,11 +31,11 @@ class LocationsDialog(tk.Toplevel):
             self.configure(background=palette["bg"])
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
-        intro = ("Untick a location to leave it off the chart. Find berthing locations lists where units berth "
+        intro = ("Untick a location to leave it off the chart. 'Find berthing locations' lists where units berth "
                  "overnight in the XML; tick one to add it. A location added gets a sheet with a berth for each "
                  "platform or siding road the XML uses there.") if operator == "SNGX" else (
                 "The TLGN chart has a sheet for every place TLGN units berth overnight in the XML, except depots. "
-                "Find berthing locations lists them: untick one to leave it off, or tick a depot to add it.")
+                "'Find berthing locations' lists them: untick one to leave it off, or tick a depot to add it.")
         ttk.Label(self, text=intro, wraplength=px(self, 520), justify="left").grid(
             row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(10, 6))
         frame = ttk.Frame(self)

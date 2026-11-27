@@ -47,7 +47,7 @@ FIELD_LABELS = {
     "dep": "Inward departure time",
     "from": "From",
     "fp": "Portion (FP/RP)",
-    "inwards": "Inwards arrival time",
+    "inwards": "Inward arrival time",
     "in_id": "Inward headcode",
     "loc": "Start/Call/Pass",
     "cars": "Number of cars",

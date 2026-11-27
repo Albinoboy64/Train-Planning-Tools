@@ -294,7 +294,7 @@ def test_attune_print_continuation_pages_and_unreadable_lines():
     trains = parse_attune([bad])
     assert trains[0].skipped and "Littlehampton 05.08" in trains[0].skipped[0]
     note = skipped_note(trains)
-    assert note.startswith("1 location line(s)") and "1H05BS" in note
+    assert note.startswith("1 location line") and "1H05BS" in note
 
 
 def write_attune_pdf(path, trains=ATTUNE):

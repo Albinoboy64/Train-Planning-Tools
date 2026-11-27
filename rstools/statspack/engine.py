@@ -21,6 +21,7 @@ from .stats import TAB_ORDER, Table, build_tables, weekly_tables
 from .trent import FORMAT_HELP, TrentData, TrentFormatError, parse_vehicle_layout
 from .output import sink_for
 from .report_compare import compare_reports
+from rstools.naming import agree, plural
 
 OUTPUTS = {
     "totals_days": "One workbook: totals for the selected days, then every day's tabs",
@@ -378,11 +379,13 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
         reports += wash_cet_reports(units, per_day, period, kinds, possible)
         late = over_wash_limit(units) if (week and "washes" in kinds) else []
         if late:
-            warnings.append(f"{len(late)} unit(s) go more than {WASH_LIMIT} days without a wash "
+            warnings.append(f"{plural(len(late), 'unit')} {agree(len(late), 'goes', 'go')} more than {WASH_LIMIT} "
+                            "days without a wash "
                             f"(e.g. {', '.join(u.diagrams[0].label for u in late[:6])}): see the Washes by Unit tab.")
         late_cet = over_cet_limit(units) if (week and "cets" in kinds) else []
         if late_cet:
-            warnings.append(f"{len(late_cet)} unit(s) go more than {CET_LIMIT} days in passenger service without a "
+            warnings.append(f"{plural(len(late_cet), 'unit')} {agree(len(late_cet), 'goes', 'go')} more than "
+                            f"{CET_LIMIT} days in passenger service without a "
                             f"CET (e.g. {', '.join(u.diagrams[0].label for u in late_cet[:6])}): see the CETs by "
                             "Unit tab.")
     if week:
@@ -550,11 +553,11 @@ def seats_report(plan: LoadedPlan, opts: PackOptions, kind: str, group_name: str
         reports = compare_reports(o_reports, reports, _plan_label(old), _plan_label(plan))
         stem = opts.output_name.strip() or (seats_name(plan.trent, _stem_name(group), opts.days, span) + " compared")
         change = seats - o_seats
-        summary = (f"{where}: {len(o_found)} -> {len(found)} train(s), {o_seats:,} -> {seats:,} {what} "
+        summary = (f"{where}: {len(o_found)} -> {plural(len(found), 'train')}, {o_seats:,} -> {seats:,} {what} "
                    f"({'+' if change >= 0 else ''}{change:,}).")
     else:
         stem = opts.output_name.strip() or seats_name(plan.trent, _stem_name(group), opts.days, span)
-        summary = (f"{len(found)} train(s), {seats:,} {what} - {where}"
+        summary = (f"{plural(len(found), 'train')}, {seats:,} {what} - {where}"
                    + (f" (average {seats / len(opts.days):,.0f} {what} a day)" if week and len(opts.days) > 1 else "")
                    + ".")
     progress(0.9, "Saving...")
@@ -593,4 +596,4 @@ def period_mileage(plan: LoadedPlan, opts: PackOptions, kind: str, version: str,
     path = pm.write(totals, by_date, per, opts.fmt, lambda s, ext: unique_path(folder, s, ext), stem, info)
     total = by_date.rows[-1].cells
     miles = f"{total[6]:,.2f} unit miles" if isinstance(total[6], float) else "unit miles unknown (???)"
-    return [path], warnings, f"{per.label}: {per.days} day(s), {miles}."
+    return [path], warnings, f"{per.label}: {plural(per.days, 'day')}, {miles}."

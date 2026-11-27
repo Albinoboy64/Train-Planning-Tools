@@ -11,6 +11,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple
+from rstools.naming import agree, plural
 
 CHANGED, ADDED, REMOVED, SAME = "changed", "added", "removed", "same"
 
@@ -156,6 +157,7 @@ def build_workbook(cmp: DocComparison):
 
 def summary_lines(cmp: DocComparison) -> List[str]:
     changed = cmp.count(CHANGED)
-    return [f"{changed + cmp.count(SAME)} {cmp.kind} item(s) in both: {changed} changed",
+    return [f"{changed + cmp.count(SAME)} {cmp.kind} {agree(changed + cmp.count(SAME), 'item', 'items')} in both: "
+            f"{changed} changed",
             f"{cmp.count(ADDED)} added, {cmp.count(REMOVED)} removed, "
-            f"{sum(len(i.changes) for i in cmp.items if i.status == CHANGED)} individual change(s)"]
+            f"{plural(sum(len(i.changes) for i in cmp.items if i.status == CHANGED), 'individual change')}"]

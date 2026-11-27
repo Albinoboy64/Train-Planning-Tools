@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, books_of, norm, pair_fields
 from .section4 import Possession, Statement
+from rstools.naming import plural
 
 FIELDS = ("Section", "Locations", "Periods", "Windows", "Blocked", "Remarks")
 
@@ -112,7 +113,8 @@ def compare_statements(a: Statement, b: Statement) -> DocComparison:
                     "is blocked, and the remarks.",
                     "Each route's NOTES and Timetable Construction Notes, and other text outside the possession "
                     "tables (such as track patrolling plans), route by route and sentence by sentence.",
-                    f"{len(a.possessions)} possession row(s) and {len(a.notes)} note(s) in the original, "
+                    f"{plural(len(a.possessions), 'possession row')} and {plural(len(a.notes), 'note')} in the "
+                    "original, "
                     f"{len(b.possessions)} and {len(b.notes)} in the updated."]
     cmp.not_compared = ["Page headings and footers (found by repetition: version, date, page numbers, next issue - "
                         "shown above for information), and the line of route title."]

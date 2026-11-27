@@ -108,6 +108,11 @@ def plural(n: int, word: str, many: str = "") -> str:
     return f"{n:,} {many}"
 
 
+def agree(n: int, one: str, many: str) -> str:
+    """The verb (or other word) that goes with a count: agree(1, 'does', 'do') -> 'does', agree(3, ...) -> 'do'."""
+    return one if n == 1 else many
+
+
 def shorten_path(path: str, fits: Callable[[str], bool]) -> str:
     """The path as it is if `fits` says so; else with folders after the drive left out, nearest the drive
     first ('C:\\...\\Downloads\\file.xlsx'), so the drive, the last folders and the whole file name stay readable."""

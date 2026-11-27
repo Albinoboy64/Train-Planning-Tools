@@ -71,6 +71,20 @@ class ScrollPage(ttk.Frame):
 
 _OPEN_POPUPS: set = set()          # drop-down lists open now (suggestion lists, combobox popdowns)
 _SHOWN_TIPS: list = []             # tooltips on screen now
+_WAITING_TIPS: set = set()         # tooltips about to show (the mouse is resting on their widget)
+
+
+def close_popups() -> None:
+    """Close every suggestion list and tooltip on screen or about to show. Called when the task or tab changes,
+    the saved settings are loaded or the window moves: these are windows of their own, so they would otherwise
+    stay on screen over controls that are no longer there."""
+    from rstools import autocomplete
+    autocomplete.close_all()
+    for tip in list(_SHOWN_TIPS) + list(_WAITING_TIPS):
+        try:
+            tip.hide()
+        except tk.TclError:
+            pass
 
 
 def popup_opened(popup) -> None:
@@ -120,8 +134,10 @@ class Tooltip:
     def _schedule(self, _e=None):
         self._cancel()
         self._after = self.widget.after(self.delay, self.show)
+        _WAITING_TIPS.add(self)
 
     def _cancel(self):
+        _WAITING_TIPS.discard(self)
         if self._after:
             try:
                 self.widget.after_cancel(self._after)
@@ -131,7 +147,13 @@ class Tooltip:
 
     def show(self, _e=None):
         self._after = None
+        _WAITING_TIPS.discard(self)
         if self.tip or not self.text or popup_open():
+            return
+        try:
+            if not self.widget.winfo_ismapped():         # its control was hidden meanwhile (a task change)
+                return
+        except tk.TclError:
             return
         try:
             root = self.widget.winfo_toplevel()

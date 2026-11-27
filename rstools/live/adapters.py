@@ -266,9 +266,9 @@ def timetables(cmp, passenger_only: bool = False, header: bool = True, timing: b
             if g is None:
                 state, status = REMOVED, f"Missing from {O}"
             elif checked:
-                kinds = list(dict.fromkeys("Timing" if i.summary == ISSUE_TIME else "Missing time" if
+                kinds = list(dict.fromkeys("Timing difference" if i.summary == ISSUE_TIME else "Missing time" if
                                            i.summary == ISSUE_MISSING else "Time shown wrongly" for i in checked))
-                state, status = ISSUE, ", ".join(kinds) + " difference"
+                state, status = ISSUE, ", ".join(kinds)
             elif header and g.headcode != n.headcode:
                 state, status = CHANGED, f"TID difference ({O} {g.headcode})"
             else:

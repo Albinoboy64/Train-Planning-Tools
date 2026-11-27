@@ -23,6 +23,7 @@ from rstools.days import DAY_NAMES
 from .fleet import FleetTable, user_fleet_path
 from .model import DayModel, Part, TrainRun
 from .units import Report
+from rstools.naming import plural
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GROUPS = os.path.join(HERE, "groups_default.csv")
@@ -703,7 +704,7 @@ def run_seats(models: Sequence[DayModel], fleet: FleetTable, group: Group, windo
     found: List[TrainSeats] = []
     for m in models:
         day = seats_for_day(m, fleet, matcher, window, window_tips)
-        log(f"{DAY_NAMES[m.day]}: {len(day)} train(s), {sum(s.cap.seats for s in day):,} seats")
+        log(f"{DAY_NAMES[m.day]}: {plural(len(day), 'train')}, {sum(s.cap.seats for s in day):,} seats")
         found += day
     if stations.missing:
         warnings = warnings + [f"Station(s) not in the XML: {'; '.join(sorted(stations.missing))}"]

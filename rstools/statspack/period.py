@@ -16,6 +16,7 @@ from .fleet import FleetTable
 from .model import build_day
 from .stats import Row, Table, build_tables, weekly_tables
 from .trent import TrentData, TrentDiagram
+from rstools.naming import agree, plural
 
 MILEAGE_TABS = ["Mileage by Formation", "Mileage by Unit", "Mileage by Vehicle", "Formation Mileage by Service Co",
                 "Unit Mileage by Service Code", "Vehicle Mileage by Service Code"]
@@ -200,7 +201,8 @@ def build(trent: TrentData, attune, operators, fleets, period: Period, info: dic
         sums.append(None if any(v is None for v in vals) else round(sum(vals), 2))
     date_rows.append(Row(sums, "total"))
     if empty:
-        warnings.append(f"{len(empty)} date(s) in the period have no diagrams for the selected operators and fleets "
+        warnings.append(f"{plural(len(empty), 'date')} in the period {agree(len(empty), 'has', 'have')} no diagrams "
+                        "for the selected operators and fleets "
                         f"(e.g. {', '.join(f'{d:%d/%m/%Y}' for d in empty[:6])}); they count as no miles.")
     return totals, Table("Mileage by Date", date_rows), warnings
 
@@ -217,7 +219,8 @@ def write(totals: Sequence[Table], by_date: Table, period: Period, fmt: str, pat
     from .units import Report
     sink = sink_for(fmt)
     sink.table("Glossary", "Glossary", glossary(info))
-    note = (f"{period.label}: {period.days} day(s). Each date counts the diagrams that run on it, with STP and draft "
+    note = (f"{period.label}: {plural(period.days, 'day')}. Each date counts the diagrams that run on it, with STP "
+            "and draft "
             "diagrams only on the dates they are valid for.")
     sink.report(Report("Mileage by Date", f"Mileage by Date - {period.label}", DATE_HEADERS,
                        [r.cells for r in by_date.rows], [r.kind for r in by_date.rows], note))

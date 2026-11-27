@@ -24,6 +24,7 @@ from rstools import naming, others as O
 from rstools.days import DAY_CODES
 
 from .model import SheetModel, parse_workbook, sheet_key
+from rstools.naming import plural
 
 Log = Callable[[str], None]
 GREY = "FF7F7F7F"
@@ -280,7 +281,7 @@ def add_other_trains(path: str, other_paths: Sequence[str], out_dir: str = "", n
     out = os.path.join(folder, stem + ".xlsx")
     save_output(lambda: save_workbook(wb, out), out, OtherTrainsError)
     ops = ", ".join(sorted({O.operator(p) for p in plans}))
-    return Result(out, f"{added} row(s) of other operators' trains ({ops}) added, in grey italics.", warnings)
+    return Result(out, f"{plural(added, 'row')} of other operators' trains ({ops}) added, in grey italics.", warnings)
 
 
 def add_to_workbook(wb, model, plans, cover: Set[int], log: Log = lambda _m: None) -> Tuple[int, List[str]]:
@@ -315,5 +316,5 @@ def add_to_workbook(wb, model, plans, cover: Set[int], log: Log = lambda _m: Non
             _write_row(ws, at, sm, r, like + (1 if like >= at else 0))
             like += 1 if like >= at else 0
         added += len(rows)
-        log(f"{sm.title.strip()}: {len(rows)} train(s) of other operators added")
+        log(f"{sm.title.strip()}: {plural(len(rows), 'train')} of other operators added")
     return added, warnings

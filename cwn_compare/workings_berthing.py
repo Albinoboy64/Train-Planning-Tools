@@ -31,6 +31,7 @@ from rstools.fsutil import clean_cell, output_folder, unique_stem
 from .days import tab_day
 from .model import Block, CWNModel, SheetModel, parse_workbook, time_minutes
 from rstools.days import DAY_CODES, DAY_NAMES
+from rstools.naming import agree, plural
 
 Log = Callable[[str], None]
 
@@ -549,7 +550,7 @@ def _with_others(path: str, others: Sequence[str], log: Log):
     added, warnings = add_to_workbook(wb2, model2, plans, set(range(7)))
     for w in warnings:
         log(f"NOTE: {w}")
-    log(f"Other operators: {added} train(s) taken into the berthing arrangements")
+    log(f"Other operators: {plural(added, 'train')} taken into the berthing arrangements")
     return parse_workbook(wb2)
 
 
@@ -599,7 +600,8 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
     out = os.path.join(folder, stem + ".xlsx")
     from rstools.fsutil import save_output
     save_output(lambda: save_workbook(wb, out, trim="data"), out, WorkingsError)
-    summary = (f"Berthing arrangements added to {len(sections)} day tab(s) of the {lay.name} workings"
-               + (f"; {diffs} line(s) differ from the section that was there (see the log)." if diffs else "."))
+    summary = (f"Berthing arrangements added to {plural(len(sections), 'day tab')} of the {lay.name} workings"
+               + (f"; {plural(diffs, 'line')} {agree(diffs, 'differs', 'differ')} from the section that was there "
+                  "(see the log)." if diffs else "."))
     log(f"Saved: {out}")
     return Result(out, "", summary, [])

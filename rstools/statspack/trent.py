@@ -48,6 +48,7 @@ from typing import Dict, List, Optional, Set, cast
 
 from rstools import safexml
 from rstools.days import days_of_code
+from rstools.naming import agree, plural
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -355,7 +356,8 @@ def parse_vehicle_layout(path: str) -> TrentData:
         elif layout != "VL05" and not _totals_match(d):
             mismatched.append(f"{d.key} {d.days_code}")
     if mismatched:
-        warnings.append(f"{len(mismatched)} diagram(s) in the TRENT print have service miles that do not add up to "
+        warnings.append(f"{plural(len(mismatched), 'diagram')} in the TRENT print "
+                        f"{agree(len(mismatched), 'has', 'have')} service miles that do not add up to "
                         f"the printed mileage total (e.g. {', '.join(mismatched[:8])}) - part of the print may not "
                         "have been read, or TRENT's own total counts miles no printed move carries. Check the file "
                         "is a complete TRENT unit diagram print.")

@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Sequence, Tuple
 
+from rstools.naming import plural
+
 from .parse import norm_headcode
 
 _KEYWORDS = re.compile(r"head\s*code|train\s*(id|no|number|uid)|\buid\b|days?|origin|destination|dep|arr|operator|"
@@ -323,5 +325,5 @@ def build_workbook(cmp: ListComparison):
 
 
 def describe(lst: TrainList) -> str:
-    return (f"{os.path.basename(lst.path)}: {len(lst.rows)} trains (sheet '{lst.sheet}', heading row "
+    return (f"{os.path.basename(lst.path)}: {plural(len(lst.rows), 'train')} (sheet '{lst.sheet}', heading row "
             f"{lst.header_row}; paired by {', '.join(lst.headers[i] for i in lst.key_columns())})")
