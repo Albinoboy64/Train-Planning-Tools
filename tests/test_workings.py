@@ -292,7 +292,7 @@ def test_the_window_runs_the_berthing_task(tmp_path, monkeypatch):
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         assert ("work_berth", "Add berthing arrangements to platform workings") in gui.STOCK_TASKS
         src = wf.make(str(tmp_path / "w.xlsx"), "brighton")

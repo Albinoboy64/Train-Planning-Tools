@@ -446,7 +446,7 @@ def test_live_view_pops_out_and_comes_back(tmp_path, monkeypatch):
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         tab, win = app.live_tab, app.live_window
         app.notebook.select(app.live_page)                # the tab the user presses Pop out on

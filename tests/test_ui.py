@@ -45,9 +45,10 @@ def test_every_message_box_opens_over_the_window():
 
 def test_every_help_tip_belongs_to_a_control_that_exists():
     """Tips are found by a control's text: a renamed control leaves its tip behind, never shown."""
-    pytest.importorskip("tkinter")
-    from rstools.help_text import TIPS
-    texts = []                                           # every string in the window code (joined parts too)
+    tips_tree = ast.parse(open(os.path.join(ROOT, "rstools/help_text.py"), encoding="utf-8").read())
+    TIPS = next(ast.literal_eval(n.value) for n in tips_tree.body          # read from the source: runs without Tk
+                if isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "TIPS" for t in n.targets))
+    texts = []                                         # every string in the window code (joined parts too)
     for rel in GUI_FILES + ["rstools/live/adapters.py", "rstools/statspack/engine.py",
                             "rstools/timetable/engine.py", "rstools/theme.py"]:
         tree = ast.parse(open(os.path.join(ROOT, rel), encoding="utf-8").read())

@@ -465,6 +465,13 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.38.6** - Audit fixes: safer outputs, a working Stop, steadier Live View
+* **Safer outputs**: text copied from another operator's file can no longer become a live Excel formula in the *other operators added* or workings berthing outputs (every workbook now stores formula-looking text as text). An output is never written over, even when two pairs in a batch comparison would get the same name (they are now named apart). Rule sets are saved so that a failed save keeps the old set. XML files in UTF-16 or UTF-32 without a byte order mark get the same safety check as any other.
+* **Stop works everywhere**: Stop (or Esc) now ends a batch comparison or a run of several station books straight away; the pairs or books already finished are kept and listed. Closing the app during a run stops it and its helper processes, and asks about unsaved tables in Settings first; installing an update closes the app the same way, so Live View progress is kept.
+* **Live View**: ticking *Check header / timing differences*, *Passenger times only* or *Check for differences* no longer takes the confirmations off; a train loses its tick only when its details change. Confirmations are saved against the files that were compared, even if a file is swapped while a comparison runs. Train-list rows keep their confirmations when a row is added above them. The pop-out window reopens only where a monitor shows it.
+* **Window**: the mouse wheel over a drop-down (such as *Task*) scrolls the page instead of changing the choice and clearing the chosen files. Other tabs keep updating while a *finished* message is open. The window reopens on the monitor it was last on. *Help > Check for updates* opens one window at a time. *Settings > Fleet data / Depots / Corridors* re-reads a file only after it was changed in Excel. If the settings file is damaged, the app opens with the default settings, and any problem while it opens goes in the error log with a message, instead of the app silently not starting.
+* **Command line**: options that do not go together, or that only another kind of run uses, are refused before any file is read: an unknown `--unit-reports` name, `--capacity-group` with `--capacity-corridor`, `--capacity-from` without `--capacity-to`, `--no-seating` with `--no-standing`, `--old-pack` with `--old-xml`, `--nr` / `--vs` / `--check` with the wrong timetable mode, an unknown `--sheets` day, and `--name` or `--days` with `--original-folder`. An unknown capacity group or corridor is reported before the plan is read. The `section4` check saves to Downloads when no `--out` is given. Every command and option is now listed under *Command line*.
+
 **3.38.5** - Class 313 and 455 removed
 * **313s and 455s are gone**: the built-in fleet data no longer lists Class 313 or 455 (313/2, 455/8 or their *3 313Q* / *4 455Q* rows), so they no longer appear in Stats Packs, fleet choices or berthing charts. Your own fleet data (Settings > Fleet data) has them removed once on the first run of this version, even if you changed them; if you add one back later it is kept.
 * The built-in berthing chart's Stew Lane Goods Loop note no longer mentions 455 units.
@@ -1094,6 +1101,7 @@ TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx [--acwn] [--name N
                [--exact-text] [--report-format xlsx|pdf|docx]
 TrainPlanningTools.exe --previous EARLIER_COMPARISON.xlsx --updated NEWEST.xlsx --colour 92D050
 TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days MO,FO        (Monday and Friday trains only)
+TrainPlanningTools.exe --original-folder OLD_CWNS --updated NEW_CWNS [--out FOLDER]   (batch: every pair of CWNs in two folders)
 TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge [--merge-diagrams] [--merge-berths [--merge-berth-diagrams]]] [--name NAME] [--out FOLDER]    (day variants in order)
 
 TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO,WO] [--operators SNGX,TLGN]
@@ -1109,6 +1117,8 @@ TrainPlanningTools.exe statspack --old-pack OLD.xlsx --new-pack NEW.xlsx
 TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx --unit-reports washes,cets,depots,captive,fuel [--possible every|over|off]
 TrainPlanningTools.exe statspack --trent "TLGN_SX.docx;TLGN_SO.docx;TLGN_SU.docx" --unit-reports washes,depots,captive   (no XML needed)
                [--unit-period week|days|timetable] [--format xlsx|pdf|docx]
+TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --mileage-period timetable|month|custom
+               [--month 2027-01] [--period-from 14/12/2026 --period-to 20/12/2026]   (mileage over a period)
 
 TrainPlanningTools.exe timetable --gtr GTR.xlsx --nr NR.xlsx [--format xlsx|pdf|docx] [--name NAME] [--out FOLDER]
 TrainPlanningTools.exe timetable --prints OLD.pdf [OLD2.docx ...] --vs NEW.pdf [NEW2.docx ...]
@@ -1118,23 +1128,29 @@ TrainPlanningTools.exe timetable --base-list ATTUNE_LIST.xlsx --check TIMETABLE.
 TrainPlanningTools.exe timetable --prints OLD.pdf --vs NEW.pdf --passenger-only
 TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...]       (two sets of Section 4 documents)
 TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...]   (two sets of TPRs)
+               [--highlight-pdfs]                                     (also save the PDFs with the changes marked)
 TrainPlanningTools.exe section4 --xml PLAN.xml [--pdf SECTION4.pdf ...] [--vpt OURS.vpt] [--other-vpt OTHER.vpt|F3.pdf ...]
                [--out FOLDER] [--name NAME] [--format xlsx|pdf|docx]                   (Section 4 check)
 TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]           (the same, older form)
 TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--book-operator TLGN|SNGX|GTR]
-               [--merge OTHER_OPERATOR.xml|.vpt|.cif|F3.pdf ...] [--other-operators XC,SE]
+               [--platforms 10-15] [--sheets SX,SO,Su] [--label NAME] [--operator TITLE] [--timetable Dec26]
+               [--services TEXT] [--merge OTHER_OPERATOR.xml|.vpt|.cif|F3.pdf ...] [--other-operators XC,SE]
+TrainPlanningTools.exe stationbook --xml PLAN.xml --station "Cambridge; London Bridge [10-15]"   (a book each, on several cores)
 TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] [--layout CHART.xlsx] [--counts] [--no-notes] [--issue "Proof 2"]
                [--operator SNGX|TLGN] [--leave-out SHEET ...] [--add LOCATION ...] [--others OTHER.cif ...]
                [--name NAME] [--out FOLDER]                                         (make a berthing chart)
+TrainPlanningTools.exe berthing --blank [--xml LTP.xml] [--operator SNGX|TLGN] [--add LOCATION ...]
+               [--timetable "May 2027"] [--from 2027-05-16 --to 2027-12-11]          (a blank chart to fill in)
 TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour Green|RRGGBB]
                [--issue "Proof 3"] [--counts]                                        (add a round of changes)
 TrainPlanningTools.exe berthing --compare OLD_CHART.xlsx NEW_CHART.xlsx [--colour Yellow|RRGGBB]  (compare two charts)
 TrainPlanningTools.exe workings-berthing --workings WORKINGS.xlsx [--xml PLAN.xml ...] [--others OTHER.cif ...] [--out FOLDER] [--name NAME]   (berthing arrangements for platform workings)
 TrainPlanningTools.exe other-trains --file CWN_OR_WORKINGS.xlsx --others OTHER.xml|.vpt|.cif [...] [--out FOLDER] [--name NAME]   (add other operators' trains)
 TrainPlanningTools.exe --original OLD_WORKINGS.xlsx --updated NEW_WORKINGS.xlsx    (platform workings are compared like CWNs)
+TrainPlanningTools.exe selftest ATTUNE_PRINT.pdf     (checks a built exe: PDF reader, built-in rules and layout, drag and drop)
 ```
 
-Option combinations that would be ignored are refused before any file is read (for example `--acwn` with `--highlight-only`, an unknown `--exclude` category, `berthing --compare` with `--layout`, `--old-pack` with `--xml`, or `--name` with several stations), so a script never silently gets a different output from the one asked for. A run that fails exits with code 1 and an `ERROR:` line.
+Option combinations that would be ignored are refused before any file is read (for example `--acwn` with `--highlight-only`, an unknown `--exclude` category or `--unit-reports` name, `--capacity-group` with `--capacity-corridor`, `berthing --compare` with `--layout`, `--old-pack` with `--xml` or `--old-xml`, `--nr` without `--gtr`, an unknown `--sheets` day, `--name` with several stations or with `--original-folder`), so a script never silently gets a different output from the one asked for. A capacity report's group or corridor is checked against the list before the plan is read. A run that fails exits with code 1 and an `ERROR:` line.
 
 ## For developers
 

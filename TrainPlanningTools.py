@@ -35,6 +35,11 @@ Command-line use:
                                     [--other-vpt OTHER.vpt ...] [--out DIR] [--name NAME] [--format xlsx|pdf|docx]
     TrainPlanningTools.exe timetable --s4 OLD_S4.pdf [...] --vs-s4 NEW_S4.pdf [...] [--highlight-pdfs]
     TrainPlanningTools.exe timetable --tpr OLD_TPR.pdf [...] --vs-tpr NEW_TPR.pdf [...] [--highlight-pdfs]
+    TrainPlanningTools.exe statspack --xml PLAN.xml --trent VL29.docx --mileage-period timetable|month|custom
+    TrainPlanningTools.exe workings-berthing --workings WORKINGS.xlsx [--xml PLAN.xml ...] [--others OTHER.cif ...]
+    TrainPlanningTools.exe other-trains --file CWN_OR_WORKINGS.xlsx --others OTHER.xml|.vpt|.cif [...]
+    TrainPlanningTools.exe selftest ATTUNE_PRINT.pdf     (checks a built exe)
+The README's "Command line" section lists every option.
 """
 import argparse
 import os
@@ -80,6 +85,11 @@ def cli(argv):
         ap.error(f"--colour must be a hex colour such as FFFF00, not '{a.colour}'")
     if a.acwn and a.highlight_only:
         ap.error("--acwn and --highlight-only cannot be used together (an ACWN has only the changed trains)")
+    if a.original_folder:
+        extra = [f for f, v in (("--name", a.name), ("--days", a.days)) if v]
+        if extra:
+            ap.error(f"{', '.join(extra)} cannot be used with --original-folder: each pair is named after its CWNs "
+                     "and every day is compared")
     o = Options()
     unknown = [k for k in filter(None, (x.strip().upper() for x in a.exclude.split(","))) if k not in o.categories]
     if unknown:
@@ -165,6 +175,12 @@ def stationbook_cli(argv):
     a = _local_out(ap, ap.parse_args(argv))
     if a.other_operators is not None and not a.merge:
         ap.error("--other-operators chooses among the merged operators: give their files with --merge")
+    from rstools.stationbook import DAY_GROUPS, SINGLE_DAYS
+    sheets = [s.strip() for s in a.sheets.split(",") if s.strip()]
+    bad = [s for s in sheets if s not in DAY_GROUPS and s not in SINGLE_DAYS]
+    if bad or not sheets:                    # refused before the XML is read, not left out silently
+        ap.error(f"--sheets: {'unknown ' + ', '.join(bad) if bad else 'none given'} (use any of "
+                 f"{', '.join(dict.fromkeys([*DAY_GROUPS, *SINGLE_DAYS]))})")
     others = None if a.other_operators is None else [o.strip() for o in a.other_operators.split(",") if o.strip()]
     entries = parse_station_list(a.station)
     if len(entries) > 1:
@@ -247,7 +263,7 @@ def _reorder_flags(a):
 
 def statspack_cli(argv):
     from rstools.days import DAYS
-    from rstools.statspack.engine import (OUTPUTS, UNIT_REPORTS, PackOptions, PlanInputs, StatsPackError, build_pack,
+    from rstools.statspack.engine import (OUTPUTS, PackOptions, PlanInputs, StatsPackError, build_pack,
                                           compare_packs, compare_plans, day_availability, load_plan, unit_reports,
                                           write_pack)
 
@@ -340,8 +356,10 @@ def statspack_cli(argv):
     capacity = any((a.seats_group, a.seats_corridor, a.seats_from, a.seats_to))
     if a.per_day and not (a.unit_reports or capacity):
         ap.error("--per-day is used with --unit-reports or a capacity report")
+    _statspack_combinations(ap, a, capacity)  # every mix of flags checked before any file is read
     try:
         window = _capacity_window(a)          # checked before the (slow) timetable is read
+        _capacity_names(a)
         from cwn_compare import __version__ as version
         if a.old_pack or a.new_pack:
             out, n = compare_packs(a.old_pack, a.new_pack, a.out, a.name, cmp, a.format)
@@ -383,10 +401,7 @@ def statspack_cli(argv):
                                                     seating=not a.no_seating, standing=not a.no_standing)
             print(summary)
         elif a.unit_reports:
-            which = [w.strip().lower() for w in a.unit_reports.split(",") if w.strip()]
-            bad = [w for w in which if w not in UNIT_REPORTS]
-            if bad:
-                raise StatsPackError(f"Unknown unit report {bad[0]!r}; use {','.join(UNIT_REPORTS)}")
+            which = [w.strip().lower() for w in a.unit_reports.split(",") if w.strip()]   # checked up front
             paths, warnings = unit_reports(new, o, which, a.unit_period or ("days" if a.per_day else "week"),
                                            old=old)
         elif a.old_xml or a.old_trent:
@@ -406,6 +421,55 @@ def statspack_cli(argv):
     except StatsPackError as exc:
         print("ERROR:", exc)
         sys.exit(1)
+
+
+def _statspack_combinations(ap, a, capacity: bool):
+    """Flags that cannot go together, or that only one kind of run uses, refused up front (not ignored)."""
+    from rstools.statspack.engine import UNIT_REPORTS
+    if a.unit_reports:
+        which = [w.strip().lower() for w in a.unit_reports.split(",") if w.strip()]
+        bad = [w for w in which if w not in UNIT_REPORTS]
+        if bad or not which:
+            what = f"unknown unit report {bad[0]!r}" if bad else "--unit-reports needs at least one report"
+            ap.error(f"{what} (use any of {','.join(UNIT_REPORTS)})")
+    if a.seats_group and a.seats_corridor:
+        ap.error("choose --capacity-group or --capacity-corridor, not both")
+    if bool(a.seats_from) != bool(a.seats_to):
+        ap.error("--capacity-from and --capacity-to go together")
+    if (a.seats_from or a.seats_to) and (a.seats_group or a.seats_corridor):
+        ap.error("--capacity-from / --capacity-to is a capacity report of its own: leave out --capacity-group and "
+                 "--capacity-corridor")
+    if capacity and a.unit_reports:
+        ap.error("run a capacity report or --unit-reports, not both at once")
+    if a.no_seating and a.no_standing:
+        ap.error("--no-seating and --no-standing together leave nothing to count")
+    if (a.no_seating or a.no_standing) and not capacity:
+        ap.error("--no-seating and --no-standing are used with a capacity report")
+    if a.corridor_direction != "both" and not a.seats_corridor:
+        ap.error("--corridor-direction is used with --capacity-corridor")
+    if a.old_pack or a.new_pack:
+        if a.old_xml or a.old_trent:
+            ap.error("--old-pack / --new-pack compare two stats packs: leave out --old-xml and --old-trent")
+        if capacity or a.unit_reports:
+            ap.error("--old-pack / --new-pack compare two stats packs: leave out the capacity and unit report flags")
+    comparing = bool(a.old_pack or a.new_pack or a.old_xml or a.old_trent)
+    used = [f for f, v in (("--no-summary", a.no_summary), ("--changed-tabs-only", a.changed_tabs_only),
+                           ("--changed-rows-only", a.changed_rows_only)) if v]
+    if used and not comparing:
+        ap.error(f"{', '.join(used)} used with a comparison (--old-xml / --old-trent or --old-pack / --new-pack)")
+    if a.between:
+        start, _sep, end = (part.strip() for part in a.between.partition("-"))
+        if start and start == end:
+            ap.error("--between: the two times are the same, so nothing can be in the window")
+
+
+def _capacity_names(a):
+    """The group or corridor named for a capacity report is checked against the list before the plan is read."""
+    if not (a.seats_group or a.seats_corridor):
+        return
+    from rstools.statspack.engine import seats_group
+    kind, name = ("Service group", a.seats_group) if a.seats_group else ("Corridor", a.seats_corridor)
+    seats_group(kind, name, a.corridor_direction)    # StatsPackError when it is not known
 
 
 def _capacity_window(a):
@@ -492,6 +556,12 @@ def timetable_cli(argv):
         ap.error("--highlight-pdfs is used with --s4 / --vs-s4 or --tpr / --vs-tpr")
     if a.passenger_only and not a.prints:
         ap.error("--passenger-only is used with --prints")
+    if a.check and not (a.base_prints or a.base_list):
+        ap.error("--check is used with --base-prints or --base-list")
+    if a.nr and not a.gtr:
+        ap.error("--nr is used with --gtr")
+    if a.vs and not (a.prints or a.lists):
+        ap.error("--vs is used with --prints or --lists")
     if a.s4_check:
         bad = _s4_files_problem(a)
         if bad:                              # reported as before the section4 subcommand: ERROR, exit code 1

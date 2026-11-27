@@ -130,3 +130,74 @@ def test_wheel_over_a_task_box_does_not_change_the_task():
             assert box.get() == "compare"
     finally:
         root.destroy()
+
+
+@pytest.mark.parametrize("cmd,args", [
+    ("statspack", ["--xml", "missing.xml", "--unit-reports", "washes,nonsense"]),
+    ("statspack", ["--xml", "missing.xml", "--unit-reports", ","]),
+    ("statspack", ["--xml", "missing.xml", "--capacity-group", "1F", "--capacity-corridor", "X"]),
+    ("statspack", ["--xml", "missing.xml", "--capacity-from", "Brighton"]),
+    ("statspack", ["--xml", "missing.xml", "--capacity-group", "1F", "--unit-reports", "washes"]),
+    ("statspack", ["--xml", "missing.xml", "--capacity-group", "1F", "--no-seating", "--no-standing"]),
+    ("statspack", ["--xml", "missing.xml", "--no-summary"]),
+    ("statspack", ["--xml", "missing.xml", "--corridor-direction", "reverse"]),
+    ("statspack", ["--old-pack", "a.xlsx", "--new-pack", "b.xlsx", "--old-xml", "c.xml"]),
+    ("statspack", ["--xml", "missing.xml", "--capacity-group", "1F", "--between", "07:00-07:00", "--at", "X"]),
+    ("stationbook", ["--xml", "missing.xml", "--station", "Alpha", "--sheets", "SX,XX"]),
+    ("timetable", ["--gtr", "a.xlsx", "--nr", "b.xlsx", "--check", "c.xlsx"]),
+    ("timetable", ["--prints", "a.pdf", "--vs", "b.pdf", "--nr", "c.xlsx"]),
+    ("timetable", ["--gtr", "a.xlsx", "--nr", "b.xlsx", "--vs", "c.pdf"]),
+    ("", ["--original-folder", "a", "--updated", "b", "--name", "x"]),
+])
+def test_cli_refuses_flags_that_do_not_go_together(cmd, args, capsys):
+    """Refused up front (exit code 2, before any file is read: none of these files exists)."""
+    import TrainPlanningTools as cli
+    with pytest.raises(SystemExit) as exc:
+        cli.main(([cmd] if cmd else []) + args)
+    assert exc.value.code == 2, capsys.readouterr()
+
+
+def test_cli_unknown_corridor_refused_before_the_plan_is_read(capsys):
+    import TrainPlanningTools as cli
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["statspack", "--xml", "missing.xml", "--trent", "missing.docx",
+                  "--capacity-corridor", "No Such Corridor Anywhere"])
+    out = capsys.readouterr().out
+    assert exc.value.code == 1 and "is not known" in out and "missing" not in out.lower().split("error:")[0]
+
+
+def test_every_command_line_flag_is_in_the_readme():
+    """The README's command-line section names every option of every command (hidden ones aside)."""
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "TrainPlanningTools.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    with open(os.path.join(root, "README.md"), encoding="utf-8") as fh:
+        readme = fh.read()
+    start = readme.index("## Command line (optional)")
+    section = readme[start:readme.index("\n## ", start + 5)]
+    hidden = set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"[^)]*SUPPRESS', src))
+    flags = set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"', src)) - hidden
+    assert flags and not sorted(f for f in flags if f not in section)
+    for command in re.search(r"COMMANDS = \(([^)]*)\)", src).group(1).replace('"', "").replace("\n", " ").split(","):
+        assert command.strip() in section
+
+
+def test_gitignore_covers_planning_data_in_any_letter_case():
+    """Real planning data is ignored in every folder and letter case; the app's own tables and the synthetic
+    fixtures stay tracked."""
+    import shutil
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if shutil.which("git") is None or not os.path.isdir(os.path.join(root, ".git")):
+        pytest.skip("not a git checkout")
+
+    def ignored(path):
+        return subprocess.run(["git", "check-ignore", "-q", "--no-index", path], cwd=root).returncode == 0
+    for path in ("a.xml", "deep/x/b.XML", "c.XLSX", "d.xltx", "e.xlsm", "f.docx", "g.DOCM", "h.pdf", "i.PDF",
+                 "j.vpt", "k.CIF", "trains.csv", "nested/list.CSV", "TrainPlanningTools-data/settings.json",
+                 "x/TrainPlanningTools-data/error.log"):
+        assert ignored(path), path
+    for path in ("rstools/statspack/fleet_default.csv", "rstools/timetable/template.xlsx",
+                 "tests/fixtures/synthetic_cwn.xls", "packaging/TrainPlanningTools.spec", "README.md"):
+        assert not ignored(path), path

@@ -338,7 +338,7 @@ def test_compact_layout_hides_tips_only():
     try:
         root = tk.Tk()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         frame = ttk.LabelFrame(root, text="1.", padding=8)
         frame.grid()
@@ -477,7 +477,7 @@ def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch)
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         try:
             app.update()
             base_dpi = app.dpi
@@ -576,7 +576,7 @@ def test_help_menu_opens_the_error_log(monkeypatch):
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         shown, opened = [], []
         monkeypatch.setattr(g.messagebox, "showinfo", lambda *a, **k: shown.append(a[1]))
         monkeypatch.setattr(g, "_open_path", lambda path: opened.append(path))
@@ -821,7 +821,7 @@ def test_professional_layout_captions_icons_and_status_bar(monkeypatch):
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         try:
             app.update()
             from tkinter import ttk
@@ -874,7 +874,7 @@ def test_tick_boxes_and_radio_buttons_drawn_for_the_scaling(monkeypatch):
         try:
             root = tk.Tk()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         try:
             style = ttk.Style(root)
             root.ui_scale = 1.0
@@ -913,7 +913,7 @@ def test_display_watcher_only_watches_the_main_window(monkeypatch):
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         seen, rescaled = [], []
         try:
             app.update()
@@ -970,7 +970,7 @@ def test_rescale_reuses_drawn_images(monkeypatch):
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         try:
             app.update()
             assert theme.monitor_dpis() == [] or sys.platform.startswith("win")
@@ -1020,7 +1020,7 @@ def test_rescale_waits_for_the_drag_to_end_then_fits_the_window(monkeypatch):
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         try:
             app.update()
             shown = {"dpi": app.dpi, "held": True}
@@ -1074,7 +1074,7 @@ def test_window_partly_off_screen_is_moved_back(monkeypatch):
             import cwn_compare.gui as g
             app = g.App()
         except tk.TclError:
-            return                                          # no display
+            pytest.skip("no display")
         try:
             area = theme.screen_area(app)
             w = min(1000, area[2] - area[0] - 40)
@@ -1205,7 +1205,7 @@ def test_every_tab_and_mode_fits_a_small_screen(tmp_path, monkeypatch):
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         if app.winfo_screenwidth() != 1366 or app.winfo_screenheight() != 768 or app.dpi != 96:
             pytest.skip("measured on a 1366 x 768 screen at 96 dpi only")
@@ -1246,7 +1246,7 @@ def test_task_box_groups_headings_and_picks():
     try:
         root = tk.Tk()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         box = TaskBox(root, [("One", [("a", "Alpha"), ("b", "Beta")]), ("Two", [("c", "Gamma")])])
         values = list(box.cget("values"))
@@ -1274,7 +1274,7 @@ def test_stats_tab_shows_its_task_and_numbers_its_frames_without_gaps(tmp_path, 
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         for tab in (app, app.stats_tab, app.tt_tab):
             assert tab.task_box.get().strip(), type(tab).__name__
@@ -1301,7 +1301,7 @@ def test_settings_are_saved_even_when_the_live_window_place_cannot_be(tmp_path, 
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     saved = []
     monkeypatch.setattr(app.live_window, "_save_place", lambda: (_ for _ in ()).throw(RuntimeError("no place")))
     monkeypatch.setattr(app, "save_app_settings", lambda: saved.append(True))
@@ -1339,7 +1339,7 @@ def test_update_dialog_reports_a_new_version_and_an_error(tmp_path, monkeypatch)
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         newer = updater.Release("99.0.0", "v99.0.0", "Notes for the new version", "https://example.invalid/r",
                                 "https://example.invalid/a", 1000, "sha256:abc")
@@ -1372,7 +1372,7 @@ def test_rules_dialog_lists_sets_and_protects_the_built_in_one(tmp_path, monkeyp
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         dlg = rules_dialog.RulesPanel(app, app)
         app.update()

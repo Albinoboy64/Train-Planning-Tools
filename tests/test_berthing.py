@@ -807,7 +807,7 @@ def test_the_window_makes_a_blank_tlgn_chart(tmp_path, monkeypatch):
     try:
         app = gui.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         assert ("berth_blank", "Create a blank berthing chart") in gui.STOCK_TASKS
         app.mode.set("berth_blank")

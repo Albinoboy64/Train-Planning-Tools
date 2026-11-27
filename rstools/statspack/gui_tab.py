@@ -700,9 +700,6 @@ class StatsPackTab(ttk.Frame):
         if p:
             self.out_dir.set(os.path.normpath(p))
 
-    def edit_depots(self):
-        self.app.open_settings("Depots")
-
     def edit_fleet(self):
         self.app.open_settings("Fleet data")
 

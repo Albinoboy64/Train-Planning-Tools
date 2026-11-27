@@ -1171,7 +1171,7 @@ def test_the_window_makes_mileage_for_a_month(tmp_path, monkeypatch):
         import cwn_compare.gui as g
         app = g.App()
     except tk.TclError:
-        return                                          # no display
+        pytest.skip("no display")
     try:
         monkeypatch.setattr(g.App, "open_outputs", lambda self, *_a, **_k: None)
         from rstools.statspack import gui_tab

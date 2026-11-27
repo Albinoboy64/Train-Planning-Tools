@@ -3,15 +3,19 @@ __pycache__/
 build/
 dist/
 *.spec
+!packaging/TrainPlanningTools.spec
 .venv/
-# Never commit real planning data, wherever it appears.
-*.xlsx
-*.xls
-*.xlsb
-*.xlsm
-*.xml
-*.docx
-*.pdf
+# Never commit real planning data, wherever it appears. The patterns ignore letter case (a.XML, b.XLSX...),
+# since commits made on Linux match case-sensitively.
+# Excel workbooks and templates (.xlsx .xls .xlsb .xlsm .xltx .xltm ...)
+*.[xX][lL]*
+# Word documents (.docx .doc .docm ...)
+*.[dD][oO][cC]*
+*.[xX][mM][lL]
+*.[pP][dD][fF]
+# train lists exported as CSV; the app's own built-in tables are kept
+*.[cC][sS][vV]
+!rstools/**/*.csv
 # Explicitly keep the sample template used by the app.
 !rstools/timetable/template.xlsx
 # a tiny made-up workbook (no real data) for the .xls reader test
@@ -20,14 +24,14 @@ dist/
 TrainPlanningTools-data/
 smoke/
 version_info.txt
+*.log
+*.zip
 
-# Attune VPT / PIF exports (real timetable data)
-*.vpt
-*.cif
-*.CIF
-*.mca
-*.MCA
-*.pif
+# Attune VPT / PIF / CIF / MCA exports (real timetable data)
+*.[vV][pP][tT]
+*.[cC][iI][fF]
+*.[mM][cC][aA]
+*.[pP][iI][fF]
 
 # coverage and release-build outputs
 .coverage
