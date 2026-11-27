@@ -14,6 +14,7 @@ from functools import cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from xml.sax.saxutils import escape
 
+from rstools.xlsave import ignore_text_numbers
 from rstools.zipw import write_zip
 
 from .stats import Clock, Dur, Row, Table
@@ -273,7 +274,8 @@ class SheetWriter:
                  f'topLeftCell="A{self.freeze_row + 1}" activePane="bottomLeft" state="frozen"/></sheetView>'
                  '</sheetViews>') if self.freeze_row else ""
         auto = f'<autoFilter ref="{self.filter_ref}"/>' if self.filter_ref else ""
-        return (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{MAIN}">'
+        return ignore_text_numbers(
+                f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{MAIN}">'
                 f'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' + views
                 + (f"<cols>{col_xml}</cols>" if cols else "")
                 + f'<sheetData>{"".join(self.rows)}</sheetData>{auto}{merge_xml}'

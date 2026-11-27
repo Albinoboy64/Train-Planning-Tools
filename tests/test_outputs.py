@@ -142,3 +142,37 @@ def test_every_output_is_valid_and_safe(monkeypatch):
     # the formula-like text survives as text
     clash = openpyxl.load_workbook(s4_out)["Clashes"]
     assert any(c.value == "=SUM(A1:A9)" for row in clash.iter_rows() for c in row)
+
+
+def test_numbers_stored_as_text_are_not_flagged_in_the_schema_order():
+    """Headcodes, platforms and diagram numbers are text on purpose: every saved tab turns off Excel's 'number
+    stored as text' flag, placed after the page set-up and before drawings, tables and extensions."""
+    from rstools.xlsave import ignore_text_numbers
+    base = ('<worksheet><sheetData><row r="2"><c r="C2"/></row><row r="30"><c r="AB30"/></row></sheetData>'
+            '<pageMargins/><pageSetup/>{tail}</worksheet>')
+    for tail in ("", '<drawing r:id="rId1"/>', '<tableParts count="1"/>', "<extLst/>"):
+        out = ignore_text_numbers(base.format(tail=tail))
+        assert out.count("<ignoredErrors") == 1 and 'sqref="A1:AB30"' in out
+        assert out.index("<pageSetup/>") < out.index("<ignoredErrors") < out.index(tail or "</worksheet>")
+    already = base.format(tail='<ignoredErrors><ignoredError sqref="A1" formula="1"/></ignoredErrors>')
+    assert ignore_text_numbers(already) == already
+    dim = '<worksheet><dimension ref="A1:K9"/><sheetData/></worksheet>'
+    assert 'sqref="A1:K9"' in ignore_text_numbers(dim)
+
+
+def test_saved_workbooks_carry_the_flag_and_still_open():
+    import tempfile
+    import zipfile
+
+    import openpyxl
+    from rstools.xlsave import save_workbook
+    with tempfile.TemporaryDirectory() as d:
+        wb = openpyxl.Workbook()
+        wb.active["A1"] = "14"
+        wb.active.auto_filter.ref = "A1:A1"
+        p = os.path.join(d, "t.xlsx")
+        save_workbook(wb, p)
+        with zipfile.ZipFile(p) as z:
+            xml = z.read("xl/worksheets/sheet1.xml").decode()
+        assert xml.count("numberStoredAsText") == 1 and xml.index("<ignoredErrors") > xml.index("</sheetData>")
+        assert openpyxl.load_workbook(p).active["A1"].value == "14"

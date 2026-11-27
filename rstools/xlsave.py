@@ -41,6 +41,46 @@ def fill(colour: str):
 
 
 SST_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings"
+# Excel's green "number stored as text" triangle is turned off on every tab: headcodes, platforms, car counts and
+# diagram numbers are text on purpose (as in the CWNs), and openpyxl drops a workbook's own setting when it reads it.
+# ignoredErrors goes after the page set-up and breaks, before any drawing, table or extension list (schema order).
+_AFTER_IGNORED = re.compile(r"<(?:smartTags|drawing|legacyDrawing|legacyDrawingHF|drawingHF|picture|oleObjects|"
+                            r"controls|webPublishItems|tableParts|extLst)[\s>/]|</worksheet>")
+_DIM_RE = re.compile(r'<dimension ref="([A-Z]+\d+(?::[A-Z]+\d+)?)"')
+_CELL_REF_RE = re.compile(r'<c r="([A-Z]+)(\d+)"')
+
+
+def _used_range(xml: str) -> str:
+    m = _DIM_RE.search(xml)
+    if m:
+        return m.group(1)
+    cols = rows = 0
+    for col, row in _CELL_REF_RE.findall(xml):
+        n = 0
+        for ch in col:
+            n = n * 26 + ord(ch) - 64
+        cols, rows = max(cols, n), max(rows, int(row))
+    if not cols:
+        return "A1"
+    letters = ""
+    while cols:
+        cols, r = divmod(cols - 1, 26)
+        letters = chr(65 + r) + letters
+    return f"A1:{letters}{rows}"
+
+
+def ignore_text_numbers(xml: str) -> str:
+    """The sheet XML with numbers stored as text not flagged over the used range (left as it is if it already
+    says)."""
+    if "<ignoredErrors" in xml:
+        return xml
+    m = _AFTER_IGNORED.search(xml, xml.rfind("</sheetData>") + 1)
+    if m is None:
+        return xml
+    tag = f'<ignoredErrors><ignoredError sqref="{_used_range(xml)}" numberStoredAsText="1"/></ignoredErrors>'
+    return xml[:m.start()] + tag + xml[m.start():]
+
+
 SST_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
@@ -260,7 +300,7 @@ def _fixed_parts(zin: zipfile.ZipFile):
             xml = data.decode("utf-8")
             if not has_sst:
                 xml = sst.convert(xml)
-            data = _ROW_RE.sub(_add_spans, xml).encode("utf-8")
+            data = ignore_text_numbers(_ROW_RE.sub(_add_spans, xml)).encode("utf-8")
         elif name == "xl/styles.xml":
             data = _FONT_RE.sub(_sort_font, data.decode("utf-8")).encode("utf-8")
         elif name == "xl/workbook.xml":

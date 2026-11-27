@@ -448,6 +448,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.37.4** - output check
+* **Excel outputs** no longer show Excel's green *number stored as text* triangles: headcodes, platforms, car counts, diagram numbers and old/new values are text on purpose (as in the CWNs), so every tab the app saves turns that check off for its data. Nothing else in the files changes.
+
 **3.37.3** - stats pack evening peak to 19:00
 * **Stats pack:** the evening peak now runs from 16:00 until 19:00 (was 16:00 - 17:59), in *Vehicle Counts at Stops by Peak* and the calling pattern tabs; the time after it starts at 19:00.
 * **Build:** a green build of any branch, not only `claude/**`, is merged into `main`, and `main` is built after every merge.
