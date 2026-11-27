@@ -36,7 +36,9 @@ TIPS = {
     "CWN:": "The multi-day CWN. It is not changed - a copy is saved.",
     "GTR VPT (optional):": "A VPT of the same timetable: its running lines settle clashes where "
         "only some lines are blocked.",
-    "Other operators' VPT(s) (optional):": "VPT exports from other operators: their trains are checked too.",
+    "Other operators (optional; VPT preferred, or F3 print):": "Other operators' trains, checked too. A VPT export "
+        "is preferred; an Attune Single Train Report (F3) print, PDF or Word, also works (its Line column gives the "
+        "running lines).",
     "Check an Attune XML against Section 4 possessions": "Check the Attune XML against the "
         "Engineering Access Statement Section 4: every train running through a section during one of its "
         "possessions.",
@@ -48,10 +50,16 @@ TIPS = {
     "Station:": "The station, as named in the XML. Type to see matching stations.",
     "Platforms (optional):": "Only trains leaving from these platforms, e.g. 10-15 for London Bridge low level, "
                              "or 1, 2, 4A. Leave blank for every platform.",
-    "Operator:": "For the page header and file name, e.g. GTR(TLGN). The part in brackets also goes in the sheet "
-                 "names.",
+    "Operator:": "Whose trains the book has, and its page header, file name and sheet names: TLGN (Thameslink and "
+                 "Great Northern), SNGX (Southern and Gatwick Express) or All GTR. Each train's operator comes from "
+                 "the depot of the unit diagrams working it (SNGX: BI, SU, SL; TLGN: HE, TB).",
     "Timetable:": "For the page header and file name, e.g. Dec23. Filled in from the XML's start date.",
-    "Services:": "For the page header, e.g. 'Thameslink and Great Northern services only'.",
+    "Services (blank: the operator's):": "For the page header. Blank: the operator's, e.g. 'Thameslink and Great "
+                                         "Northern services only' or 'Southern and Gatwick Express services only'.",
+    "Other operators (XML preferred; VPT or F3 print):": "Other operators' trains at the station, merged into the "
+        "book and marked with their operator. Attune XML is preferred (it gives the stock); a VPT export or an "
+        "Attune Single Train Report (F3) print, PDF or Word, also works but the stock is blank.",
+    "Other operators shown:": "Tick which of the other operators found in those files are shown in the book.",
     "Sheet name:": "The start of each sheet's name, before SX / SO / Su. Blank: the station and operator, e.g. "
                    "'London Kings Cross (TLGN)'.",
     "SX": "A sheet for Monday to Friday. Trains that differ by day get a row for each version, marked e.g. "
@@ -94,6 +102,10 @@ TIPS = {
     "Original chart:": "The earlier berthing chart.",
     "Updated chart:": "The newer berthing chart: the differences are highlighted in a copy of it.",
     "Issue on cover:": "Shown on the cover, e.g. Proof 2. Leave blank to keep the chart's own.",
+    "Show location notes on the chart": "The notes about each location (e.g. 'Max 12 CET'), with any changed for "
+                                        "the XML's timetable in Data > Berthing chart notes. Untick to leave every "
+                                        "note off.",
+    "Edit notes...": "Change, add or remove the notes of each location for the current and next five timetables.",
     "Edit berth locations...": "Open the list that links each berth to its XML location (TIPLOC and platform or "
                                "road) in Excel.",
     # ---------------------------------------------------------------- Stats Pack
@@ -225,6 +237,9 @@ def attach(root):
         elif isinstance(w, _INPUTS):                # the label is found when shown (rows move with the mode)
             w._has_tip = True
             _TextTip(w, None)
+        if isinstance(w, ttk.Combobox):             # no tip over its own drop-down list
+            from rstools.widgets import guard_popdown
+            guard_popdown(w)
 
 
 def _label_for(widget):

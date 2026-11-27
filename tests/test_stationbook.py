@@ -235,3 +235,110 @@ def test_other_operator_vpt_merged(monkeypatch):
     rows = [str(r[1].value) for r in openpyxl.load_workbook(path).active.iter_rows(min_row=2)]
     assert any(v.startswith("9Z99XX") and v.endswith("[AA]") for v in rows)
     assert any("VPT" in w for w in warnings)
+
+
+def _depots_xml(path):
+    """write_xml with diagrams 1-2 at an SNGX depot (SL), 3 at a TLGN depot (HE); 4 stays at another depot."""
+    write_xml(path)
+    text = open(path, encoding="utf-8").read()
+    for num, depot in (("1", "SL"), ("2", "SL"), ("3", "HE")):
+        text = text.replace(f'<unitDiagram id="{num}" daysrun="{WEEK}"><depot id="XX"/>',
+                            f'<unitDiagram id="{num}" daysrun="{WEEK}"><depot id="{depot}"/>')
+    open(path, "w", encoding="utf-8").write(text)
+
+
+def test_book_operator_chooses_trains_by_depot(monkeypatch):
+    """TLGN / SNGX books have only the trains worked by that operator's unit diagrams (by depot), All GTR has them
+    all; the heading and sheet names follow the choice, and trains of neither operator are reported."""
+    import openpyxl
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("LOCALAPPDATA", d)
+    x = os.path.join(d, "plan.xml")
+    _depots_xml(x)
+    groups = SB.train_groups(SB.read_plan(x))
+    assert groups["1A02XX"] == {"SNGX"} and groups["1C04XX"] == {"TLGN"} and "2E05XX" not in groups
+
+    def heads(book_operator):
+        path, warnings, _s = SB.make_book(x, "Alpha", d, day_types=["MO"], book_operator=book_operator)
+        wb = openpyxl.load_workbook(path)
+        ws = wb.worksheets[0]
+        return ([str(r[1].value).split("\n")[0] for r in ws.iter_rows(min_row=2) if r[1].value],
+                ws.oddHeader.center.text, ws.title, warnings)
+
+    ids, header, title, warnings = heads("SNGX")
+    assert ids == ["1A02XX"] and header.startswith("GTR(SNGX)") and "Southern and Gatwick Express" in header
+    assert title == "Alpha (SNGX) MO" and any("left out of the SNGX book" in w and "1F06XX" in w for w in warnings)
+    ids, header, title, _w = heads("TLGN")
+    assert ids == ["1C04XX"] and header.startswith("GTR(TLGN)") and title == "Alpha (TLGN) MO"
+    ids, header, _t, warnings = heads("GTR")
+    assert set(ids) == {"1A02XX", "1C04XX", "2E05XX", "1F06XX"} and header.startswith("GTR ")
+    assert not any("left out" in w for w in warnings)
+    assert SB.book_operator_of("All GTR") == "GTR" and SB.book_operator_of("GTR(SNGX)") == "SNGX"
+    assert SB.book_operator_of("Thameslink") == ""
+    try:
+        SB.make_book(x, "Alpha", d, book_operator="XC")
+    except SB.StationBookError as exc:
+        assert "TLGN, SNGX or GTR" in str(exc)
+    else:
+        raise AssertionError("an unknown book operator was accepted")
+
+
+def test_other_operator_f3_print_merged_and_chosen(monkeypatch):
+    """An Attune Single Train Report (F3) print adds another operator's trains (each with its own operator from the
+    print); list_operators names them and other_operators leaves the unticked ones out."""
+    import openpyxl
+    from test_timetable import write_attune_pdf
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("LOCALAPPDATA", d)
+    x, f3, vpt = os.path.join(d, "plan.xml"), os.path.join(d, "south.pdf"), os.path.join(d, "other.vpt")
+    _depots_xml(x)
+    write_attune_pdf(f3, [dict(id="1Q50BS", days="SX", rows=[
+        ("AAA", "Alpha", "", "09.15", "", "09.15", "", "TB", "4"),
+        ("BBB", "Beta", "09.30", "", "09.30", "", "", "TF", "1")])])
+    plan = SB.read_plan(f3)
+    t = plan.trains["1Q50BS"][0]
+    assert plan.operator == "SN" and t.operator == "SN" and t.days == {0, 1, 2, 3, 4}
+    assert (t.calls[0].loc, t.calls[0].dep, t.calls[0].plat, t.calls[-1].arr) == ("AAA", 33300, "4", 34200)
+    assert plan.start == "2027-05-17" and plan.end == "2027-12-10"
+    from test_timetable import write_vpt
+    write_vpt(vpt, [dict(id="9Z99XX", start="20261213", end="20270514", bits=2,
+                         points=[dict(tip="AAA", dep=10 * 3600, plat="2"), dict(tip="BBB", arr=10 * 3600 + 600)])])
+    assert SB.list_operators([f3, vpt, os.path.join(d, "missing.xml")]) == ["AA", "SN"]
+
+    def rows(**kw):
+        path, warnings, _s = SB.make_book(x, "Alpha", d, day_types=["MO"], book_operator="GTR", merge_xml=[f3, vpt],
+                                          **kw)
+        return [str(r[1].value) for r in openpyxl.load_workbook(path).active.iter_rows(min_row=2)], warnings
+
+    got, warnings = rows()
+    assert any(v.startswith("1Q50BS") and v.endswith("[SN]") for v in got) and any("[AA]" in v for v in got)
+    assert any("south.pdf" in w for w in warnings)
+    got, _w = rows(other_operators=["AA"])
+    assert not any("[SN]" in v for v in got) and any("[AA]" in v for v in got)
+
+
+def test_stationbook_cli_operator_flags(tmp_path, monkeypatch):
+    """--other-operators needs --merge (refused before the XML is read); --book-operator picks the trains."""
+    import contextlib
+    import io
+    import TrainPlanningTools as cli
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    def run(*args):
+        out, code = io.StringIO(), 0
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            try:
+                cli.stationbook_cli(list(args))
+            except SystemExit as exc:
+                code = exc.code or 0
+        return code, out.getvalue()
+
+    code, text = run("--xml", str(tmp_path / "missing.xml"), "--station", "Alpha", "--other-operators", "XC")
+    assert code == 2 and "--merge" in text
+    code, text = run("--xml", "x.xml", "--station", "Alpha", "--book-operator", "XC")
+    assert code == 2 and "invalid choice" in text
+    x = str(tmp_path / "plan.xml")
+    _depots_xml(x)
+    code, text = run("--xml", x, "--station", "Alpha", "--sheets", "MO", "--book-operator", "tlgn", "--out",
+                     str(tmp_path), "--name", "tl")
+    assert code == 0 and "1 departure row(s)" in text

@@ -87,3 +87,20 @@ def _mtime(path: str) -> float:
         return os.path.getmtime(path)
     except OSError:
         return 0.0
+
+
+def filetypes(preferred: Sequence[str], *others: Sequence[str]) -> List[Tuple[str, str]]:
+    """File-dialog filters for a box that takes several kinds of file, the preferred kind marked: each kind is
+    (name, extension, ...), e.g. filetypes(("Attune XML", ".xml"), ("Attune VPT export", ".vpt")) ->
+    [('Attune XML (preferred) or Attune VPT export', '*.xml *.vpt'), ('Attune XML (preferred)', '*.xml'),
+    ('Attune VPT export', '*.vpt'), ('All files', '*.*')]."""
+    def pats(kind: Sequence[str]) -> str:
+        return " ".join("*" + e for e in kind[1:])
+
+    kinds = [preferred, *others]
+    first = f"{preferred[0]} (preferred)"
+    out = [(first + "".join(f" or {k[0]}" for k in others) if others else first, " ".join(pats(k) for k in kinds))]
+    if others:
+        out.append((first, pats(preferred)))
+        out += [(k[0], pats(k)) for k in others]
+    return out + [("All files", "*.*")]

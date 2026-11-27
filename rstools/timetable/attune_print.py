@@ -336,3 +336,93 @@ def skipped_note(trains: Sequence[AttuneTrain]) -> str:
     eg = "; ".join(f"{tid}: '{line}'" for tid, line in lost[:3])
     return (f"{len(lost)} location line(s) in the train print could not be read (a time printed on to the "
             f"station name), so those calls are not compared - check them by eye (e.g. {eg}).")
+
+
+# --------------------------------------------------------------------------- #
+# a print as a station book plan (another operator's trains, or the running lines of a Section 4 check)
+# --------------------------------------------------------------------------- #
+def _secs(text: str) -> Optional[int]:
+    """'05p46½' / '05.46' / '05/41' -> seconds after midnight (None if blank)."""
+    m = _TIME.match(text or "")
+    if not m:
+        return None
+    return int(m.group("h")) * 3600 + int(m.group("m")) * 60 + (30 if m.group("half") else 0)
+
+
+def _iso(text: str) -> str:
+    """'17/05/2027' -> '2027-05-17' ('' if it is not a date)."""
+    m = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", (text or "").strip())
+    return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}" if m else ""
+
+
+def plan_trains(trains: Sequence[AttuneTrain], path: str):
+    """Attune Single Train Report trains as a stationbook.Plan: calls with working and public times, platforms,
+    stops and passes, the line each leg runs on, days and dates. No unit diagrams. Each train keeps its own
+    operator (SN / TL / GX / GN, or its TOC name), and the plan's operator is the one most of its trains have."""
+    from collections import Counter, defaultdict
+    from rstools.days import days_of_code
+    from rstools.fsutil import clean_cell
+    from rstools.stationbook import Call, Plan, Train, _unroll
+
+    def _txt(text: str) -> str:
+        return " ".join(str(clean_cell(text or "")).split())
+
+    out: Dict[str, list] = defaultdict(list)
+    locations: Dict[str, str] = {}
+    ops: Counter = Counter()
+    starts, ends = [], []
+    for at in trains:
+        op = _txt(at.operator or at.toc_name)[:20]
+        ops[op] += 1
+        tid = _txt(at.train_id)
+        t = Train(tid, set(days_of_code(at.days)), "L", valid_from=_iso(at.fields.get("From", "")),
+                  valid_until=_iso(at.fields.get("Until", "")), operator=op)
+        if t.valid_from:
+            starts.append(t.valid_from)
+        if t.valid_until:
+            ends.append(t.valid_until)
+        raw, lines = [], {}
+        for i, r in enumerate(at.rows):
+            v = r.values
+            passing = _secs(v.get("pass", ""))
+            arr, dep = _secs(v.get("wtt_arr", "")), _secs(v.get("wtt_dep", ""))
+            if passing is not None:
+                arr = None
+                dep = passing
+            elif dep is None and i < len(at.rows) - 1:
+                dep = arr                                   # a stop shown with one time only
+            stops = passing is None and (arr is not None or dep is not None)
+            activity = v.get("activity", "").upper().split()
+            raw.append((_txt(r.tiploc), arr, _secs(v.get("pub_arr", "")), dep, _secs(v.get("pub_dep", "")),
+                        _txt(v.get("plat", ""))[:12], stops, stops and "N" not in activity))
+            if v.get("line") and i + 1 < len(at.rows):
+                lines[i + 1] = _txt(v["line"])[:12]   # the line of the leg ending at the next call
+            if r.tiploc and r.name:
+                locations.setdefault(_txt(r.tiploc), _txt(r.name))
+        if not raw:
+            continue
+        times = _unroll([x for rw in raw for x in rw[1:5]])
+        for i, rw in enumerate(raw):
+            arr, arr_pub, dep, dep_pub = times[4 * i:4 * i + 4]
+            if i == len(raw) - 1:
+                dep = dep_pub = None
+            if i == 0:
+                arr = arr_pub = None
+            t.calls.append(Call(rw[0], arr, arr_pub, dep, dep_pub, rw[5], rw[6], rw[7]))
+        t.lines = lines
+        out[t.id].append(t)
+    op = ops.most_common(1)[0][0] if ops else ""
+    return Plan(path, min(starts) if starts else "", locations, dict(out), [], max(ends) if ends else "", op)
+
+
+def read_plan(path: str):
+    """An Attune Single Train Report (PDF or Word) as a stationbook.Plan (see plan_trains)."""
+    import os
+    from .prints import PrintError, read_pages
+    pages = read_pages(path)
+    if not is_attune_report(pages):
+        raise PrintError(f"'{os.path.basename(path)}' is not an Attune Single Train Report (F3 print).")
+    trains = parse_attune(pages, os.path.basename(path))
+    if not trains:
+        raise PrintError(f"'{os.path.basename(path)}' has no trains in it.")
+    return plan_trains(trains, path)

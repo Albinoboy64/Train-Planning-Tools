@@ -1327,3 +1327,24 @@ def test_timetable_s4_check_keeps_its_exit_code_for_a_bad_vpt(tmp_path):
         except SystemExit as exc:
             code = exc.code
     assert code == 1 and "ERROR:" in out.getvalue() and "not Attune VPT exports" in out.getvalue()
+
+
+def test_section4_check_takes_an_f3_print_for_another_operator(tmp_path):
+    """An Attune Single Train Report (F3) print is accepted for other operators: its trains are checked, marked
+    with their own operator; a file that is neither a VPT nor a print is refused before anything is read."""
+    d = str(tmp_path)
+    f = write_rule_docs(d)
+    xml, f3, txt = os.path.join(d, "plan.xml"), os.path.join(d, "south.pdf"), os.path.join(d, "x.txt")
+    write_s4_xml(xml)
+    write_attune_pdf(f3)
+    open(txt, "w").write("text")
+    from rstools.timetable.attune_print import read_plan
+    plan = read_plan(f3)
+    assert plan.operator == "SN" and set(plan.trains) == {"1H05BS", "5H07BV"}
+    t = plan.trains["1H05BS"][0]
+    assert [c.loc for c in t.calls][:2] == ["BTN", "KEYMERJ"] and not t.calls[1].stops      # a pass
+    assert t.calls[2].arr == 5 * 3600 + 52 * 60 + 30 and t.calls[2].dep_pub == 5 * 3600 + 53 * 60
+    code, text = _s4_cli(["--xml", xml, "--pdf", f["s4_old"], "--other", txt, "--out", d])
+    assert code == 2 and "F3 prints" in text
+    code, text = _s4_cli(["--xml", xml, "--pdf", f["s4_old"], "--other", f3, "--out", d, "--name", "f3"])
+    assert code in (0, None) and os.path.isfile(os.path.join(d, "f3.xlsx")), text

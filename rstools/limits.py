@@ -29,6 +29,8 @@ DEFAULTS: Dict[str, int] = {
     "META_MAX_BYTES": 256 * MB,         # the comparison data hidden in an output, unpacked (real ones are a few MB)
     "SETTINGS_CSV_MAX_BYTES": 16 * MB,  # a fleet, depot or units CSV kept in the data folder (real ones are a few KB)
     "PROGRESS_MAX_BYTES": 64 * MB,      # a saved Live View progress file (real ones are well under 1 MB)
+    "BERTH_NOTES_MAX_BYTES": 16 * MB,   # the berthing chart notes edited in the app (real ones are a few KB)
+    "BERTH_NOTE_CHARS": 1000,           # one berthing chart note (the longest in a real chart is ~200 characters)
 }
 FILE_NAME = "limits.json"
 
