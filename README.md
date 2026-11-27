@@ -169,6 +169,7 @@ Under *Berthing charts* on the Stock Tools tab (drop XMLs and charts on that box
 * **Layout**: the siding names and capacities are shaded light blue as on the original charts, and notes about the sidings (*NO ATTACH /DETACH Allowed*, *CE*, *4 car MAX*) are in **red bold**; long notes get a full-width row under their siding location. Every berth's box on a sheet is the same height (enough for the fullest berth on that sheet) and every day column the same width, whether or not stock is there. A darker line separates the nights and a thin one each night's FINISH and START, and a **dark blue line** separates the siding locations on a sheet (e.g. Brighton's platforms and Wall Siding; Three Bridges' Back Road, Up Horsham Siding, Up Siding North and Tilgate).
 * **Show unit counts for each siding location** (option): under each siding location, the number of units of each type (e.g. *4 377*, *4 387*, *12 700*) every night's FINISH and START, and a **Cars** row against the location's capacity, filled red where there are more cars than it holds.
 * **STP charts**: attach the **STP XML** as well. Each day's STP diagrams replace the LTP ones, and STP trains are shown **in bold on a lavender fill**.
+* **Create a blank berthing chart**: a chart with no units, to fill in by hand. *SNGX* has every sheet, berth, capacity and note of the built-in layout (or of a chart chosen under *Layout from chart*) and the cover with all its notes; *TLGN* has a sheet for every place TLGN units berth overnight in an **Attune XML** if you choose one (not depots), or with no XML only the locations you add. **Choose locations...** leaves sheets off and adds any location by name or TIPLOC (found in the XML, else in the app's location list); an added location's berths come from the XML, else from the berth list (*Edit berth locations...*), else one berth with no road given. The cover's title and dates come from the XML; with no XML, type the timetable under *Timetable on cover* (*May 2027* gives *May 2027 Berthing Chart*) and the built-in chart's own issue and dates are left off. Saved as `Blank Berthing Chart <timetable> <issue>.xlsx` (`TLGN Blank Berthing Chart ...` for TLGN). Command line: `berthing --blank [--operator SNGX|TLGN] [--xml PLAN.xml] [--layout CHART.xlsx] [--leave-out SHEET ...] [--add LOCATION ...] [--issue "Proof 1"] [--timetable "May 2027"] [--from YYYY-MM-DD --to YYYY-MM-DD]` (`--timetable`, `--from` and `--to` only without `--xml`).
 * **Add a round of changes to a berthing chart**: the chart, the **original XML** it was made from and the **updated XML** (for an STP chart, the LTP and STP XMLs separated by `;`). The chart is remade from the updated XML, every cell that differs is filled in the chosen colour, earlier highlights are kept, and a change report lists each change. The cover's *Updates highlighted in ...* line follows the colour.
 * **Compare two berthing charts**: every unit or time in the newer chart that differs from the older one is highlighted, with a change report. Spacing slips (`(4 387) 00 45`), the old `L` marker and `12700` / `12 700` are not differences.
 
@@ -242,6 +243,15 @@ You need **two files from the same plan**:
 If a ticked day isn't in the TRENT print or the XML, you're told which ones before the pack is written. Days missing from the TRENT print are left out. Problems reading either file (wrong TRENT layout, damaged XML, a file open elsewhere) are shown as a message, and anything unusual is listed as a warning in the log.
 
 Values the app can't work out (for example a fleet with no capacity data, or an unknown coupled diagram) are shown as `???`, as TRACS-RS does, and carry through to the totals.
+
+### Mileage for a period
+
+**Create mileage for a period** (Stats Pack task) adds up the stats pack's mileage tabs over **the whole timetable**, **one month** (picked from the months the TRENT print's diagrams run in, or typed, e.g. *January 2027*; a month the timetable starts or ends in is cut to the timetable's dates) or **any dates** (*From* ... *to*, DD/MM/YYYY). Each date counts the diagrams that run on it: those for its day of the week whose dates in the TRENT print cover it, with an **STP or draft version only on the dates it is valid for** (attach the week's STP print with the LTP one, separated by `;`). The operators and fleets ticked are used; the day ticks are not. The workbook (or PDF / Word) has:
+
+* **Mileage by Date**: every date with its day, diagrams, STP / draft diagrams, unit miles (empty, in service, total) and vehicle miles, and a total row. A date with no diagrams (e.g. Christmas Day, or a day the print has no diagrams for) counts as no miles and is listed in the warnings.
+* **Mileage by Formation**, **Mileage by Unit**, **Mileage by Vehicle**, **Formation / Unit / Vehicle Mileage by Service Code**: the stats pack's tabs added up over the period, titled with it.
+
+Saved as `<timetable> Mileage <period>.xlsx`, e.g. `DEC26 Mileage January 2027.xlsx` or `DEC26 Mileage 13-12-2026 to 15-05-2027.xlsx`. Command line: `statspack --xml PLAN.xml --trent PRINT.docx --mileage-period timetable|month|custom [--month "January 2027"] [--period-from DD/MM/YYYY --period-to DD/MM/YYYY]`.
 
 ### Comparisons
 
@@ -447,6 +457,11 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.38.0** - blank berthing charts and mileage over a period
+* **Create a blank berthing chart** (new berthing chart task): SNGX with every built-in sheet, berth, capacity and cover note, or TLGN from an XML's berthing locations or only the locations you add; *Choose locations...* leaves any out and adds any by name or TIPLOC. Command line: `berthing --blank`.
+* **Create mileage for a period** (new Stats Pack task): the mileage tabs added up over the whole timetable, one month or any dates, each date counting its own diagrams (STP and draft ones only on their dates), with a *Mileage by Date* tab. Command line: `statspack --mileage-period timetable|month|custom`.
+* A note hidden for one task (the CWN days note) no longer reappears on another.
 
 **3.37.4** - output check
 * **Excel outputs** no longer show Excel's green *number stored as text* triangles: headcodes, platforms, car counts, diagram numbers and old/new values are text on purpose (as in the CWNs), so every tab the app saves turns that check off for its data. Nothing else in the files changes.

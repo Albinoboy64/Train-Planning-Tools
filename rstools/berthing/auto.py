@@ -7,6 +7,7 @@ again without the berth list."""
 from __future__ import annotations
 
 import datetime
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -95,14 +96,28 @@ def sheet_tiploc(sheet) -> str:
     return ""
 
 
-def make_sheet(name: str, tiploc: str, berthing: Berthing, fleets: Optional[Set[str]] = None) -> GridSheet:
+def make_sheet(name: str, tiploc: str, berthing: Berthing, fleets: Optional[Set[str]] = None,
+               known: Sequence[str] = ()) -> GridSheet:
     """A sheet for one location: a berth for each platform / road the stays there use (F, the front of a
-    platform, goes with the platform)."""
+    platform, goes with the platform); where none do, the `known` berths (from the berth list), else one berth
+    with no road given."""
     codes = {s.plat.upper().removesuffix("F") if s.plat[:1].isdigit() else s.plat.upper()
              for s in berthing.stays if s.loc == tiploc and (fleets is None or s.fleet in fleets)}
-    labels = sorted({_label(c) for c in codes} or {NO_ROAD}, key=_sort_key)
+    labels = sorted({_label(c) for c in codes}, key=_sort_key) or list(dict.fromkeys(known)) or [NO_ROAD]
     return GridSheet(name, preface=[(f"{TIPLOC_LINE} {tiploc}", "")], blocks=[Block(lab) for lab in labels],
                      sections=[name])
+
+
+def known_berths(tiploc: str) -> List[str]:
+    """The berths the berth list has at a TIPLOC (as written on the chart), for a sheet made without an XML."""
+    from . import mapping
+    try:
+        rows = mapping._read(mapping.user_path()) if os.path.exists(mapping.user_path()) else []
+        rows += mapping._read(mapping.DEFAULT_CSV)
+    except OSError:
+        return []
+    return list(dict.fromkeys(r["Berth"] for r in rows if r.get("TIPLOC", "").upper() == tiploc.upper()
+                              and r.get("Berth")))
 
 
 def with_auto_berths(locations: Locations, layout: Layout) -> Locations:

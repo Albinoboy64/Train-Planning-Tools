@@ -6,6 +6,7 @@ handful of cell styles - so it is quick to write and quick for Excel to open.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import math
 import os
@@ -72,6 +73,8 @@ def fmt_dur(v: int) -> str:
 
 
 _DEFAULT_STYLE = {"sz": 13.0}
+DATE_FMT = 14                       # Excel's built-in short date (dd/mm/yyyy on a UK PC)
+EXCEL_EPOCH = _dt.date(1899, 12, 30)
 CLOCK_FMT = 46                      # Excel's built-in [h]:mm:ss: a time of day, past 24:00 where it runs on
 DUR_FMT = 164                       # the app's own [h]:mm:ss for durations (told apart from times when read back)
 DUR_CODE = "[h]:mm:ss;-[h]:mm:ss"
@@ -253,6 +256,12 @@ class SheetWriter:
                     f'<v>{v / 86400!r}</v></c>')
                 if widths is not None and len(text) > widths.get(c, 0):
                     widths[c] = len(text)
+                continue
+            elif t is _dt.date:
+                # a real Excel date (sorts and filters by date), shown d/m/yyyy as the PC shows dates
+                add(f'<c r="{ref}" s="{self.styles.timed(s, DATE_FMT)}"><v>{(v - EXCEL_EPOCH).days}</v></c>')
+                if widths is not None and 10 > widths.get(c, 0):
+                    widths[c] = 10
                 continue
             elif t is Dur:
                 text = fmt_dur(v)              # Excel cannot show a negative time: kept as text

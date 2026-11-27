@@ -36,20 +36,23 @@ FILETYPES = {"xml": [("Attune diagram XML", "*.xml"), ("All files", "*.*")],
 MODES = {"create": ("Create a stats pack", "Create stats pack"),
          "plans": ("Compare two plans (two sets of XML + TRENT print)", "Compare plans"),
          "packs": ("Compare two stats pack files", "Compare stats packs"),
+         "mileage": ("Create mileage for a period: the whole timetable, one month or any dates", "Create mileage"),
          "units": ("Create unit reports: washes and CETs, depot returns / swaps, captive units, fuel",
                    "Create unit reports"),
          "seats": ("Create a capacity report: by headcode group, corridor or station to station",
                    "Create capacity report")}
-TASK_GROUPS = [("Stats packs", [(m, MODES[m][0]) for m in ("create", "plans", "packs")]),      # the Task list
+TASK_GROUPS = [("Stats packs", [(m, MODES[m][0]) for m in ("create", "mileage", "plans", "packs")]),  # Task list
                ("Reports", [(m, MODES[m][0]) for m in ("units", "seats")])]
 FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
          "plans": [("xml_a", "Original Attune XML:"), ("trent_a", "Original TRENT VL29 print(s):"),
                    ("xml_b", "Updated Attune XML:"), ("trent_b", "Updated TRENT VL29 print(s):")],
          "packs": [("pack_a", "Original stats pack:"), ("pack_b", "Updated stats pack:")],
+         "mileage": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
          "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT VL29 print(s):")],
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
 NOTE = ("Several VL29 prints can go in one box, e.g. the LTP print and a week's STP print. The XML must be from the "
         "same plan as the TRENT print; unit reports can be made from the TRENT print alone.")
+MILEAGE_PERIODS = (("timetable", "Whole timetable"), ("month", "One month:"), ("custom", "From:"))
 UNIT_POSSIBLE = (("every", "Every unit"), ("over", "Only units overdue for it"), ("off", "Off"))
 UNIT_PERIODS = (("week", "Whole week (follows each unit with the next-day workings)"),
                 ("days", "Show each day separately"),
@@ -173,6 +176,7 @@ class StatsPackTab(ttk.Frame):
                         variable=self.two_plans, command=self._mode_changed).grid(row=6, column=0, columnspan=3,
                                                                                   sticky="w", pady=(2, 0))
         self._build_seats(opt, 1)
+        self._build_mileage(opt, 2)
 
         # 1. input
         ff = self.in_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
@@ -263,12 +267,14 @@ class StatsPackTab(ttk.Frame):
         dayf = ttk.Frame(sel)
         dayf.grid(row=1, column=0, sticky="w")
         self.day_vars = []
+        self.day_widgets: List[ttk.Widget] = []
         for i, _code in enumerate(DAYS):
             v = tk.BooleanVar(value=True)
-            ttk.Checkbutton(dayf, text=DAY_NAMES[i][:3], variable=v, command=self._days_changed).grid(
-                row=0, column=i, padx=(0, 8))
+            cb = ttk.Checkbutton(dayf, text=DAY_NAMES[i][:3], variable=v, command=self._days_changed)
+            cb.grid(row=0, column=i, padx=(0, 8))
             self.day_vars.append(v)
-        day_buttons(sel, self._set_days, row=2, column=0, sticky="w", pady=(4, 0))
+            self.day_widgets.append(cb)
+        self.day_widgets += day_buttons(sel, self._set_days, row=2, column=0, sticky="w", pady=(4, 0))
         self.day_note = ttk.Label(sel, text="", style="Warn.TLabel", wraplength=440, justify="left")
         self.day_note.grid(row=3, column=0, sticky="w", pady=(2, 0))
 
@@ -368,6 +374,41 @@ class StatsPackTab(ttk.Frame):
             slots = [Slot(self.vars[k], lambda p, e=EXT[kind]: p.lower().endswith(e)) for k in keys]
             route_drop(files, slots)
         return event.action
+
+    def _build_mileage(self, parent, row):
+        """Mileage for a period: the whole timetable, a month of it, or from one date to another."""
+        mf = self.mileage_frame = ttk.Frame(parent)
+        mf.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.mileage_kind = tk.StringVar(value="timetable")
+        self.mileage_month = tk.StringVar()
+        self.mileage_from, self.mileage_to = tk.StringVar(), tk.StringVar()
+        ttk.Label(mf, text="Add up the mileage tabs over:").grid(row=0, column=0, columnspan=4, sticky="w")
+        for r, (value, text) in enumerate(MILEAGE_PERIODS, start=1):
+            ttk.Radiobutton(mf, text=text, variable=self.mileage_kind, value=value,
+                            command=self._update_name_hint).grid(row=r, column=0, sticky="w")
+        self.month_box = ttk.Combobox(mf, textvariable=self.mileage_month, width=18, values=[])
+        self.month_box.grid(row=2, column=1, columnspan=3, sticky="w", padx=4)
+        Tooltip(self.month_box, "A month of the timetable (from the TRENT print), or type one, e.g. January 2027. "
+                                "A month the timetable starts or ends in is cut to the timetable's dates.")
+        ent_from = ttk.Entry(mf, textvariable=self.mileage_from, width=12)
+        ent_from.grid(row=3, column=1, sticky="w", padx=4)
+        ttk.Label(mf, text="to").grid(row=3, column=2, sticky="w")
+        ent_to = ttk.Entry(mf, textvariable=self.mileage_to, width=12)
+        ent_to.grid(row=3, column=3, sticky="w", padx=4)
+        for ent in (ent_from, ent_to):
+            Tooltip(ent, "Dates as DD/MM/YYYY, e.g. 01/02/2027 to 28/02/2027.")
+        for var, kind in ((self.mileage_month, "month"), (self.mileage_from, "custom"), (self.mileage_to, "custom")):
+            var.trace_add("write", lambda *_a, k=kind: (self.mileage_kind.set(k), self._update_name_hint()))
+        theme.tip(ttk.Label(mf, text="Each date counts the diagrams that run on it (from the TRENT print's dates), "
+                                     "with STP and draft diagrams only on the dates they are valid for; the days "
+                                     "ticked below are not used. The workbook has Mileage by Date and each mileage "
+                                     "tab added up.", style="Small.TLabel", wraplength=470, justify="left"),
+                  "About the period").grid(row=4, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+    def _fill_months(self):
+        from .period import months
+        values = months(self._prints[0]) if self._prints else []
+        self.month_box.configure(values=values)
 
     def _build_seats(self, parent, row):
         """Capacity report options: which trains (headcode group, corridor and direction, or station to station),
@@ -584,6 +625,9 @@ class StatsPackTab(ttk.Frame):
         (self.note.grid_remove if mode == "packs" else self.note.grid)()
         self.run_btn.configure(text=MODES[mode][1])
         self._set_state(self.sel_frame, mode != "packs")
+        if mode == "mileage":                  # every date of the period is counted: the day ticks are not used
+            for w in self.day_widgets:
+                w.state(["disabled"])
         (self.fleet_note.grid_remove if mode == "packs" else self.fleet_note.grid)()
         self._update_day_note()
         pack_out = mode in ("create", "plans")             # the workbook layout only applies to stats packs
@@ -593,7 +637,8 @@ class StatsPackTab(ttk.Frame):
         self._set_state(self.cmp_frame, mode in ("plans", "packs"))
         (self.units_frame.grid if mode == "units" else self.units_frame.grid_remove)()
         (self.seats_frame.grid if mode == "seats" else self.seats_frame.grid_remove)()
-        (self.opt_frame.grid if mode in ("units", "seats") else self.opt_frame.grid_remove)()
+        (self.mileage_frame.grid if mode == "mileage" else self.mileage_frame.grid_remove)()
+        (self.opt_frame.grid if mode in ("units", "seats", "mileage") else self.opt_frame.grid_remove)()
         if mode == "seats":
             self._load_groups()
         self._number_frames()
@@ -639,6 +684,12 @@ class StatsPackTab(ttk.Frame):
                 name = packs_name(get["pack_a"], get["pack_b"])
             elif mode == "create" and self._prints:
                 name = pack_name(self._prints[0], ticked)
+            elif mode == "mileage" and self._prints:
+                from .engine import period_name
+                from .period import resolve
+                st = self._mileage_state()
+                name = period_name(self._prints[0], resolve(self._prints[0], st["kind"], st["month"], st["from"],
+                                                            st["to"]))
             elif mode == "units" and self._prints:
                 tt = timetable(self._prints[0])
                 name = f"Unit report for {tt}" + (f" {DAYS[ticked[0]]}" if len(ticked) == 1 else "") if tt else None
@@ -796,6 +847,7 @@ class StatsPackTab(ttk.Frame):
                 fleets, days, self._prints = result
                 self.print_days = days
                 self._show_fleets(fleets)
+                self._fill_months()
         self._update_day_note()
         self._update_name_hint()
 
@@ -866,7 +918,7 @@ class StatsPackTab(ttk.Frame):
     def _update_day_note(self):
         ticked = [d for d, v in enumerate(self.day_vars) if v.get()]
         parts = []
-        if self.mode.get() == "packs":
+        if self.mode.get() in ("packs", "mileage"):
             ticked = []
         for label, have in (("TRENT print", self.print_days), ("XML", self.xml_days)):
             if have is not None:
@@ -940,6 +992,13 @@ class StatsPackTab(ttk.Frame):
             if seats.get("direction") in DIRECTIONS:
                 self.seat_dir.set(seats["direction"])
             self._seat_window_changed()
+        mileage = s.get("mileage")
+        if isinstance(mileage, dict):
+            for key, var in (("month", self.mileage_month), ("from", self.mileage_from), ("to", self.mileage_to)):
+                if isinstance(mileage.get(key), str):
+                    var.set(mileage[key])
+            if mileage.get("kind") in dict(MILEAGE_PERIODS):
+                self.mileage_kind.set(mileage["kind"])          # after the boxes, whose typing picks a kind
         if s.get("fmt") in ("xlsx", "pdf", "docx"):
             self.fmt_var.set(s["fmt"])
             self._fmt_changed()
@@ -957,7 +1016,7 @@ class StatsPackTab(ttk.Frame):
              "flag_miles": self._flag_threshold(),
              "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_period": self.unit_period.get(),
              "unit_possible": self.unit_possible.get(), "seats": self._seat_state(),
-             "two_plans": self.two_plans.get(), "fmt": self.fmt_var.get()}
+             "two_plans": self.two_plans.get(), "fmt": self.fmt_var.get(), "mileage": self._mileage_state()}
         write_json(_settings_path(), s)
 
     # ------------------------------------------------------------ saved comparisons
@@ -969,7 +1028,11 @@ class StatsPackTab(ttk.Frame):
                 "compare": {k: v.get() for k, v in self.cmp_vars.items()}, "flag_miles": self._flag_threshold(),
                 "unit_reports": {k: v.get() for k, v in self.unit_vars.items()}, "unit_period": self.unit_period.get(),
                 "unit_possible": self.unit_possible.get(), "seats": self._seat_state(),
-                "two_plans": self.two_plans.get()}
+                "two_plans": self.two_plans.get(), "mileage": self._mileage_state()}
+
+    def _mileage_state(self) -> dict:
+        return {"kind": self.mileage_kind.get(), "month": self.mileage_month.get().strip(),
+                "from": self.mileage_from.get().strip(), "to": self.mileage_to.get().strip()}
 
     def _seat_state(self) -> dict:
         return {"kind": self.seat_kind.get(), "groups": {k: v.get() for k, v in self.seat_group.items()},
@@ -1036,8 +1099,20 @@ class StatsPackTab(ttk.Frame):
                 if not p.lower().endswith(EXT[_kind(key)]):
                     return messagebox.showwarning(TITLE, f"The {file_label(label)} should be a "
                                                          f"{EXT[_kind(key)]} file:\n{p}", parent=self)
+        if mode == "mileage":
+            st = self._mileage_state()
+            if st["kind"] == "month" and not st["month"]:
+                return messagebox.showwarning(TITLE, "Choose or type the month, e.g. January 2027.", parent=self)
+            if st["kind"] == "custom":
+                from .period import PeriodError, parse_date
+                try:
+                    a, b = parse_date(st["from"], "first date"), parse_date(st["to"], "last date")
+                except PeriodError as exc:
+                    return messagebox.showwarning(TITLE, str(exc), parent=self)
+                if b < a:
+                    return messagebox.showwarning(TITLE, "The last date is before the first date.", parent=self)
         if mode != "packs":
-            if not days:
+            if not days and mode != "mileage":
                 return messagebox.showwarning(TITLE, "Tick at least one diagram day.", parent=self)
             if not ops:
                 return messagebox.showwarning(TITLE, "Tick at least one operator.", parent=self)
@@ -1096,7 +1171,8 @@ class StatsPackTab(ttk.Frame):
         self._started = time.monotonic()
         self.app.set_busy(True)
         extra = {"two_plans": self.two_plans.get() and mode in ("units", "seats"), "seats": self._seat_state(),
-                 "which": [k for k, v in self.unit_vars.items() if v.get()], "unit_period": self.unit_period.get()}
+                 "which": [k for k, v in self.unit_vars.items() if v.get()], "unit_period": self.unit_period.get(),
+                 "mileage": self._mileage_state()}
         self.app.pump.start(self._work, mode, files, opts, extra)
         self.app.pump.kick()
 
@@ -1122,6 +1198,17 @@ class StatsPackTab(ttk.Frame):
                 plans.append(load_plan(PlanInputs(files["xml_b"], files["trent_b"]), log))
             labels = ("Original plan: ", "Updated plan: ") if two else ("",)
             warnings, flagged = [], []
+            if mode == "mileage":
+                from .engine import period_mileage
+                st = extra["mileage"]
+                warnings += plans[0].warnings
+                outs, w, summary = period_mileage(plans[0], opts, st["kind"], version, st["month"], st["from"],
+                                                  st["to"], progress)
+                warnings += w
+                for msg in warnings:
+                    log("WARNING: " + msg, "warn")
+                self.q.put(("done", outs, warnings, "Mileage created for " + summary))
+                return
             for pre, p in zip(labels, plans):
                 flagged += [pre + m for m in day_availability(p, opts.days)]
                 warnings += [pre + w for w in p.warnings]

@@ -206,6 +206,10 @@ jobs:
           if (!(Test-Path smoke\berth_default.xlsx)) { throw "exe did not make a berthing chart in its built-in layout" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp' -Wait -PassThru
           if (!(Test-Path "smoke\berth_cmp - Change Report.xlsx")) { throw "exe did not compare two berthing charts" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--leave-out','Barnham','--issue','Smoke','--out','smoke','--name','berth_blank' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_blank.xlsx)) { throw "exe did not make a blank SNGX berthing chart" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--operator','TLGN','--add','Brighton','--timetable','"May 2027"','--out','smoke','--name','berth_blank_tlgn' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_blank_tlgn.xlsx)) { throw "exe did not make a blank TLGN berthing chart" }
           python -c "import sys; sys.path.insert(0,'tests'); import workings_fixture as w; w.make_smoke('smoke')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'workings-berthing','--workings','smoke\wk_a.xlsx','--out','smoke','--name','wk_berth' -Wait -PassThru
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\wk_berth.xlsx)) { throw "exe did not add berthing arrangements to platform workings" }
@@ -223,6 +227,9 @@ jobs:
           Smoke @('--previous','smoke\smoke.xlsx','--updated','smoke\b.xlsx','--out','smoke','--name','cumulative') 'smoke\cumulative.xlsx' 'add a round to a comparison CWN'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO','--out','smoke','--name','sp_mo') 'smoke\sp_mo.xlsx' 'make a one-day stats pack'
           Smoke @('statspack','--old-pack','smoke\sp.xlsx','--new-pack','smoke\sp_mo.xlsx','--out','smoke','--name','packs') 'smoke\packs.xlsx' 'compare two stats packs'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','timetable','--out','smoke','--name','sp_tt') 'smoke\sp_tt.xlsx' 'make the mileage for the whole timetable'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','month','--month','2027-01','--out','smoke','--name','sp_month') 'smoke\sp_month.xlsx' 'make the mileage for one month'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','custom','--period-from','14/12/2026','--period-to','20/12/2026','--out','smoke','--name','sp_custom') 'smoke\sp_custom.xlsx' 'make the mileage for a custom period'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_group','--capacity-group','1A') 'smoke\cap_group.xlsx' 'make a service group capacity report'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_ft','--capacity-from','Brighton','--capacity-to','"East Croydon"') 'smoke\cap_ft.xlsx' 'make a from-to capacity report'
           Smoke @('berthing','--chart','smoke\berth.xlsx','--original','smoke\berth.xml','--updated','smoke\berth.xml','--out','smoke','--name','berth_round') 'smoke\berth_round.xlsx' 'add a round to a berthing chart'

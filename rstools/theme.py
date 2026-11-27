@@ -862,6 +862,12 @@ def collapse_empty(widget):
             _fit(widget)
         return out
     widget.configure = widget.config = configure        # this label only
+    hide = widget.grid_remove
+
+    def grid_remove():
+        hide()
+        widget._collapsed = False                        # hidden for a mode: text set later must not show it
+    widget.grid_remove = grid_remove
     widget.bind("<Map>", lambda _e: _fit(widget), add="+")
     return widget
 

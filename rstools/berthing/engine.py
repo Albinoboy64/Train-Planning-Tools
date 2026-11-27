@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import os
 from dataclasses import dataclass, field
-from typing import Callable, List, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from rstools import naming
 from rstools.fsutil import output_folder, unique_stem
@@ -99,12 +99,13 @@ def _operator_of(layout: Layout) -> str:
 
 
 def choose_sheets(layout: Layout, xmls, berthing, operator: str, table, leave_out: Sequence[str] = (),
-                  add: Sequence[str] = ()) -> List[str]:
+                  add: Sequence[str] = (), names: Optional[dict] = None, blank: bool = False) -> List[str]:
     """The layout's sheets for the chart: for TLGN, one for every place TLGN units berth overnight (not depots);
     less the sheets left out (by name or TIPLOC), plus a sheet for each location added (by name or TIPLOC).
-    Returns warnings."""
+    names: the location names to find an added location in (default: the XMLs'). blank: a blank chart (no
+    warning that a sheet has no units). Returns warnings."""
     from rstools.statspack.units import Depots
-    names = _names(xmls)
+    names = _names(xmls) if names is None else names
     fleets = auto.operator_fleets(operator, table)
     warnings: List[str] = []
     if operator.upper() != "SNGX":
@@ -124,15 +125,17 @@ def choose_sheets(layout: Layout, xmls, berthing, operator: str, table, leave_ou
         for text in (t for t in add if t.strip()):
             tip = auto.find_place(text, names, known)
             if not tip:
-                warnings.append(f"'{text}' is not a location in the XML, so it was not added. Use its TIPLOC or "
-                                "its name as the XML gives it.")
+                where = "the XML" if xmls else "the app's location list"
+                warnings.append(f"'{text}' is not a location in {where}, so it was not added. Use its TIPLOC or "
+                                f"its name as {where} gives it.")
             elif tip in on:
                 warnings.append(f"{names.get(tip, tip)} ({tip}) is already on the chart, so it was not added again.")
             else:
                 name = auto.sheet_name(names.get(tip, tip), tip, [s.name for s in layout.sheets])
-                layout.sheets.append(auto.make_sheet(name, tip, berthing, fleets))
+                layout.sheets.append(auto.make_sheet(name, tip, berthing, fleets, auto.known_berths(tip)))
                 on.add(tip)
-                if not any(s.loc == tip and (fleets is None or s.fleet in fleets) for s in berthing.stays):
+                if not blank and not any(s.loc == tip and (fleets is None or s.fleet in fleets)
+                                         for s in berthing.stays):
                     warnings.append(f"No units berth overnight at {name} in the XML, so its sheet is empty.")
     return warnings
 
@@ -209,6 +212,80 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
     n = _count(filled)
     return Result(path, "", f"{n} unit stay(s) placed on {len(filled.sheets)} sheet(s)." +
                   (" STP trains are in bold on lavender." if stp else ""), warnings)
+
+
+def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str] = (), out_dir: str = "",
+          name: str = "", issue: str = "", timetable: str = "", start: str = "", end: str = "",
+          leave_out: Sequence[str] = (), add: Sequence[str] = (), log: Log = lambda m: None,
+          progress: Callable[[float, str], None] = lambda f, m: None) -> Result:
+    """A blank berthing chart: the sheets, berths, capacities and notes with no units, to fill in by hand.
+    SNGX: the built-in layout (or the layout of `layout_path`). TLGN: a sheet for every place TLGN units berth
+    overnight in the XML(s) given (not depots); with no XML, only the locations added. leave_out / add as for
+    generate(); an added location is found in the XML(s), else in the app's location list, and its berths come
+    from the XML, else from the berth list. The cover's title is the timetable (from the XML, else `timetable`)
+    and its dates those of the XML (else start / end, ISO dates, or none)."""
+    operator = (operator or "SNGX").upper()
+    if operator not in auto.OPERATORS:
+        raise BerthingError(f"'{operator}' is not a chart type: use " + " or ".join(auto.OPERATORS) + ".")
+    if layout_path and operator != "SNGX":
+        raise BerthingError(f"A {operator} chart has no layout of its own, so it cannot take the layout of a chart.")
+    if xml_paths:
+        _check_paths(list(xml_paths), "Attune XML")
+    for iso in (start, end):
+        if iso:
+            try:
+                datetime.date.fromisoformat(iso)
+            except ValueError:
+                raise BerthingError(f"'{iso}' is not a date: use YYYY-MM-DD.")
+    if layout_path:
+        _check_paths([layout_path], "chart to take the layout from")
+        log(f"Reading the layout of {os.path.basename(layout_path)}")
+        layout = read_chart(layout_path, load_locations())
+    else:
+        layout = load_default()
+    _clear_units(layout)
+    progress(0.1, "Reading the locations...")
+    if xml_paths:
+        xmls, berthing = _stays(xml_paths, log)
+    else:
+        from .stays import Berthing
+        xmls, berthing = [], Berthing([], {}, {}, set())
+    names = _names(xmls)
+    if not xmls:
+        from rstools.timetable.base import load_tiplocs
+        names = load_tiplocs()
+    table = _table()
+    if operator != "SNGX":
+        layout.cover = auto.operator_cover(layout.cover, operator, table)
+    warnings = choose_sheets(layout, xmls, berthing, operator, table, leave_out, add, names, blank=True)
+    if not layout.sheets:
+        raise BerthingError("No locations are on the chart." + (
+            " A TLGN chart without an XML has only the locations you add: add at least one (by name or TIPLOC), or "
+            "choose an XML to take TLGN's berthing locations from." if operator != "SNGX" and not xmls
+            else " Choose at least one location."))
+    if xmls:
+        start, end = xmls[-1].start, xmls[-1].end
+        timetable = auto.timetable_name(start) or timetable
+    layout.cover = auto.set_cover(layout.cover, timetable.strip(), issue, clear_issue=True)
+    rewrite = writer.cover_rewriter("", start, end)
+    dated = bool(start and end)
+
+    def cover(text: str) -> str:
+        import re
+        if not dated and re.fullmatch(r"\s*\d{1,2}/\d{1,2}/\d{2,4}\s*-\s*\d{1,2}/\d{1,2}/\d{2,4}\s*", text):
+            return ""                       # the built-in chart's own dates are not this chart's
+        return rewrite(text)
+    progress(0.6, "Writing the chart...")
+    prefix = "" if operator == "SNGX" else operator + " "
+    when = _timetable(xmls) or (timetable.strip() if timetable.strip() else "")
+    default = f"{prefix}Blank Berthing Chart" + (f" {when}" if when else "") + (f" {issue}" if issue else "")
+    path = _out(out_dir, name, default)
+    where = layout_path or (layout.path if operator == "SNGX" else f"the {operator} locations")
+    made = (f"Made {datetime.datetime.now():%d/%m/%Y %H:%M} as a blank chart, in the layout of "
+            + (where if where.startswith("the ") else os.path.basename(where))
+            + (" (locations from " + ", ".join(map(os.path.basename, xml_paths)) + ")" if xml_paths else "") + ".")
+    _save(lambda: writer.write(layout, path, cover, _legend(False, operator), [made] + (warnings or [])), path)
+    return Result(path, "", f"Blank chart with {len(layout.sheets)} location sheet(s).", warnings)
 
 
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",

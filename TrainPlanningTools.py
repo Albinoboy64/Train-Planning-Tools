@@ -12,6 +12,7 @@ Command-line use:
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
     TrainPlanningTools.exe berthing --compare OLD_CHART.xlsx NEW_CHART.xlsx [--colour Orange]
+    TrainPlanningTools.exe berthing --blank [--operator TLGN] [--xml LTP.xml] [--leave-out ...] [--add ...]
     TrainPlanningTools.exe statspack --xml PLAN.xml --trent VehicleLayout29.docx [--days MO,TO]
                                      [--output totals_days|totals|days]
     TrainPlanningTools.exe statspack --trent "LTP_VL29.docx;STP_VL29.docx" --unit-reports washes,depots,captive
@@ -287,7 +288,31 @@ def statspack_cli(argv):
     ap.add_argument("--at", default="", help="capacity report: the station for --between, e.g. 'London Victoria'")
     ap.add_argument("--direction", choices=["arriving", "departing", "both"], default=None,
                     help="capacity report: count trains arriving at / departing from --at (default arriving)")
+    ap.add_argument("--mileage-period", choices=["timetable", "month", "custom"], default="",
+                    help="instead of a stats pack: the mileage tabs added up over the whole timetable, one month "
+                         "(--month) or from --period-from to --period-to; each date counts its own diagrams, STP "
+                         "ones only on the dates they are valid for")
+    ap.add_argument("--month", default="", help="with --mileage-period month: e.g. 'January 2027' or 2027-01")
+    ap.add_argument("--period-from", default="", metavar="DATE",
+                    help="with --mileage-period custom: the first date (DD/MM/YYYY or YYYY-MM-DD)")
+    ap.add_argument("--period-to", default="", metavar="DATE",
+                    help="with --mileage-period custom: the last date (DD/MM/YYYY or YYYY-MM-DD)")
     a = _local_out(ap, ap.parse_args(argv))
+    if a.mileage_period:
+        clash = [flag for flag, value in (("--old-xml", a.old_xml), ("--old-trent", a.old_trent),
+                                          ("--old-pack", a.old_pack), ("--new-pack", a.new_pack),
+                                          ("--unit-reports", a.unit_reports), ("--capacity-group", a.seats_group),
+                                          ("--capacity-corridor", a.seats_corridor), ("--capacity-from", a.seats_from),
+                                          ("--capacity-to", a.seats_to), ("--per-day", a.per_day)) if value]
+        if clash:
+            ap.error(f"{', '.join(clash)} cannot be used with --mileage-period")
+        if (a.mileage_period == "month") != bool(a.month):
+            ap.error("--month goes with --mileage-period month (and it needs one)")
+        if (a.mileage_period == "custom") != bool(a.period_from or a.period_to) or \
+                (a.mileage_period == "custom" and not (a.period_from and a.period_to)):
+            ap.error("--period-from and --period-to go with --mileage-period custom (and it needs both)")
+    elif a.month or a.period_from or a.period_to:
+        ap.error("--month, --period-from and --period-to are used with --mileage-period")
     from rstools.statspack.compare import CompareOptions
     cmp = CompareOptions(summary=not a.no_summary, changed_tabs_only=a.changed_tabs_only,
                          changed_rows_only=a.changed_rows_only, flag_miles=a.flag_miles or None)
@@ -328,7 +353,12 @@ def statspack_cli(argv):
             old = load_plan(PlanInputs(a.old_xml or "", a.old_trent), print,
                             xml_optional=bool(a.unit_reports))                     # compare with this timetable
             o.days = [d for d in o.days if d in old.trent.days()]
-        if seats:
+        if a.mileage_period:
+            from rstools.statspack.engine import period_mileage
+            paths, warnings, summary = period_mileage(new, o, a.mileage_period, version, a.month, a.period_from,
+                                                      a.period_to)
+            print(summary)
+        elif seats:
             from rstools.statspack.engine import seats_report
             journey = a.seats_from or a.seats_to
             kind, name = (("Station to station", "") if journey else ("Service group", a.seats_group)
@@ -546,10 +576,20 @@ def berthing_cli(argv):
     from rstools.berthing.xmlread import BerthingError
 
     ap = argparse.ArgumentParser(prog="TrainPlanningTools berthing", description="Berthing charts")
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--xml", nargs="+", help="make a chart: the LTP Attune XML, then optionally the STP XML")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--xml", nargs="+", help="make a chart: the LTP Attune XML, then optionally the STP XML "
+                                            "(with --blank: the XML(s) to take the locations and dates from)")
     g.add_argument("--chart", help="add a round of changes to this chart (with --original and --updated)")
     g.add_argument("--compare", nargs=2, metavar=("OLD", "NEW"), help="compare two charts")
+    ap.add_argument("--blank", action="store_true",
+                    help="make a blank chart (sheets, berths, capacities and notes, no units) to fill in by hand; "
+                         "--xml is optional")
+    ap.add_argument("--timetable", default="", help="with --blank and no --xml: the timetable for the cover's "
+                                                    "title, e.g. 'May 2027'")
+    ap.add_argument("--from", dest="date_from", default="", metavar="YYYY-MM-DD",
+                    help="with --blank and no --xml: the first date on the cover")
+    ap.add_argument("--to", dest="date_to", default="", metavar="YYYY-MM-DD",
+                    help="with --blank and no --xml: the last date on the cover")
     ap.add_argument("--layout", default="", help="the chart whose sheets, berths and notes the new chart follows "
                                                  "(default: the app's built-in layout)")
     ap.add_argument("--counts", action="store_true", help="add the unit counts of each siding location")
@@ -572,6 +612,36 @@ def berthing_cli(argv):
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--name", default="", help="output file name, without .xlsx")
     a = _local_out(ap, ap.parse_args(argv))
+    blank_only = [("--timetable", a.timetable), ("--from", a.date_from), ("--to", a.date_to)]
+    if a.blank:
+        extra = [flag for flag, value in [("--chart", a.chart), ("--compare", a.compare), ("--original", a.original),
+                                          ("--updated", a.updated), ("--colour", a.colour), ("--others", a.others),
+                                          ("--counts", a.counts)] if value]
+        if a.xml:
+            extra += [flag for flag, value in blank_only if value]
+        if extra:
+            ap.error(f"{', '.join(extra)} cannot be used with --blank" + (" and --xml (the XML gives the "
+                                                                           "timetable and dates)" if a.xml else ""))
+        if a.layout and a.operator != "SNGX":
+            ap.error(f"--layout cannot be used with --operator {a.operator}")
+        if bool(a.date_from) != bool(a.date_to):
+            ap.error("--from and --to go together")
+        try:
+            res = engine.blank(a.operator, a.layout, a.xml or [], a.out, a.name, a.issue, a.timetable, a.date_from,
+                               a.date_to, a.leave_out, a.add, log=print)
+        except BerthingError as exc:
+            print("ERROR:", exc)
+            sys.exit(1)
+        print(res.summary)
+        for w in res.warnings:
+            print("WARNING:", w)
+        print("Saved:", res.chart)
+        return
+    if not (a.xml or a.chart or a.compare):
+        ap.error("one of --xml, --chart, --compare or --blank is required")
+    used_blank = [flag for flag, value in blank_only if value]
+    if used_blank:
+        ap.error(f"{', '.join(used_blank)} can only be used with --blank")
     chart_only = [("--operator", a.operator != "SNGX"), ("--leave-out", a.leave_out), ("--add", a.add)]
     ignored = {"--compare": [("--layout", a.layout), ("--issue", a.issue), ("--original", a.original),
                              ("--updated", a.updated), ("--others", a.others)] + chart_only,
