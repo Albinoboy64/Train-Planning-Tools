@@ -43,7 +43,7 @@ def _check_paths(paths: Sequence[str], what: str):
             raise BerthingError(f"This file could not be found:\n{p}")
 
 
-def _out(folder: str, name: str, default: str, near: str, tails=(".xlsx",)) -> str:
+def _out(folder: str, name: str, default: str, tails=(".xlsx",)) -> str:
     folder = output_folder(folder)
     return os.path.join(folder, unique_stem(folder, naming.clip(name or default), tails) + tails[0])
 
@@ -98,7 +98,7 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
     progress(0.6, "Writing the chart...")
     stp = len(xml_paths) > 1
     default = f"Berthing Chart {issue}".strip() if issue else "Berthing Chart " + (_timetable(xmls) or naming.today())
-    path = _out(out_dir, name, default + (" STP" if stp and "stp" not in default.lower() else ""), xml_paths[-1])
+    path = _out(out_dir, name, default + (" STP" if stp and "stp" not in default.lower() else ""))
     first = xmls[-1]
     _save(lambda: writer.write(filled, path, writer.cover_rewriter(issue, first.start, first.end), _legend(stp),
                                _notes(xml_paths, layout_path or layout.path, warnings), counts), path)
@@ -129,7 +129,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     highlight(after, marked, colour.upper())
     carry_colours(chart, after, skip=[STP_FILL])
     stem = os.path.splitext(os.path.basename(chart_path))[0]
-    path = _out(out_dir, name, f"{stem} - {issue}" if issue else f"{stem} updated", chart_path)
+    path = _out(out_dir, name, f"{stem} - {issue}" if issue else f"{stem} updated")
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
     first = xmls[-1]
@@ -165,7 +165,7 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
     changes, marked = diff(old, new)
     highlight(new, marked, colour.upper())
     a, b = (naming.short_label(p) for p in (old_path, new_path))
-    path = _out(out_dir, name, f"{naming.today()} {naming.vs(a, b)}", new_path)
+    path = _out(out_dir, name, f"{naming.today()} {naming.vs(a, b)}")
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
     progress(0.75, "Writing the chart...")

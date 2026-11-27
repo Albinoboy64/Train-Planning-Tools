@@ -291,7 +291,7 @@ def build_day(trent: TrentData, attune: Optional[AttuneData], fleet: FleetTable,
             warnings.append(f"{len(missing)} train(s) in the TRENT print were not found in the XML for this day "
                             f"(e.g. {', '.join(missing[:12])}). Their calling points and seconds come from the "
                             "TRENT print instead - check the XML is from the same plan as the TRENT print.")
-    trains = _build_trains(included, all_diags)
+    trains = _build_trains(included)
     return DayModel(day=day, diagrams=sorted(included, key=lambda d: (d.fleet, d.depot, _num(d.number))),
                     all_diagrams=all_diags, trains=trains,
                     locations=attune.locations if attune else {}, fleet=fleet, warnings=warnings)
@@ -422,7 +422,7 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
         i = j
 
 
-def _build_trains(included: List[Diagram], all_diags: Dict[str, Diagram]) -> List[TrainRun]:
+def _build_trains(included: List[Diagram]) -> List[TrainRun]:
     """Group the included diagrams' moves into trains, split into formation parts."""
     by_train: Dict[str, Dict[Tuple[int, str], Move]] = defaultdict(dict)
     for d in included:

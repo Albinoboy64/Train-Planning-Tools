@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from rstools.days import DAY_LABELS as DAY_SHORT
+
 from . import s4lines as S4L
 from .s4lines import line_codes, verdict as line_verdict
 from .prints import PrintError
@@ -29,7 +31,6 @@ from .pdfgrid import (cluster, find_furniture, line_text, lines_of, rect_from_vi
 DAY_CODES = {"m": 0, "mo": 0, "mon": 0, "t": 1, "tu": 1, "tue": 1, "tues": 1, "w": 2, "we": 2, "wed": 2,
              "th": 3, "thu": 3, "thur": 3, "thurs": 3, "f": 4, "fr": 4, "fri": 4, "s": 5, "sa": 5, "sat": 5,
              "su": 6, "sun": 6}
-DAY_SHORT = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 WEEK = 7 * 1440
 _WINDOW = re.compile(r"(\d{2})[.:]?(\d{2})\s*([A-Za-z]{1,5}(?:\s*[-/]\s*[A-Za-z]{1,5})?)\s+to\s+"
                      r"(\d{2})[.:]?(\d{2})\s*([A-Za-z]{1,5}(?:\s*[-/]\s*[A-Za-z]{1,5})?)\b")
@@ -576,7 +577,7 @@ def _lines_between(vt, tips_a: Set[str], tips_b: Set[str], minute: int, day: int
     return list(line_codes(vt, ia, ib).values())
 
 
-def check(plan, statement: Statement, log=lambda m: None, lines=None, others=()) -> CheckResult:
+def check(plan, statement: Statement, lines=None, others=()) -> CheckResult:
     """The trains in `plan` (stationbook.read_plan) running over a Section 4 section in one of its windows.
     `lines`: the same timetable as a VPT plan, whose running lines settle the clashes where only some lines are
     blocked. `others`: other operators' VPT plans, whose trains are checked too (marked with their operator)."""
@@ -775,8 +776,8 @@ def _valid_in(t, per: Period, start, end) -> bool:
 
 
 def _hhmm(minutes: int) -> str:
-    m = minutes % 1440
-    return f"{m // 60:02d}{m % 60:02d}"
+    from rstools.clock import hhmm
+    return hhmm(minutes)
 
 
 def _when(day: int, minutes: int) -> str:
@@ -914,7 +915,7 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
     except (StationBookError, PrintError) as exc:
         raise Section4Error(str(exc))
     progress(0.6, "Checking...")
-    result = check(plan, statement, log, own, theirs)
+    result = check(plan, statement, own, theirs)
     stale = rules.coverage_warning(statement, plan.start, plan.end)
     if stale:
         result.warnings.insert(0, stale)

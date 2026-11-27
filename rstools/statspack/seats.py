@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
-from .days import DAY_NAMES
+from rstools.days import DAY_NAMES
 from .fleet import FleetTable, user_fleet_path
 from .model import DayModel, Part, TrainRun
 from .units import Report
@@ -440,10 +440,8 @@ def parse_time(text: str) -> int:
 
 
 def _hhmm(sec: Optional[int]) -> str:
-    if sec is None:
-        return ""
-    sec %= DAY_SECONDS
-    return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}"
+    from rstools.clock import clock
+    return clock(sec, ":")
 
 
 @dataclass

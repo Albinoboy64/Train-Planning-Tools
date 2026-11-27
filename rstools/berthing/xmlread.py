@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 from rstools import safexml
-from rstools.stationbook import Call, _calls, _days, _secs, _unroll
+from rstools.days import days_of_mask
+from rstools.stationbook import Call, _calls, _secs, _unroll
 
 
 class BerthingError(Exception):
@@ -86,10 +87,10 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
                     if el.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
                         plan = "D"                          # a draft (provisional) version of an LTP train
                     cur_train = {"id": el.get("id", ""), "key": el.get("trainKey", ""), "plan": plan,
-                                 "days": _days(el.get("daysRun", ""))}
+                                 "days": days_of_mask(el.get("daysRun", ""))}
                     legs = []
                 elif tag == "unitDiagram":
-                    cur = UnitDiagram("", "", _days(el.get("daysrun", "")), el.get("type", ""), source)
+                    cur = UnitDiagram("", "", days_of_mask(el.get("daysrun", "")), el.get("type", ""), source)
                     number, depot = el.get("id", "").strip(), ""
                 elif tag == "journey" and cur is not None:
                     move = dict(el.attrib)

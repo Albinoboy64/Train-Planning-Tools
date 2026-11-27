@@ -102,7 +102,7 @@ def _colour_word(hex_colour: str) -> str:
     return next((n for n, v in PRESET_COLOURS.items() if v.upper() == h), "#" + h)
 
 
-def _workings_finish(wb, model: CWNModel, full: Optional[CWNModel], rounds: list, opts: Options):
+def _workings_finish(wb, model: CWNModel, full: Optional[CWNModel], rounds: list):
     """Platform workings only: tabs of days that were not chosen are left out, and the cover's 'UPDATES
     HIGHLIGHTED IN <colour>' line names the colours of the rounds."""
     from .days import sheet_day
@@ -261,7 +261,7 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
         "original": os.path.basename(opts.original), "updated": os.path.basename(opts.updated),
         "days": day_label(opts.days) if opts.days else "",
     }]
-    _workings_finish(wb_new, m_new, full_new, rounds, opts)
+    _workings_finish(wb_new, m_new, full_new, rounds)
     write_meta(wb_new, {"rounds": rounds, "baseline": model_to_dict(m_new),
                         "changes": [c.to_dict() for c in all_changes]})
     if acwn and not summary:

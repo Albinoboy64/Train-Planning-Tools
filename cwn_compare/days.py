@@ -13,13 +13,12 @@ import os
 import re
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from rstools.days import DAY_CODES, DAY_LABELS, TOKEN_DAY as _TOKEN_DAY  # noqa: F401  (DAY_* used by others)
+
 from .model import CWNModel, SheetModel, _day_tokens
 
-DAY_CODES = ("MO", "TO", "WO", "ThO", "FO", "SO", "SuO")
-DAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 WEEKDAYS = frozenset(range(5))
 ALL = frozenset(range(7))
-_TOKEN_DAY = {"m": 0, "t": 1, "tu": 1, "w": 2, "th": 3, "f": 4, "s": 5, "sa": 5, "su": 6}
 _HINTS = (
     (re.compile(r"\b(daily|every\s*day|7\s*day|seven\s*day|mon(day)?s?\s*(to|-|–)\s*sun(day)?s?)\b", re.I), ALL),
     (re.compile(r"\b(mon(day)?s?\s*(to|-|–)\s*sat(urday)?s?|mtwthfs|m-sa)\b", re.I), frozenset(range(6))),

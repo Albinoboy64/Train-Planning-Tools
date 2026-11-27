@@ -62,9 +62,8 @@ class Units:
 
 def clock(sec: int, ecs: bool) -> str:
     """'02+02' for an empty move, '0500' for a passenger train (the CWN convention)."""
-    sec %= 86400
-    h, m = sec // 3600, sec % 3600 // 60
-    return f"{h:02d}+{m:02d}" if ecs else f"{h:02d}{m:02d}"
+    from rstools.clock import clock as _clock
+    return _clock(sec, "+" if ecs else "")
 
 
 def _end_text(end: End) -> str:

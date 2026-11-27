@@ -23,6 +23,8 @@ from copy import copy
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from rstools.days import DAY_LETTERS as _DAY_TOKENS
+
 from .days import coverage, code_days
 from .model import Block, SheetModel, cell_text
 
@@ -87,7 +89,6 @@ def _trains(blocks: List[Block], base) -> List[List[Block]]:
     return [sorted(c[2], key=lambda b: b.start_row) for c in clusters]
 
 
-_DAY_TOKENS = ("M", "T", "W", "Th", "F", "S", "Su")
 
 
 def days_code(days: Set[int], base: Set[int], sx_style: bool = False) -> str:

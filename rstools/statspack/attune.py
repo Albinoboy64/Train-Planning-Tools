@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
 from rstools import safexml
-from .days import days_of_mask
+from rstools.days import days_of_mask
 
 
 class AttuneError(Exception):

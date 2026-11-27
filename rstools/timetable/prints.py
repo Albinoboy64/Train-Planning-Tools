@@ -84,7 +84,7 @@ class PrintTrain:
         """The days as a set of weekdays, so 'SX' and 'MTWThF' are the same days; the text if it cannot be read."""
         if self.dayset is not None:
             return self.dayset
-        from rstools.statspack.days import days_of_code
+        from rstools.days import days_of_code
         found = days_of_code(self.days)
         return frozenset(found) if found else self.days
 

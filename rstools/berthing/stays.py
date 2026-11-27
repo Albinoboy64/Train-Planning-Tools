@@ -8,7 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from rstools.statspack.days import DAY_NAMES, days_of_code
+from rstools.days import DAY_NAMES, days_of_code
 from rstools.statspack.model import PLAN_PRIORITY
 from rstools.statspack.trent import is_empty_headcode
 

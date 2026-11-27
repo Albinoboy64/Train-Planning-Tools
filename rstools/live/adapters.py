@@ -448,7 +448,7 @@ def stats_packs(old_path: str, new_path: str, log: Log) -> LiveResult:
 
 def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> LiveResult:
     from cwn_compare import __version__
-    from rstools.statspack.days import DAYS
+    from rstools.days import DAYS
     from rstools.statspack.engine import (PackOptions, PlanInputs, _info, _tables_by_key, build_pack, load_plan)
     from rstools.statspack.model import OPERATORS
     old = load_plan(PlanInputs(xml_a, trent_a), log)
@@ -522,7 +522,7 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
     (plan,) = read_jobs([(read_plan, xml)])
     own = read_plan(vpt) if vpt else None
     theirs = [read_plan(o) for o in others]
-    res = check(plan, statement, log, own, theirs)
+    res = check(plan, statement, own, theirs)
     items: List[LiveItem] = []
 
     def rows_of(c) -> List[LiveRow]:

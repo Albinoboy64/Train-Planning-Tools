@@ -206,7 +206,7 @@ def _read_sheet(ws, locations: Optional[Locations]) -> Optional[Sheet]:
         return None
     hdr, col0, kind = found
     if kind == "depot":
-        return _read_depot(ws, hdr, col0)
+        return _read_depot(ws, col0)
     sheet = GridSheet(ws.title.strip(), ws.sheet_state != "visible", _tab(ws),
                       (_text(ws.cell(hdr, 1).value) or "Siding", _text(ws.cell(hdr, 2).value) if col0 > 2 else ""),
                       widths=_widths(ws))
@@ -369,7 +369,7 @@ def _is_label(a: str, b: str, known: dict) -> bool:
     return bool(_LABEL_WORDS.match(a)) and (not b or _capacity(b))
 
 
-def _read_depot(ws, hdr: int, col0: int) -> DepotSheet:
+def _read_depot(ws, col0: int) -> DepotSheet:
     sheet = DepotSheet(ws.title.strip(), ws.sheet_state != "visible", _tab(ws), widths=_widths(ws))
     cur: Optional[DepotBlock] = None
     for r in range(1, ws.max_row + 1):

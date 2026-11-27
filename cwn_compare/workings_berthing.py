@@ -30,11 +30,10 @@ from rstools.fsutil import clean_cell, output_folder, unique_stem
 
 from .days import SHEET_DAYS
 from .model import Block, CWNModel, SheetModel, parse_workbook, time_minutes
+from rstools.days import DAY_CODES, DAY_NAMES
 
 Log = Callable[[str], None]
 
-DAY_CODES = ["MO", "TO", "WO", "ThO", "FO", "SO", "SuO"]
-DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 _CODE_DAY = {"MO": 0, "TO": 1, "WO": 2, "THO": 3, "FO": 4, "SO": 5, "SUO": 6, "SU": 6, "SUN": 6}
 _NEXT = re.compile(r"^(?:berth\s+)?[A-Za-z]{1,4}\d{1,4}\s+(\d{1,2})([.+:])(\d{2})\s*([A-Za-z]{1,4})?", re.I)
 

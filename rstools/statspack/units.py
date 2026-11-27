@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Collection, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 from .attune import AttuneData
-from .days import DAYS, DAY_NAMES, days_of_code
+from rstools.days import DAYS, DAY_NAMES, days_of_code
 from .fleet import user_fleet_path
 from .model import _pick_diagrams
 from .trent import TrentData
@@ -471,7 +471,8 @@ class Report:
 
 
 def _hm(minutes: int) -> str:
-    return f"{minutes // 60 % 24:02d}:{minutes % 60:02d}"
+    from rstools.clock import hhmm
+    return hhmm(minutes, ":")
 
 
 def _chain(u: UnitWeek) -> str:

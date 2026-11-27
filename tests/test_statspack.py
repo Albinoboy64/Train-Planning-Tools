@@ -675,7 +675,7 @@ def test_corridor_station_spellings():
 
 
 def test_attune_day_masks():
-    from rstools.statspack.days import days_of_mask
+    from rstools.days import days_of_mask
     assert days_of_mask("NNYYYYYNN") == {0, 1, 2, 3, 4}
     assert days_of_mask("NNNNNNNYN") == {5}
     assert days_of_mask("NYNNNNNNN") == {6}                  # Sunday is the 2nd character

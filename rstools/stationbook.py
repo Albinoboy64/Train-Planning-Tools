@@ -26,8 +26,8 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 from rstools import safexml
 from rstools.fsutil import output_folder
+from rstools.days import DAY_NAMES, days_of_mask
 
-DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 DAY_GROUPS = {"SX": (0, 1, 2, 3, 4), "SO": (5,), "Su": (6,)}
 SINGLE_DAYS = {"MO": (0,), "TO": (1,), "WO": (2,), "ThO": (3,), "FO": (4,), "SO": (5,), "Su": (6,)}
 PLAN_PRIORITY = {"S": 3, "STP": 3, "D": 2, "P": 2, "L": 1, "LTP": 1}
@@ -57,12 +57,6 @@ def _secs(text: Optional[str]) -> Optional[int]:
         return None
     parts += [0] * (3 - len(parts))
     return parts[0] * 3600 + parts[1] * 60 + parts[2]
-
-
-def _days(mask: str) -> Set[int]:
-    """Attune daysRun: the 2nd character is Sunday, the 3rd-8th Monday..Saturday ('NYNNNNNNN' = Sunday)."""
-    from rstools.statspack.days import days_of_mask
-    return days_of_mask(mask)
 
 
 @dataclass
@@ -173,12 +167,12 @@ def read_plan(path: str) -> Plan:
                     plan = el.get("planType", "")
                     if el.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
                         plan = "D"
-                    cur_train, legs = Train(el.get("id", ""), _days(el.get("daysRun", "")), plan,
+                    cur_train, legs = Train(el.get("id", ""), days_of_mask(el.get("daysRun", "")), plan,
                                             valid_from=el.get("validFrom", ""),
                                             valid_until=el.get("validUntil", ""),
                                             rar=runs_as_required(el.attrib)), []
                 elif tag == "unitDiagram":
-                    cur_diag = Diagram("", "", _days(el.get("daysrun", "")), plan=el.get("type", ""))
+                    cur_diag = Diagram("", "", days_of_mask(el.get("daysrun", "")), plan=el.get("type", ""))
                     cur_diag.key = el.get("id", "").strip()          # depot added when its <depot> is read
                 elif tag == "journey" and cur_diag is not None:
                     move = dict(el.attrib)
@@ -290,10 +284,9 @@ def _calls(legs: List[dict]) -> List[Call]:
 # times and names as TRACS-RS writes them
 # --------------------------------------------------------------------------- #
 def _clock(sec: Optional[int], sep: str) -> str:
-    if sec is None:                     # a time missing from the XML: shown blank rather than failing
-        return ""
-    sec %= 86400
-    return f"{sec // 3600:02d}{sep}{sec % 3600 // 60:02d}"
+    """A time missing from the XML is shown blank rather than failing (rstools.clock)."""
+    from rstools.clock import clock
+    return clock(sec, sep)
 
 
 def show_dep(train: Train, call: Call) -> str:

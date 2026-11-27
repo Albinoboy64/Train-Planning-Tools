@@ -53,7 +53,8 @@ def days_text(days: frozenset) -> str:
         return "Su"
     if days == frozenset(range(7)):
         return "Daily"
-    return "".join(("M", "T", "W", "Th", "F", "S", "Su")[d] for d in sorted(days))
+    from rstools.days import DAY_LETTERS
+    return "".join(DAY_LETTERS[d] for d in sorted(days))
 
 
 def clock(sec: int, role: str) -> str:

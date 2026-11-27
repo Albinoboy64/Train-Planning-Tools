@@ -219,7 +219,7 @@ def _reorder_flags(a):
 
 
 def statspack_cli(argv):
-    from rstools.statspack.days import DAYS
+    from rstools.days import DAYS
     from rstools.statspack.engine import (OUTPUTS, UNIT_REPORTS, PackOptions, PlanInputs, StatsPackError, build_pack,
                                           compare_packs, compare_plans, day_availability, load_plan, unit_reports,
                                           write_pack)

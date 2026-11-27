@@ -14,7 +14,7 @@ from rstools.docexport import ext_for
 
 from .compare import CompareOptions
 from .attune import AttuneData, AttuneError, parse_attune_xml
-from .days import DAYS, DAY_NAMES
+from rstools.days import DAYS, DAY_NAMES
 from .fleet import FleetTable
 from .model import build_day
 from .stats import TAB_ORDER, Table, build_tables, weekly_tables

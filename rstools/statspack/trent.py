@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, cast
 
 from rstools import safexml
-from .days import days_of_code
+from rstools.days import days_of_code
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 

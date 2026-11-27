@@ -19,7 +19,7 @@ from rstools.branding import APP_NAME
 from rstools.naming import file_label
 from rstools.fsutil import write_json
 
-from .days import DAYS, DAY_NAMES
+from rstools.days import DAYS, DAY_NAMES
 from .engine import (OUTPUTS, PackOptions, PlanInputs, StatsPackError, build_pack, cached, compare_packs,
                      compare_plans, day_availability, load_plan, pack_name, packs_name, plans_name, seats_name,
                      seats_report, timetable, UNIT_REPORTS, unit_reports, write_pack)
