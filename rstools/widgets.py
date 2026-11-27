@@ -66,8 +66,44 @@ class ScrollPage(ttk.Frame):
         self.canvas.yview_scroll(step * 3, "units")
 
 
+_OPEN_POPUPS: set = set()          # drop-down lists open now (suggestion lists, combobox popdowns)
+_SHOWN_TIPS: list = []             # tooltips on screen now
+
+
+def popup_opened(popup) -> None:
+    """A drop-down list has opened: hide every tip, and show none while it is open (a tip would cover it)."""
+    _OPEN_POPUPS.add(str(popup))
+    for tip in list(_SHOWN_TIPS):
+        tip.hide()
+
+
+def popup_closed(popup) -> None:
+    _OPEN_POPUPS.discard(str(popup))
+
+
+def popup_open() -> bool:
+    return bool(_OPEN_POPUPS)
+
+
+def guard_popdown(combo) -> None:
+    """Tell the tooltips when a combobox's own drop-down list opens and closes (see popup_opened)."""
+    if getattr(combo, "_popdown_guarded", False):
+        return
+    try:
+        path = combo.tk.call("ttk::combobox::PopdownWindow", combo)
+        opened = combo.register(lambda: popup_opened(path))
+        closed = combo.register(lambda: popup_closed(path))
+        combo.tk.call("bind", path, "<Map>", opened)
+        combo.tk.call("bind", path, "<Unmap>", closed)
+        combo.tk.call("bind", path, "<Destroy>", closed)
+        combo._popdown_guarded = True
+    except tk.TclError:
+        pass
+
+
 class Tooltip:
-    """Help text shown when the mouse rests on a widget (after a short delay, kept on screen)."""
+    """Help text shown when the mouse rests on a widget (after a short delay, kept on screen). No tip is shown
+    while a drop-down list is open, so it never covers the list."""
     DELAY_MS = 450
 
     def __init__(self, widget, text: str, delay: int = 0):
@@ -92,7 +128,7 @@ class Tooltip:
 
     def show(self, _e=None):
         self._after = None
-        if self.tip or not self.text:
+        if self.tip or not self.text or popup_open():
             return
         try:
             root = self.widget.winfo_toplevel()
@@ -117,11 +153,14 @@ class Tooltip:
             if y + h > bottom - 8:                  # no room below: show above the widget
                 y = self.widget.winfo_rooty() - h - 4
             self.tip.wm_geometry(f"+{x}+{y}")
+            _SHOWN_TIPS.append(self)
         except tk.TclError:
             self.tip = None
 
     def hide(self, _e=None):
         self._cancel()
+        if self in _SHOWN_TIPS:
+            _SHOWN_TIPS.remove(self)
         if self.tip:
             try:
                 self.tip.destroy()

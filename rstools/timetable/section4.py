@@ -580,7 +580,8 @@ def _lines_between(vt, tips_a: Set[str], tips_b: Set[str], minute: int, day: int
 def check(plan, statement: Statement, lines=None, others=()) -> CheckResult:
     """The trains in `plan` (stationbook.read_plan) running over a Section 4 section in one of its windows.
     `lines`: the same timetable as a VPT plan, whose running lines settle the clashes where only some lines are
-    blocked. `others`: other operators' VPT plans, whose trains are checked too (marked with their operator)."""
+    blocked. `others`: other operators' VPT or F3 print plans,
+    whose trains are checked too (marked with their operator)."""
     from rstools.statspack.seats import Stations
     stations = Stations(plan.locations)
     cache: Dict[str, Set[str]] = {}
@@ -618,7 +619,7 @@ def check(plan, statement: Statement, lines=None, others=()) -> CheckResult:
         op = other.operator or os.path.splitext(os.path.basename(other.path))[0][:12]
         for vs in other.trains.values():
             for t in vs:
-                t.operator = op
+                t.operator = t.operator or op       # an F3 print names each train's own operator
                 versions.append((t, _times_of(t)))
     by_id: Dict[str, List[Any]] = {}
     for vs in (lines.trains.values() if lines is not None else ()):
@@ -882,7 +883,8 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
               progress=lambda f, m: None, log=lambda m: None, vpt: str = "", others: Sequence[str] = ()):
     """Read the XML and the Section 4 PDF(s) - or, with no PDFs, the Section 4 rule set in use (Data > Rules and
     reference data) - check, and save the report. `vpt`: a VPT of the same timetable, for the running lines;
-    `others`: other operators' VPTs, whose trains are checked too. Returns (path, result, statement, plan start)."""
+    `others`: other operators' VPTs or Attune Single Train Report (F3) prints, whose trains are checked
+    too. Returns (path, result, statement, plan start)."""
     from rstools.stationbook import StationBookError, _plan_of
     from rstools import naming, rules
     if pdfs:

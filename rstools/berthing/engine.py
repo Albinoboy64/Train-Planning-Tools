@@ -164,14 +164,17 @@ def _save(fn, path: str):
 def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "", name: str = "", issue: str = "",
              log: Log = lambda m: None, counts: bool = False,
              progress: Callable[[float, str], None] = lambda f, m: None, operator: str = "SNGX",
-             leave_out: Sequence[str] = (), add: Sequence[str] = (), others: Sequence[str] = ()) -> Result:
+             leave_out: Sequence[str] = (), add: Sequence[str] = (), others: Sequence[str] = (),
+             show_notes: bool = True) -> Result:
     """A new chart from an LTP XML (or an LTP and an STP XML: STP trains in bold on lavender), laid out like
     `layout_path` - or like the app's built-in layout when none is given. No change colours: the chart starts
     clean. `counts` adds the unit counts of each siding location.
     operator: SNGX (the built-in layout) or TLGN (a sheet for every place TLGN units berth overnight, made from
     the XML, and only TLGN units). leave_out / add: sheets left out of the layout, and locations added to it
     (by name or TIPLOC). The cover's title is the timetable the XML is for and its issue line `issue`.
-    others: other operators' files (Attune XML, VPT or CIF) whose units are added in grey (rstools.berthing.others)."""
+    others: other operators' files (Attune XML, VPT or CIF) whose units are added in grey (rstools.berthing.others).
+    show_notes: the location notes, with any edited in the app for the XML's timetable (berthing.notes); False
+    leaves every note off."""
     operator = (operator or "SNGX").upper()
     if operator not in auto.OPERATORS:
         raise BerthingError(f"'{operator}' is not a chart type: use " + " or ".join(auto.OPERATORS) + ".")
@@ -200,6 +203,7 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
     extra = _others(others, log)
     _x, filled, warnings = _fill(layout, xml_paths, log, auto.operator_fleets(operator, table), read, extra)
     warnings = picked + warnings
+    _location_notes(filled, xmls, show_notes, log)
     progress(0.6, "Writing the chart...")
     stp = len(xml_paths) > 1
     prefix = "" if operator == "SNGX" else operator + " "
@@ -290,9 +294,11 @@ def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str
 
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",
               name: str = "", issue: str = "", log: Log = lambda m: None, counts: bool = False,
-              progress: Callable[[float, str], None] = lambda f, m: None, others: Sequence[str] = ()) -> Result:
+              progress: Callable[[float, str], None] = lambda f, m: None, others: Sequence[str] = (),
+              show_notes: bool = True) -> Result:
     """The chart remade from the updated XML(s), with every cell that differs from the original XML(s)
-    filled in `colour`, and the chart's earlier highlights kept where nothing changed. Plus a change report."""
+    filled in `colour`, and the chart's earlier highlights kept where nothing changed. Plus a change report.
+    `show_notes` as for generate."""
     _check_paths([chart_path], "berthing chart to add the changes to")
     _check_paths(list(original), "original Attune XML")
     _check_paths(list(updated), "updated Attune XML")
@@ -312,6 +318,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     changes, marked = diff(before, after)
     highlight(after, marked, colour.upper())
     carry_colours(chart, after, skip=[STP_FILL])
+    _location_notes(after, xmls, show_notes, log)
     stem = os.path.splitext(os.path.basename(chart_path))[0]
     path = _out(out_dir, name, f"{stem} - {issue}" if issue else f"{stem} updated")
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
@@ -383,6 +390,20 @@ def _count(layout: Layout) -> int:
                 n += sum(1 for c in row[::2] if c is not None and c.text and "Berth" not in c.text
                          and c.text.split(")")[-1].strip()[:1].isdigit())
     return n
+
+
+def _location_notes(layout: Layout, xmls, show: bool, log: Log):
+    """The notes edited in the app for the XML's timetable on the chart's berths, or every note off."""
+    from . import notes
+    if not show:
+        notes.strip(layout)
+        log("Location notes left off the chart.")
+        return
+    starts = [x.start for x in xmls if x.start]
+    tt = notes.timetable_of_start(starts[-1]) if starts else ""
+    n = notes.apply(layout, tt) if tt else 0
+    if n:
+        log(f"{n} location note(s) from the app's {notes.timetable_label(tt)} notes.")
 
 
 def _timetable(xmls) -> str:

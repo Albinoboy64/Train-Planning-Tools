@@ -226,7 +226,7 @@ class TimetableTab(ttk.Frame):
         self.s4_boxes = {}
         rows = (("xml", "Attune XML:", "Browse..."), ("pdf", "Section 4 PDF(s):", "Add..."),
                 ("vpt", "GTR VPT (optional):", "Browse..."),
-                ("others", "Other operators' VPT(s) (optional):", "Add..."))
+                ("others", "Other operators (optional; VPT preferred, or F3 print):", "Add..."))
         for r, (key, text, btn) in enumerate(rows, start=1):
             pad = 2
             ttk.Label(uf, text=text).grid(row=r, column=0, sticky="w", pady=pad)
@@ -568,9 +568,11 @@ class TimetableTab(ttk.Frame):
         elif key in ("vpt", "others"):
             many = key == "others"
             ask = filedialog.askopenfilenames if many else filedialog.askopenfilename
-            chosen = ask(parent=self, title="Choose other operators' VPTs" if many else "Choose the GTR VPT",
-                         initialdir=start,
-                         filetypes=[("Attune VPT export", "*.vpt"), ("All files", "*.*")])
+            from rstools.dropping import filetypes
+            kinds = (("Attune VPT export", ".vpt"),) + ((("Attune F3 print", ".pdf", ".docx", ".docm"),) if many
+                                                        else ())
+            chosen = ask(parent=self, title="Choose other operators' VPTs (preferred) or F3 prints" if many
+                         else "Choose the GTR VPT", initialdir=start, filetypes=filetypes(*kinds))
             if chosen:
                 paths = [os.path.normpath(p) for p in (chosen if many else [chosen])]
                 self.s4_vars[key].set(self._join(self.s4_vars[key].get(), paths) if many else paths[0])
@@ -727,8 +729,10 @@ class TimetableTab(ttk.Frame):
         for p in ([vpt] if vpt else []) + others:
             if not os.path.isfile(p):
                 return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}", parent=self)
-            if not p.lower().endswith(".vpt"):
-                return messagebox.showwarning(TITLE, f"The VPT should be a .vpt file:\n{p}", parent=self)
+            if not p.lower().endswith(".vpt") and not (p in others and p.lower().endswith(_PR)):
+                return messagebox.showwarning(TITLE, f"The VPT should be a .vpt file:\n{p}" if p == vpt else
+                                              f"Other operators' files should be VPTs (.vpt) or Attune F3 "
+                                              f"prints (.pdf / .docx):\n{p}", parent=self)
         typed = self.out_dir.get().strip().strip('"')
         if typed and not os.path.isdir(typed):           # as on the other tabs: never quietly saved elsewhere
             return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{typed}\n\nChoose a folder "

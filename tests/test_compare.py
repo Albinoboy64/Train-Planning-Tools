@@ -938,3 +938,13 @@ def test_no_unused_formatting_in_outputs():
             last = max((c.row for row in ws.iter_rows() for c in row if c.value not in (None, "")), default=1)
             assert int(re.sub(r"[A-Z]+", "", ref.split(":")[-1])) <= last + 1, (path, ws.title, ref, last)
             assert "XFD" not in xml and 'max="16384"' not in xml and ' customFormat="1"' not in xml, (path, ws.title)
+
+
+def test_change_reports_list_dated_day_tabs_monday_first():
+    """Platform workings day tabs, plain or with their date ('MO 14-12-26', 'SuO 13-12-26'), sort Monday to Sunday;
+    other tabs (CWN locations) come after them, alphabetically."""
+    from cwn_compare.compare import tab_order
+    tabs = ["SuO 13-12-26", "Victoria", "FO 18-12-26", "MO 14-12-26 ", "SO", "ThO 17-12-26", "Brighton", "TO 15-12-26",
+            "WO 16-12-26"]
+    assert sorted(tabs, key=tab_order) == ["MO 14-12-26 ", "TO 15-12-26", "WO 16-12-26", "ThO 17-12-26", "FO 18-12-26",
+                                           "SO", "SuO 13-12-26", "Brighton", "Victoria"]

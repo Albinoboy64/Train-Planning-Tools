@@ -191,6 +191,10 @@ jobs:
           python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_late_xml('smoke/late.xml'); t.write_late_xml('smoke/other.xml', operator='XC')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\late.xml','--station','Alpha','--merge-xml','smoke\other.xml','--out','smoke','--name','swb_merged' -Wait -PassThru
           if (!(Test-Path smoke\swb_merged.xlsx)) { throw "exe did not make a station book with another operator merged in" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\swb.xml','--station','Alpha','--book-operator','SNGX','--merge','smoke\attune.pdf','--other-operators','SN','--out','smoke','--name','swb_sngx' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\swb_sngx.xlsx)) { throw "exe did not make an SNGX station book with an F3 print merged in" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--other','smoke\attune.pdf','--out','smoke','--name','s4check_f3' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\s4check_f3.xlsx)) { throw "exe did not run the Section 4 check with an F3 print for another operator" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'selftest','smoke\attune.pdf' -Wait -PassThru -NoNewWindow
           if ($p.ExitCode -ne 0) { throw "the exe could not read an Attune print with PDFium, find its built-in Section 4 rules or berthing layout, or open a window with drag and drop" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_compare as t; [os.makedirs(f'smoke/{d}', exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make(f'smoke/bo/{n} Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make(f'smoke/bu/{n} Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]"
@@ -204,6 +208,8 @@ jobs:
           if (!(Test-Path smoke\berth.xlsx)) { throw "exe did not make a berthing chart" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--xml','smoke\berth.xml','--counts','--issue','Smoke','--out','smoke','--name','berth_default' -Wait -PassThru
           if (!(Test-Path smoke\berth_default.xlsx)) { throw "exe did not make a berthing chart in its built-in layout" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--xml','smoke\berth.xml','--no-notes','--out','smoke','--name','berth_nonotes' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_nonotes.xlsx)) { throw "exe did not make a berthing chart without notes" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp' -Wait -PassThru
           if (!(Test-Path "smoke\berth_cmp - Change Report.xlsx")) { throw "exe did not compare two berthing charts" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--leave-out','Barnham','--issue','Smoke','--out','smoke','--name','berth_blank' -Wait -PassThru

@@ -42,15 +42,17 @@ class Options:
     book_station: str = ""           # station working book: station, platforms, title parts, day sheets
     book_platforms: str = ""
     book_list: str = ""              # several stations: 'London Kings Cross; London Bridge [10-15]; Cambridge'
-    book_operator: str = "GTR(TLGN)"
+    book_group: str = "TLGN"         # station book operator: TLGN | SNGX | GTR (its trains and title)
+    book_hidden_ops: List[str] = field(default_factory=list)   # merged operators left out (unticked)
     book_timetable: str = ""
-    book_services: str = "Thameslink and Great Northern services only"
+    book_services: str = ""          # '' -> the operator's ('Thameslink and Great Northern services only')
     book_label: str = ""
-    book_merge: str = ""             # other operators' Attune XMLs merged into the book ('a.xml; b.xml')
+    book_merge: str = ""             # other operators' XML / VPT / F3 prints merged into the book ('a.xml; b.vpt')
     book_days: List[str] = field(default_factory=lambda: ["SX", "SO", "Su"])
     berth_files: Dict[str, List[str]] = field(default_factory=dict)   # berthing chart mode -> its file boxes
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
     berth_counts: bool = False       # berthing chart: unit counts under each siding location
+    berth_notes: bool = True         # berthing chart: location notes shown (with those edited for the timetable)
     berth_timetable: str = ""        # blank berthing chart with no XML: the timetable on the cover, e.g. 'May 2027'
     use_others: bool = True          # include the other operators' files given (berthing charts, workings)
     berth_operator: str = "SNGX"     # berthing chart: SNGX (built-in layout) or TLGN (laid out from the XML)
@@ -87,6 +89,7 @@ class Options:
     saved: Dict[str, dict] = field(default_factory=dict)     # saved comparisons: name -> {tab, state}
     github_token: str = ""           # read-only token for a private repository (DPAPI-protected)
     recent: Dict[str, List[str]] = field(default_factory=dict)   # file box -> recent files
+    recent_full_path: bool = False   # recent-file lists show the full path (else the file name only)
     days: List[int] = field(default_factory=list)   # CWN days to check and output (empty = every day)
     window: str = ""                 # the window's last size and place, 'WxH+X+Y' (normal state only)
     last_tab: int = 0                # tab shown at start (0 Stock Tools, 1 Stats Pack, 2 Timing Tools, 3 Live View)
@@ -116,6 +119,11 @@ class Options:
             for k, v in d.items():         # ignore unknown keys and values of the wrong type
                 if k != "categories" and hasattr(o, k) and isinstance(v, type(getattr(defaults, k))):
                     setattr(o, k, v)
+            if "book_group" not in d and isinstance(d.get("book_operator"), str):     # settings before 3.38
+                from rstools.stationbook import book_operator_of
+                o.book_group = book_operator_of(d["book_operator"]) or "TLGN"
+            if o.book_group not in ("TLGN", "SNGX", "GTR"):
+                o.book_group = "TLGN"
             o.recent = {k: [p for p in v if isinstance(p, str)] for k, v in o.recent.items()
                         if isinstance(k, str) and isinstance(v, list)}
             for name in ("berth_leave_out", "berth_add"):

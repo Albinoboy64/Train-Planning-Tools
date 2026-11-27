@@ -581,6 +581,56 @@ def test_changes_name_the_siding_location(data):
     assert got[("Hove Yard", "Siding 3")] == ("", 0)
 
 
+def test_upcoming_timetables():
+    import datetime
+    from rstools.berthing import notes
+    assert notes.upcoming_timetables(datetime.date(2026, 11, 27)) == ["MAY26", "DEC26", "MAY27", "DEC27", "MAY28",
+                                                                      "DEC28"]
+    assert notes.upcoming_timetables(datetime.date(2026, 12, 13), 2) == ["DEC26", "MAY27"]
+    assert notes.timetable_label("DEC26") == "Dec 26" and notes.timetable_of_start("2026-12-13") == "DEC26"
+
+
+def _texts(path, sheet="Brighton"):
+    ws = openpyxl.load_workbook(path)[sheet]
+    return [c for row in ws.iter_rows() for c in row if c.value is not None]
+
+
+def test_location_notes_edited_for_a_timetable(data):
+    """Notes saved for the XML's timetable replace a berth's own (formula-like text stays text), notes for another
+    timetable are not used, a removed berth has none, and show_notes=False leaves every note off."""
+    from rstools.berthing import notes
+    long = "ATTACHMENTS ARE NOT PERMITTED IN THIS SIDING AT ANY TIME"
+    assert notes.save({"DEC26": {"Brighton|Plat 1": notes.entry("", ["=SUM(A1)", "Max 8 car", long, "\x07"])},
+                       "MAY27": {"Brighton|Plat 8": notes.entry("", ["NOT THIS TIMETABLE"])}})
+    saved = notes.load()
+    assert saved["DEC26"]["Brighton|Plat 1"]["notes"] == ["=SUM(A1)", "Max 8 car", long]   # control char dropped
+    r = engine.generate([str(data / "plan.xml")], str(data / "chart.xlsx"), str(data), "edited", "P")
+    cells = _texts(r.chart)
+    values = [c.value for c in cells]
+    assert "Max 8 car" in values and long in values and "NO ATTACH" not in values
+    assert "NOT THIS TIMETABLE" not in values and "OUT OF USE UNTIL FURTHER NOTICE" in values
+    formula = next(c for c in cells if c.value == "=SUM(A1)")
+    assert formula.data_type == "s"
+    notes.save({"DEC26": {"brighton|PLAT 7": notes.entry(removed=True)}})
+    r = engine.generate([str(data / "plan.xml")], str(data / "chart.xlsx"), str(data), "removed", "P")
+    values = [c.value for c in _texts(r.chart)]
+    assert "NO ATTACH" in values and "OUT OF USE UNTIL FURTHER NOTICE" not in values
+    r = engine.generate([str(data / "plan.xml")], str(data / "chart.xlsx"), str(data), "none", "P", show_notes=False)
+    values = [c.value for c in _texts(r.chart)]
+    assert "NO ATTACH" not in values and "Plat 1" in values
+
+
+def test_location_notes_entry_round_trip():
+    from rstools.berthing import notes
+    from rstools.berthing.layout import Block, GridSheet, Layout
+    blk = Block("Sdg 3", "12", notes={0: ("", "CET"), 1: ("Max 12", "CET"), 2: ("Short", "")},
+                data_notes={(3, 4): "OUT OF USE"})
+    e = notes.entry_of(blk)
+    assert e == {"label_note": "CET", "notes": ["Max 12 | CET", "Short", "OUT OF USE"], "removed": False}
+    layout = Layout("x", "Cover", [], [GridSheet("Bognor", blocks=[blk])])
+    assert notes.apply(layout, "DEC26", {"DEC26": {"Bognor|Sdg 3": e}}) == 1
+    assert blk.notes == {0: ("", "CET"), 1: ("Max 12", "CET"), 2: ("Short", ""), 3: ("OUT OF USE", "")}
+    assert notes.apply(layout, "MAY27", {"DEC26": {"Bognor|Sdg 3": e}}) == 0
 def _cover(path):
     ws = openpyxl.load_workbook(path)["Cover"]
     return [ws.cell(r, 1).value for r in range(1, 5)]

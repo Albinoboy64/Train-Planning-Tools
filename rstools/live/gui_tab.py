@@ -51,13 +51,15 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
     "s4check": [("xa", "Attune XML:", (".xml",), False),
                 ("a", "Section 4 PDF(s) (optional):", (".pdf",), True),
                 ("xb", "GTR VPT (optional):", (".vpt",), False),
-                ("tb", "Other operators' VPT(s) (optional):", (".vpt",), True)],
+                ("tb", "Other operators (optional; VPT preferred, or F3 print):", (".vpt",) + _PR, True)],
     "berthing": [("a", "Original berthing chart:", _XL, False), ("b", "Updated berthing chart:", _XL, False)],
     "units": [("xa", "Original Attune XML (optional):", (".xml",), False),
               ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
               ("xb", "Updated Attune XML (optional):", (".xml",), False),
               ("tb", "Updated TRENT VL29 print(s):", (".docx",), True)],
 }
+PREFERRED = {("s4check", "tb")}           # boxes taking several kinds, the first preferred (marked in the dialog)
+DROP_EXTS = {("s4check", "tb"): (".vpt",)}   # ...where a dropped PDF belongs in another box (the Section 4 PDFs)
 OPTIONAL = {("s4check", "a"), ("s4check", "xb"), ("s4check", "tb"),          # boxes that may be left blank
             ("units", "xa"), ("units", "xb")}
 PASSENGER_MODES = ("cwn", "timetables", "print_tt", "list_tt", "prints")     # where 'passenger times only' applies
@@ -536,8 +538,15 @@ class LiveTab(ttk.Frame):
     def _browse(self, key):
         mode = self.mode()
         _k, label, exts, many = next(s for s in FILES[mode] if s[0] == key)
-        kinds = " or ".join(dict.fromkeys(_TYPE_NAMES.get(e, e) for e in exts))
-        types = [(kinds + " files", " ".join("*" + e for e in exts)), ("All files", "*.*")]
+        if (mode, key) in PREFERRED:
+            from rstools.dropping import filetypes
+            by_name: Dict[str, List[str]] = {}
+            for e in exts:
+                by_name.setdefault(_TYPE_NAMES.get(e, e), []).append(e)
+            types = filetypes(*[(name, *es) for name, es in by_name.items()])
+        else:
+            kinds = " or ".join(dict.fromkeys(_TYPE_NAMES.get(e, e) for e in exts))
+            types = [(kinds + " files", " ".join("*" + e for e in exts)), ("All files", "*.*")]
         kw = dict(parent=self, title="Choose the " + file_label(label), filetypes=types)
         start = os.path.dirname(self.vars[key].get().split(";")[0].strip().strip('"')) or self._last_folder()
         if start and os.path.isdir(start):
@@ -600,7 +609,9 @@ class LiveTab(ttk.Frame):
                                    parent=self)
             return
         from rstools.dropping import Slot, route_drop
-        slots = [Slot(self.vars[k], lambda p, e=exts: p.lower().endswith(e), multi=many) for k, _l, exts, many in spec]
+        mode = self.mode()
+        slots = [Slot(self.vars[k], lambda p, e=DROP_EXTS.get((mode, k), exts): p.lower().endswith(e),  # noqa: B008
+                      multi=many) for k, _l, exts, many in spec]
         _placed, left = route_drop(paths, slots, join=lambda fs: _join("", fs))
         if left:
             self.status.configure(text=f"{plural(len(left), 'file')} did not fit a box for this task and "

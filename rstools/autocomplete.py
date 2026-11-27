@@ -6,9 +6,10 @@ name, Escape closes the list. Anything can still be typed into the box, so a nam
 accepted as typed."""
 from __future__ import annotations
 
+import ntpath
 import re
 import tkinter as tk
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from rstools.naming import shorten_path
 
@@ -17,21 +18,67 @@ _NAV = {"Up", "Down", "Return", "KP_Enter", "Escape", "Tab", "Shift_L", "Shift_R
         "Alt_L", "Alt_R", "Left", "Right", "Home", "End"}
 
 
+MISSING = " (moved, renamed or deleted)"
+
+
+class Choice(str):
+    """A suggestion that is shown differently from the text it puts in the box: a recent file is listed by its
+    name (`label`) but its full path goes in the box; `missing` files are shown in red and cannot be taken."""
+    label: str
+    missing: bool
+
+    def __new__(cls, value: str, label: str = "", missing: bool = False):
+        obj = super().__new__(cls, value)
+        obj.label = label or value
+        obj.missing = missing
+        return obj
+
+    def __reduce__(self):
+        return (Choice, (str(self), self.label, self.missing))
+
+
+def _label(n: str) -> str:
+    return getattr(n, "label", n)
+
+
+def recent_choices(paths: Iterable[str], full: bool, exists: Callable[[str], bool]) -> List[Choice]:
+    """Recent files as suggestions: the file name only (unless `full`), with its folder added where two files
+    share a name, and ' (moved, renamed or deleted)' after a file that is no longer there."""
+    paths = list(paths)
+    names: Dict[str, int] = {}
+    for p in paths:
+        key = ntpath.basename(p).casefold()
+        names[key] = names.get(key, 0) + 1
+    out = []
+    for p in paths:
+        base = ntpath.basename(p) or p
+        if full:
+            label = p
+        elif names[base.casefold()] > 1:
+            label = f"{base}  -  {ntpath.basename(ntpath.dirname(p)) or ntpath.dirname(p)}"
+        else:
+            label = base
+        missing = not exists(p)
+        out.append(Choice(p, label + (MISSING if missing else ""), missing))
+    return out
+
+
 def matches(typed: str, names: Sequence[str], limit: int = 200) -> List[str]:
-    """Names matching the typed text, best first (starts with, then a word starts with, then contains)."""
+    """Names matching the typed text, best first (starts with, then a word starts with, then contains). A Choice
+    matches on what it shows as well as its text (a recent file's name or its full path)."""
     t = " ".join(typed.split()).casefold()
     if not t:
         return list(names)[:limit]
-    first, word, anywhere = [], [], []
+    ranked: Tuple[List[str], List[str], List[str]] = ([], [], [])
     for n in names:
-        low = n.casefold()
-        if low.startswith(t):
-            first.append(n)
-        elif any(w.startswith(t) for w in re.split(r"[\s\-/(),.&']+", low) if w):
-            word.append(n)
-        elif t in low:
-            anywhere.append(n)
-    return (first + word + anywhere)[:limit]
+        texts = {n.casefold(), _label(n).casefold()}
+        if any(x.startswith(t) for x in texts):
+            ranked[0].append(n)
+        elif any(w.startswith(t) for x in texts for w in re.split(r"[\s\-/\\(),.&'_]+", x) if w):
+            ranked[1].append(n)
+        elif any(t in x for x in texts):
+            ranked[2].append(n)
+    return (ranked[0] + ranked[1] + ranked[2])[:limit]
 
 
 class Suggest:
@@ -46,6 +93,7 @@ class Suggest:
         self.popup: Optional[tk.Toplevel] = None
         self.box: Optional[tk.Listbox] = None
         self.items: List[str] = []                     # the names listed (the rows may show them shortened)
+        self._path_tip: Optional[Tuple[tk.Toplevel, tk.Label]] = None
         self._hide_job = None
         entry.bind("<ButtonPress-1>", self._pressed, add="+")
         entry.bind("<KeyRelease>", self._typed, add="+")
@@ -110,6 +158,7 @@ class Suggest:
         self.box.pack(fill="both", expand=True)
         self.box.bind("<ButtonRelease-1>", self._clicked)
         self.box.bind("<Motion>", self._hover)
+        self.box.bind("<Leave>", lambda _e: self._hide_path())
 
     def show(self, items: Sequence[str]):
         if not items:
@@ -126,12 +175,16 @@ class Suggest:
         self.items = list(items)
         width = self._list_width(items)
         box.delete(0, "end")
-        for n in items:
+        for i, n in enumerate(items):
             box.insert("end", self._row(n, width))
+            if getattr(n, "missing", False):
+                box.itemconfig(i, foreground=p["error"], selectforeground=p["error"])
         box.configure(height=min(len(items), MAX_ROWS))
         self._place(width)
         popup.deiconify()
         popup.lift()
+        from rstools import widgets
+        widgets.popup_opened(self.popup)
 
     def _text_width(self, text: str) -> int:
         from tkinter import font
@@ -150,14 +203,17 @@ class Suggest:
         room = min(top.winfo_rootx() + top.winfo_width(), area[2]) - e.winfo_rootx() - 4
         width = max(min(e.winfo_width(), room), 160)          # within the window, not off its edge
         if self.paths and items:
-            need = max(self._text_width(n) for n in items) + 24     # the border, padding and a scroll bar
+            need = max(self._text_width(_label(n)) for n in items) + 24     # the border, padding and a scroll bar
             width = max(width, min(need, area[2] - area[0] - 8))
         return width
 
     def _row(self, name: str, width: int) -> str:
-        if not self.paths:
-            return name
-        return shorten_path(name, lambda t: self._text_width(t) + 24 <= width)
+        """What a row shows: a recent file's name (a Choice's label), or a whole path, its folders shortened
+        where it does not fit."""
+        shown = _label(name)
+        if not self.paths or shown != str(name):
+            return shown
+        return shorten_path(shown, lambda t: self._text_width(t) + 24 <= width)
 
     def _place(self, width: Optional[int] = None):
         e = self.entry
@@ -176,11 +232,53 @@ class Suggest:
         self.popup.geometry(f"{width}x{height}+{x}+{y}")
 
     def hide(self):
+        self._hide_path()
         if self.popup is not None:
+            from rstools import widgets
+            widgets.popup_closed(self.popup)
             try:
                 self.popup.withdraw()
             except tk.TclError:
                 self.popup = None
+
+    def _show_path(self, i: int):
+        """A row showing a shortened name: its full text beside the list (never over its rows)."""
+        n = self.items[i] if 0 <= i < len(self.items) else ""
+        if not n or _label(n) == n or self.popup is None or self.box is None:
+            return self._hide_path()
+        from rstools import theme
+        p = theme.CURRENT or theme.PALETTES["light"]
+        if self._path_tip is None:
+            tip = tk.Toplevel(self.popup)
+            tip.withdraw()
+            tip.overrideredirect(True)
+            try:
+                tip.attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            label = tk.Label(tip, justify="left", borderwidth=1, relief="solid", padx=4, pady=1)
+            label.pack()
+            self._path_tip = (tip, label)
+        tip, label = self._path_tip
+        label.configure(text=str(n) + (MISSING if getattr(n, "missing", False) else ""), background=p["tip"],
+                        foreground=p["error"] if getattr(n, "missing", False) else p["fg"])
+        tip.update_idletasks()
+        bbox = self.box.bbox(i)
+        y = self.popup.winfo_rooty() + (bbox[1] if bbox else 0)
+        x = self.popup.winfo_rootx() + self.popup.winfo_width() + 2
+        area = theme.screen_area(self.entry)
+        if x + tip.winfo_reqwidth() > area[2]:            # no room on the right: on the left of the list
+            x = max(area[0], self.popup.winfo_rootx() - tip.winfo_reqwidth() - 2)
+        tip.geometry(f"+{x}+{y}")
+        tip.deiconify()
+        tip.lift()
+
+    def _hide_path(self):
+        if self._path_tip is not None:
+            try:
+                self._path_tip[0].withdraw()
+            except tk.TclError:
+                self._path_tip = None
 
     def _gone(self):
         """The box is being closed: stop a pending hide check, then hide the list."""
@@ -229,6 +327,7 @@ class Suggest:
         box.selection_clear(0, "end")
         box.selection_set(i)
         box.see(i)
+        self._show_path(i)
         return "break"
 
     def _down(self, _e):
@@ -237,7 +336,20 @@ class Suggest:
     def _up(self, _e):
         return self._move(-1) if self.shown else None
 
-    def _take(self, name: str):
+    def _pick(self, i: int) -> Optional[str]:
+        """What row i puts in the box (None for a file that is no longer there)."""
+        n = self._item(i)
+        if not n or getattr(n, "missing", False):
+            try:
+                self.entry.bell()
+            except tk.TclError:
+                pass
+            return None
+        return str(n)
+
+    def _take(self, name: Optional[str]):
+        if name is None:
+            return
         self.entry.delete(0, "end")
         self.entry.insert(0, name)
         self.entry.icursor("end")
@@ -252,14 +364,14 @@ class Suggest:
 
     def _enter(self, _e):
         if self.shown and self.box.curselection():
-            self._take(self._item(self.box.curselection()[0]))
+            self._take(self._pick(self.box.curselection()[0]))
             return "break"
         self.hide()
         return None
 
     def _tab(self, _e):
         if self.shown and self.box.curselection():
-            self._take(self._item(self.box.curselection()[0]))
+            self._take(self._pick(self.box.curselection()[0]))
         self.hide()
 
     def _escape(self, _e):
@@ -272,6 +384,7 @@ class Suggest:
         i = self.box.nearest(event.y)
         self.box.selection_clear(0, "end")
         self.box.selection_set(i)
+        self._show_path(i)
 
     def _clicked(self, event):
         if self._hide_job is not None:
@@ -279,5 +392,8 @@ class Suggest:
             self._hide_job = None
         i = self.box.nearest(event.y)
         if i >= 0:
-            self._take(self._item(i))
+            name = self._pick(i)
+            if name is None:
+                return                              # a file no longer there: the list stays open
+            self._take(name)
         self.entry.focus_set()

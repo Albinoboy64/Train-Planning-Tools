@@ -12,7 +12,7 @@ import traceback
 import tkinter as tk
 import webbrowser
 from functools import partial
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
 from rstools import errorlog, theme, updater
@@ -30,7 +30,8 @@ from .loader import FILE_TYPES, SUPPORTED_EXT, LoadError
 from .meta import is_comparison_output, read_meta_file
 from .options import Options, PRESET_COLOURS, default_categories, default_name
 
-APP_WIDE = ("last_tab", "theme", "text_size", "recent", "check_updates", "github_token", "notify_done", "saved",
+APP_WIDE = ("last_tab", "theme", "text_size", "recent", "recent_full_path", "check_updates", "github_token",
+            "notify_done", "saved",
             "live_details_open", "live_passenger_only", "live_check_header", "live_check_timing",
             "live_window", "live_window_on_top", "live_layout", "live_changed_only", "live_zoom", "live_list_hidden",
             "live_mode", "live_folder")
@@ -40,6 +41,7 @@ ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(o
                       "rstools", "assets")
 HAS_OLD = {k: has_old for k, _label, has_old, _desc in CATEGORIES}
 # berthing charts: mode -> (radio button, [(file box label, kind)], run button, intro)
+BOOK_GROUPS = (("TLGN", "TLGN"), ("SNGX", "SNGX"), ("GTR", "All GTR"))     # station book operator: (key, shown)
 BERTH_MODES = {
     "berth_make": ("Create a berthing chart from an Attune XML",
                    [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"),
@@ -499,11 +501,15 @@ class App(tk.Tk):
         self.notify_var = tk.BooleanVar(value=self.opts.notify_done)
         opt.add_checkbutton(label="Notify me when a run finishes in the background", variable=self.notify_var,
                             command=self._notify_changed)
+        self.full_path_var = tk.BooleanVar(value=self.opts.recent_full_path)
+        opt.add_checkbutton(label="Show full paths in recent files", variable=self.full_path_var,
+                            command=self._full_path_changed)
         bar.add("Options", opt)
         data = tk.Menu(bar, tearoff=False)                   # the lists and rules the tasks read
         data.add_command(label="Edit fleet data...", command=self.stats_tab.edit_fleet)
         data.add_command(label="Edit depot list (for unit reports)...", command=self.stats_tab.edit_depots)
         data.add_command(label="Edit corridors (for capacity reports)...", command=self.stats_tab.edit_groups)
+        data.add_command(label="Berthing chart notes...", command=self.edit_berth_notes)
         data.add_separator()
         data.add_command(label="Rules and reference data...", command=self.show_rules)
         data.add_separator()
@@ -558,6 +564,18 @@ class App(tk.Tk):
 
     def _notify_changed(self):
         self.opts.notify_done = self.notify_var.get()
+        self.save_app_settings()
+
+    def edit_berth_notes(self):
+        """Data > Berthing chart notes: change, add or remove each location's notes for a timetable."""
+        from rstools.berthing.notes_dialog import NotesDialog
+        try:
+            NotesDialog(self)
+        except Exception as exc:                    # the built-in layout missing (BerthingError) or unreadable
+            messagebox.showwarning(APP_NAME, str(exc), parent=self)
+
+    def _full_path_changed(self):
+        self.opts.recent_full_path = bool(self.full_path_var.get())
         self.save_app_settings()
 
     # ------------------------------------------------------------ saved comparisons
@@ -859,18 +877,21 @@ class App(tk.Tk):
             self._theme_id = self.after(60000, self._follow_windows_theme)
 
     def recent(self, kind: str, exts: tuple = ()) -> list:
-        """The recently used files of this kind that still exist (of these types, if given). Whether a file
-        exists is remembered for half a minute, so typing in a box never waits on a slow or offline drive."""
+        """The recently used files of this kind (of these types, if given), as suggestions: by file name (or full path,
+        as chosen in Options), with files no longer there marked. Whether a file exists is remembered for half a
+        minute, so typing in a box never waits on a slow or offline drive."""
+        from rstools.autocomplete import recent_choices
         now = time.monotonic()
         seen = self.__dict__.setdefault("_exists", {})
-        out = []
-        for p in self.opts.recent.get(kind, []):
+
+        def exists(p: str) -> bool:
             hit = seen.get(p)
             if hit is None or now - hit[1] > 30:
                 hit = seen[p] = (os.path.exists(p), now)
-            if hit[0] and (not exts or p.lower().endswith(exts)):
-                out.append(p)
-        return out
+            return hit[0]
+
+        paths = [p for p in self.opts.recent.get(kind, []) if not exts or p.lower().endswith(exts)]
+        return list(recent_choices(paths, bool(self.opts.recent_full_path), exists))
 
     def add_recent(self, kind: str, *paths: str):
         lst = [p for p in self.opts.recent.get(kind, []) if p not in paths]
@@ -899,9 +920,9 @@ class App(tk.Tk):
             _open_path(p)
 
     def file_box(self, master, var: tk.StringVar, kind: str, exts=None) -> ttk.Combobox:
-        """A file box that lists the recently used files of this kind, with their whole paths, when its
-        drop-down arrow is clicked, when it is clicked while empty, or as a path is typed. `exts()`, if given,
-        gives the file types the box takes now."""
+        """A file box that lists the recently used files of this kind (by name, or with their whole paths when
+        chosen in Options) when its drop-down arrow is clicked, when it is clicked while empty, or as a path is
+        typed. `exts()`, if given, gives the file types the box takes now."""
         from rstools.autocomplete import Suggest
         box = ttk.Combobox(master, textvariable=var)
         Suggest(box, lambda: self.recent(kind, tuple(exts()) if exts else ()), paths=True)
@@ -1447,9 +1468,17 @@ class App(tk.Tk):
         Tooltip(self.berth_tt_entry, "For a blank chart without an XML: the timetable in the cover's title, e.g. "
                                      "May 2027 (May 2027 Berthing Chart). With an XML the title and dates come "
                                      "from it.")
+        self.berth_notes = tk.BooleanVar(value=True)
+        notes_cb = self.berth_notes_cb = ttk.Checkbutton(
+            bf, text="Show location notes on the chart", variable=self.berth_notes)
+        notes_cb.grid(row=10, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        self.berth_notes_btn = ttk.Button(bf, text="Edit notes...", command=self.edit_berth_notes)
+        self.berth_notes_btn.grid(row=10, column=2, pady=(2, 0))
+        Tooltip(notes_cb, "The notes about each location (e.g. 'Max 12 CET'), with any changed for the timetable "
+                          "in Data > Berthing chart notes. Untick to leave every note off the chart.")
         self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
                                     "Tips")
-        self.berth_hint.grid(row=10, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self.berth_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
         for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue, self.berth_operator,
                                                                          self.berth_timetable]:
             var.trace_add("write", lambda *_a: self._update_name_hint())
@@ -1470,6 +1499,8 @@ class App(tk.Tk):
          else self.use_others_cb.grid_remove)()
         for w in (self.berth_op_lbl, self.berth_op_frame, self.berth_places_btn, self.berth_places_lbl):
             (w.grid if mode in ("berth_make", "berth_blank") else w.grid_remove)()
+        for w in (self.berth_notes_cb, self.berth_notes_btn):          # charts made from XML
+            (w.grid if mode in ("berth_make", "berth_round") else w.grid_remove)()
         self._berth_operator_changed()
 
     def _berth_operator_changed(self):
@@ -1614,7 +1645,8 @@ class App(tk.Tk):
                     res = engine.generate([p for p in files[:2] if p], files[2] if op == "SNGX" else "",
                                           o.output_dir, o.output_name, o.berth_issue, log, counts=o.berth_counts,
                                           progress=prog, operator=op, leave_out=o.berth_leave_out.get(op, []),
-                                          add=o.berth_add.get(op, []), others=mine(3))
+                                          add=o.berth_add.get(op, []), others=mine(3),
+                                          show_notes=o.berth_notes)
                 elif mode == "berth_blank":
                     op = o.berth_operator
                     res = engine.blank(op, files[1] if op == "SNGX" else "", [p for p in files[:1] if p],
@@ -1624,7 +1656,7 @@ class App(tk.Tk):
                 elif mode == "berth_round":
                     res = engine.add_round(files[0], split(files[1]), split(files[2]), o.colour, o.output_dir,
                                            o.output_name, o.berth_issue, log, counts=o.berth_counts,
-                                           progress=prog, others=mine(3))
+                                           progress=prog, others=mine(3), show_notes=o.berth_notes)
                 else:
                     res = engine.compare_charts(files[0], files[1], o.colour, o.output_dir, o.output_name, log,
                                                 counts=o.berth_counts, progress=prog)
@@ -1653,8 +1685,14 @@ class App(tk.Tk):
         self.berth_operator.set(o.berth_operator)
         self.berth_leave_out = {k: list(v) for k, v in o.berth_leave_out.items()}
         self.berth_add = {k: list(v) for k, v in o.berth_add.items()}
+        self.berth_notes.set(bool(o.berth_notes))
         for k, var in self.book_vars.items():
             var.set(getattr(o, f"book_{k}", "") or "")
+        from rstools.stationbook import BOOK_OPERATORS
+        if self.book_vars["services"].get().strip() in {v[1] for v in BOOK_OPERATORS.values() if v[1]}:
+            self.book_vars["services"].set("")         # an operator's default: follows the operator chosen
+        self.book_group.set(dict(BOOK_GROUPS).get(o.book_group, BOOK_GROUPS[0][1]))
+        self.book_hidden_ops = [x for x in (o.book_hidden_ops or []) if isinstance(x, str)]
         for dt, v in self.book_day_vars.items():
             v.set(dt in (o.book_days or []))
         self.variant_order.set(o.variant_order if o.variant_order in ("day", "time") else "day")
@@ -1692,6 +1730,7 @@ class App(tk.Tk):
         o.berth_operator = self.berth_operator.get()
         o.berth_leave_out = {k: list(v) for k, v in self.berth_leave_out.items()}
         o.berth_add = {k: list(v) for k, v in self.berth_add.items()}
+        o.berth_notes = bool(self.berth_notes.get())
         util = o.mode in ("reorder", "station")
         o.original = (self.util if util else self.orig).get().strip().strip('"')
         o.updated = "" if util else self.upd.get().strip().strip('"')
@@ -1710,6 +1749,8 @@ class App(tk.Tk):
             setattr(o, k, getattr(self.opts, k))
         for k, var in self.book_vars.items():
             setattr(o, f"book_{k}", var.get().strip())
+        o.book_group = self._book_group_key()
+        o.book_hidden_ops = list(self.book_hidden_ops)
         o.book_days = [dt for dt, v in self.book_day_vars.items() if v.get()]
         o.open_when_done = self.open_var.get()
         return o
@@ -1720,11 +1761,15 @@ class App(tk.Tk):
         sb.grid(row=0, column=0, rowspan=5, columnspan=3, sticky="new")
         sb.lower()                              # at the top of the frame: first for the Tab key too
         sb.columnconfigure(1, weight=1)
-        self.book_vars = {k: tk.StringVar() for k in ("station", "platforms", "list", "operator", "timetable",
+        self.book_vars = {k: tk.StringVar() for k in ("station", "platforms", "list", "timetable",
                                                       "services", "label", "merge")}
+        self.book_group = tk.StringVar(value=BOOK_GROUPS[0][1])
+        self.book_hidden_ops: List[str] = []          # merged operators left out of the book (unticked)
+        self._book_ops: List[str] = []
         rows = (("station", "Station:"), ("platforms", "Platforms (optional):"), ("list", "Several stations:"),
-                ("operator", "Operator:"), ("timetable", "Timetable:"), ("services", "Services:"),
-                ("label", "Sheet name:"), ("merge", "Other operators' XML or VPT:"))
+                ("group", "Operator:"), ("timetable", "Timetable:"), ("services", "Services (blank: the operator's):"),
+                ("label", "Sheet name:"), ("merge", "Other operators (XML preferred; VPT or F3 print):"),
+                ("ops", "Other operators shown:"))
         for r, (key, text) in enumerate(rows):
             ttk.Label(sb, text=text).grid(row=r, column=0, sticky="w", pady=1)
             if key == "station":
@@ -1733,6 +1778,17 @@ class App(tk.Tk):
                 Suggest(w, lambda: self._book_stations)
                 ttk.Button(sb, text="Add to list", command=self._add_book_station).grid(row=r, column=2,
                                                                                         padx=(4, 0), pady=1)
+            elif key == "group":
+                w = ttk.Combobox(sb, textvariable=self.book_group, state="readonly",
+                                 values=[label for _k, label in BOOK_GROUPS])
+                w.bind("<<ComboboxSelected>>", lambda _e: self._book_group_changed())
+            elif key == "ops":
+                self.book_ops_button = w = ttk.Menubutton(sb, text="(add other operators' files above)")
+                self.book_ops_menu = tk.Menu(w, tearoff=False)
+                w.configure(menu=self.book_ops_menu)
+                self.book_ops_vars: Dict[str, tk.BooleanVar] = {}
+                Tooltip(w, "Tick the other operators whose trains are shown in the book. The list comes from the "
+                           "operators found in the other operators' files.")
             else:
                 w = ttk.Entry(sb, textvariable=self.book_vars[key])
                 if key == "list":
@@ -1741,9 +1797,10 @@ class App(tk.Tk):
                 elif key == "merge":
                     ttk.Button(sb, text="Add...", command=self._add_book_merge).grid(
                         row=r, column=2, sticky="ew", padx=(4, 0), pady=1)
-                    Tooltip(w, "Attune XMLs or VPT exports from other operators: their trains at the station are "
-                               "merged into the book, marked with the operator (a VPT has no unit diagrams, so "
-                               "its stock is blank). Separate several with ';'.")
+                    Tooltip(w, "Other operators' files: their trains at the station are merged into the book, "
+                               "marked with the operator. Attune XML is preferred (it has the unit diagrams, so it "
+                               "gives the stock); a VPT export or an Attune Single Train Report (F3) print, PDF or "
+                               "Word, also works but the stock is blank. Separate several with ';'.")
             w.grid(row=r, column=1, sticky="ew", padx=(4, 0), pady=1)
         df = ttk.Frame(sb)
         df.grid(row=len(rows), column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1759,14 +1816,98 @@ class App(tk.Tk):
         self._book_token = 0
         for v in self.book_vars.values():
             v.trace_add("write", lambda *_a: self._update_name_hint())
+        self._book_ops_after: Optional[str] = None
+        self._book_ops_token = 0
+        self.book_vars["merge"].trace_add("write", lambda *_a: self._book_merge_changed())
         sb.grid_remove()
 
+    def _book_group_key(self) -> str:
+        """'TLGN' / 'SNGX' / 'GTR' for the operator chosen."""
+        label = self.book_group.get()
+        return next((k for k, lab in BOOK_GROUPS if lab == label), "TLGN")
+
+    def _book_group_changed(self):
+        """A services text that is one operator's default is cleared, so the book uses the new operator's."""
+        from rstools.stationbook import BOOK_OPERATORS
+        if self.book_vars["services"].get().strip() in {v[1] for v in BOOK_OPERATORS.values() if v[1]}:
+            self.book_vars["services"].set("")
+        self._update_name_hint()
+
+    def _book_merge_changed(self):
+        """Read the operators of the other operators' files (in the background, once typing stops)."""
+        if self._book_ops_after:
+            self.after_cancel(self._book_ops_after)
+        self._book_ops_after = self.after(400, self._read_book_ops)
+
+    def _read_book_ops(self):
+        self._book_ops_after = None
+        paths = [p.strip().strip('"') for p in self.book_vars["merge"].get().split(";") if p.strip()]
+        paths = [p for p in paths if os.path.isfile(p)]
+        self._book_ops_token += 1
+        token = self._book_ops_token
+        if not paths:
+            self._book_ops_listed(token, [])
+            return
+        self.book_ops_button.configure(text="Reading the files...")
+
+        def work():
+            try:
+                from rstools.stationbook import list_operators
+                self.q.put(("bookops", token, list_operators(paths)))
+            except Exception:
+                self.q.put(("bookops", token, []))
+        self.pump.start(work)
+        self.pump.kick()
+
+    def _book_ops_listed(self, token: int, ops: List[str]):
+        if token != self._book_ops_token:
+            return
+        self._book_ops = list(ops)
+        self.book_ops_menu.delete(0, "end")
+        self.book_ops_vars = {}
+        for op in ops:
+            v = self.book_ops_vars[op] = tk.BooleanVar(value=op not in self.book_hidden_ops)
+            self.book_ops_menu.add_checkbutton(label=op, variable=v, command=self._book_ops_ticked)
+        if ops:
+            self.book_ops_menu.add_separator()
+            self.book_ops_menu.add_command(label="Show all", command=lambda: self._book_ops_all(True))
+            self.book_ops_menu.add_command(label="Show none", command=lambda: self._book_ops_all(False))
+        self._book_ops_ticked()
+
+    def _book_ops_all(self, on: bool):
+        for v in self.book_ops_vars.values():
+            v.set(on)
+        self._book_ops_ticked()
+
+    def _book_ops_ticked(self):
+        """Remember the unticked operators (so ones found later are shown) and say which are shown."""
+        for op, v in self.book_ops_vars.items():
+            if v.get() and op in self.book_hidden_ops:
+                self.book_hidden_ops.remove(op)
+            elif not v.get() and op not in self.book_hidden_ops:
+                self.book_hidden_ops.append(op)
+        shown = [op for op, v in self.book_ops_vars.items() if v.get()]
+        if not self.book_ops_vars:
+            text = "(add other operators' files above)"
+        elif len(shown) == len(self.book_ops_vars):
+            text = "All: " + ", ".join(shown)
+        else:
+            text = ", ".join(shown) if shown else "None"
+        self.book_ops_button.configure(text=text if len(text) <= 60 else text[:57] + "...")
+
+    def book_other_operators(self) -> Optional[List[str]]:
+        """The merged operators to show (None: all of them, including any not read yet)."""
+        if not any(op in self.book_hidden_ops for op in self._book_ops):
+            return None
+        return [op for op in self._book_ops if op not in self.book_hidden_ops]
+
     def _add_book_merge(self):
-        """Add other operators' Attune XMLs, VPTs or CIFs to merge into the station book."""
-        paths = filedialog.askopenfilenames(title="Other operators' Attune XML, VPT or CIF",
-                                            filetypes=[("Attune XML, VPT or CIF", "*.xml *.vpt *.cif *.mca"),
-                                                       ("Attune XML", "*.xml"), ("Attune VPT export", "*.vpt"),
-                                                       ("Network Rail CIF", "*.cif *.mca"), ("All files", "*.*")])
+        """Add other operators' files (Attune XML, VPT, CIF or F3 print) to merge into the station book."""
+        from rstools.dropping import filetypes
+        paths = filedialog.askopenfilenames(
+            title="Other operators' files (Attune XML preferred; VPT, CIF or F3 print)",
+            filetypes=filetypes(("Attune XML", ".xml"), ("Attune VPT export", ".vpt"),
+                                ("Network Rail CIF", ".cif", ".mca"), ("Attune F3 print", ".pdf", ".docx")))
         if not paths:
             return
         current = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
@@ -1839,6 +1980,8 @@ class App(tk.Tk):
                                               "and sheet name boxes are not used). Leave the folder blank to save "
                                               "to Downloads.")
                 return
+            from rstools.stationbook import BOOK_OPERATORS
+            v["operator"] = BOOK_OPERATORS[self._book_group_key()][0]
             name = (f"{v['operator'] + ' ' if v['operator'] else ''}{v['timetable'] + ' ' if v['timetable'] else ''}"
                     f"Station Working Book - {v['station'] or v['list'] or 'station'}")
             self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save to "
@@ -2068,8 +2211,9 @@ class App(tk.Tk):
                                   and all(p.lower().endswith((".xml", ".xlsx", ".xlsm")) for p in paths)):
             self._drop_berthing([p for p in paths if os.path.isfile(p)], target)
             return event.action
-        vpts = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".vpt")]
-        if vpts:                                      # VPT exports: other operators' trains for the station book
+        vpts = [p for p in paths if os.path.isfile(p) and (p.lower().endswith(".vpt") or (
+            self.mode.get() == "station" and p.lower().endswith((".pdf", ".docx"))))]
+        if vpts:                                      # VPTs (and F3 prints): other operators' trains for the book
             self._set_mode("station")
             have = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
             self.book_vars["merge"].set("; ".join(have + [p for p in vpts if p not in have]))
@@ -2214,6 +2358,7 @@ class App(tk.Tk):
             messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}", parent=self)
             return
         merge = [p.strip().strip('"') for p in o.book_merge.split(";") if p.strip()]
+        others = self.book_other_operators() if merge else None
         self.add_recent("util", o.original)
         saved = dataclasses.replace(o, output_name="", days=[])
         saved.save()
@@ -2225,18 +2370,19 @@ class App(tk.Tk):
             from rstools.stationbook import StationBookError, make_book, make_books
             try:
                 if len(entries) > 1:
-                    results = make_books(o.original, entries, o.output_dir, o.book_operator, o.book_timetable,
+                    results = make_books(o.original, entries, o.output_dir, "", o.book_timetable,
                                          o.book_services, o.book_days, log=lambda m: self.q.put(("log", m)),
-                                         progress=lambda f, m: self.q.put(("prog", f, m)), merge_xml=merge)
+                                         progress=lambda f, m: self.q.put(("prog", f, m)), merge_xml=merge,
+                                         book_operator=o.book_group, other_operators=others)
                     self.q.put(("books_done", results))
                     return
                 if entries:
                     o.book_station, o.book_platforms = entries[0]
                 path, warnings, summary = make_book(
-                    o.original, o.book_station, o.output_dir, o.output_name, o.book_operator, o.book_timetable,
+                    o.original, o.book_station, o.output_dir, o.output_name, "", o.book_timetable,
                     o.book_services, o.book_label, o.book_platforms, o.book_days,
                     log=lambda m: self.q.put(("log", m)), progress=lambda f, m: self.q.put(("prog", f, m)),
-                    merge_xml=merge)
+                    merge_xml=merge, book_operator=o.book_group, other_operators=others)
                 self.q.put(("book_done", path, warnings, summary))
             except StationBookError as exc:
                 self.q.put(("error", str(exc)))
@@ -2612,6 +2758,8 @@ class App(tk.Tk):
                         + (f"\n\n{warn}" if warn else ""))
                 elif kind == "bookxml":
                     self._book_xml_read(*item[1:])
+                elif kind == "bookops":
+                    self._book_ops_listed(*item[1:])
                 elif kind == "book_done":
                     self._finish()
                     _k, path, warnings, summary = item

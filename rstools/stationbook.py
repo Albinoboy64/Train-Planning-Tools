@@ -137,6 +137,15 @@ def read_plan(path: str) -> Plan:
     if path.lower().endswith(".vpt"):
         from rstools.timetable.vpt import read_plan as read_vpt_plan
         return read_vpt_plan(path)
+    if path.lower().endswith((".pdf", ".docx", ".docm")):      # an Attune Single Train Report (F3 print)
+        from rstools.fsutil import check_office_file
+        from rstools.timetable.attune_print import read_plan as read_print_plan
+        from rstools.timetable.prints import PrintError
+        try:
+            check_office_file(path)
+            return read_print_plan(path)
+        except (PrintError, OSError) as exc:
+            raise StationBookError(str(exc))
     from rstools.timetable.cif import CifError, is_cif
     if path.lower().endswith((".cif", ".mca", ".txt")) or is_cif(path):
         from rstools.timetable.cif import read_plan as read_cif_plan
@@ -345,6 +354,7 @@ class Builder:
         self.cars = cars or {}
         self.by_key = {d.key: d for d in plan.diagrams}
         self.warnings: List[str] = []
+        self.keep: Optional[Callable[[Train], bool]] = None        # which trains the book has (None: all)
 
     def name(self, tip: str) -> str:
         if tip in self.tips:
@@ -388,7 +398,7 @@ class Builder:
         rows = []
         for hc in self.plan.trains:
             for cal, t in ((day, self.train(hc, day)), (nxt, self.train(hc, nxt))):
-                if t is None:
+                if t is None or (self.keep is not None and not self.keep(t)):
                     continue
                 owner = self._stock_day(hc, cal)
                 if owner != day:
@@ -706,9 +716,13 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
               day_types: Sequence[str] = ("SX", "SO", "Su"),
               log: Callable[[str], None] = lambda m: None,
               progress: Callable[[float, str], None] = lambda f, m: None,
-              merge_xml: Sequence[str] = ()) -> Tuple[str, List[str], str]:
-    """Write the Station Working Book. Returns (path, warnings, summary). `merge_xml`: other operators' Attune
-    XMLs whose trains are added to the book (marked with their operator)."""
+              merge_xml: Sequence[str] = (), book_operator: str = "",
+              other_operators: Optional[Sequence[str]] = None) -> Tuple[str, List[str], str]:
+    """Write the Station Working Book. Returns (path, warnings, summary). `merge_xml`: other operators' files
+    (Attune XML, VPT or F3 print) whose trains are added to the book (marked with their operator).
+    `book_operator`: 'TLGN' / 'SNGX' (only that operator's own trains, by unit diagram depot - see train_groups)
+    or 'GTR' (all of them); it also gives the operator and services in the heading unless those are given.
+    '' keeps every train. `other_operators`: the merged operators to show (None: all of them)."""
     from rstools.statspack.fleet import FleetTable
     from rstools.statspack.seats import Stations
     from rstools.fsutil import unique_stem
@@ -718,7 +732,13 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         raise StationBookError("Choose the station.")
     missing = [p for p in merge_xml if not os.path.isfile(p)]
     if missing:
-        raise StationBookError("These XML(s) to merge could not be found:\n" + "\n".join(missing))
+        raise StationBookError("These other operators' file(s) could not be found:\n" + "\n".join(missing))
+    group = book_operator_of(book_operator) if book_operator.strip() else ""
+    if book_operator.strip() and not group:
+        raise StationBookError(f"'{book_operator}' is not an operator choice: use TLGN, SNGX or GTR.")
+    if group:
+        operator = operator.strip() or BOOK_OPERATORS[group][0]
+        services = services.strip() or BOOK_OPERATORS[group][1]
     log(f"Reading {os.path.basename(xml)}")
     progress(0.03, "Reading the XML...")
     plan = _plan_of(xml)
@@ -745,23 +765,41 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     # the station as the book names it (Origin / Destination columns): the sheet name without '(TLGN)'
     shown = re.sub(r"\s*\([^)]*\)\s*$", "", label).strip() or station.strip()
     builder = Builder(plan, tips, shown, plats, cars=cars)
+    groups = train_groups(plan) if group in ("TLGN", "SNGX") else {}
+    shown_ops = None if other_operators is None else {o.strip() for o in other_operators}
+
+    def keep(t: Train) -> bool:
+        if t.operator:
+            return shown_ops is None or t.operator in shown_ops
+        return group in ("", "GTR") or group in groups.get(t.id, ())
+
+    builder.keep = keep
+    unknown = sorted({t.id for vs in plan.trains.values() for t in vs if not t.operator and t.id not in groups
+                      and any(c.loc in tips and c.stops for c in t.calls[:-1])}) if group in ("TLGN", "SNGX") else []
     wanted = [(dt, DAY_GROUPS.get(dt) or SINGLE_DAYS.get(dt)) for dt in day_types]
-    groups = [(dt, days) for dt, days in wanted if days]
-    if not groups:
+    day_groups = [(dt, days) for dt, days in wanted if days]
+    if not day_groups:
         raise StationBookError("Choose at least one day type (SX, SO or Su).")
     sheets, warnings, total = [], [], 0
     missing_days: Set[int] = set()
-    for n, (dt, days) in enumerate(groups):
-        progress(0.45 + 0.4 * n / len(groups), f"{station.strip()}: {dt} departures...")
+    for n, (dt, days) in enumerate(day_groups):
+        progress(0.45 + 0.4 * n / len(day_groups), f"{station.strip()}: {dt} departures...")
         rows, no_diag = sheet_rows(builder, days)
         missing_days |= no_diag
         log(f"{dt}: {len(rows)} row(s)")
         total += len(rows)
         sheets.append((f"{label} {dt}", rows))
-    vpts = [os.path.basename(p) for p in merge_xml if p.lower().endswith((".vpt", ".cif", ".mca"))]
+    vpts = [os.path.basename(p) for p in merge_xml
+            if p.lower().endswith((".vpt", ".cif", ".mca", ".pdf", ".docx", ".docm"))]
     if vpts:
-        warnings.append("Trains from " + ", ".join(vpts) + " come from a VPT or CIF, which has no unit diagrams: their "
-                        "stock is blank, and working times are shown where there are no public times.")
+        warnings.append("Trains from " + ", ".join(vpts) + " come from a VPT or CIF file or an F3 print, which has "
+                        "no unit diagrams: their stock is blank, and working times are shown where there are no public "
+                        "times. An Attune XML gives the stock as well.")
+    if unknown:
+        warnings.append(f"{len(unknown)} train(s) at {station.strip()} are worked by no unit diagram from a TLGN "
+                        f"(HE, TB) or SNGX (BI, SU, SL) depot in the XML, so they are left out of the {group} book "
+                        "(e.g. "
+                        + ", ".join(unknown[:5]) + "). Choose All GTR to include them.")
     if missing_days:
         warnings.append("The XML has no unit diagrams for " + ", ".join(DAY_NAMES[d] for d in sorted(missing_days))
                         + ", so the stock and inward workings are missing on those days. Export the XML with the "
@@ -818,7 +856,7 @@ def merge_plans(plan: Plan, others: Sequence[Plan]) -> Plan:
             out = []
             for t in versions:
                 t2 = copy.copy(t)
-                t2.id, t2.operator = new_id, op
+                t2.id, t2.operator = new_id, t.operator or op
                 out.append(t2)
             merged.trains[new_id] = out
         keys = {d.key for d in merged.diagrams}
@@ -860,7 +898,8 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
                timetable: str = "", services: str = "", day_types: Sequence[str] = ("SX", "SO", "Su"),
                log: Callable[[str], None] = lambda m: None,
                progress: Callable[[float, str], None] = lambda f, m: None,
-               merge_xml: Sequence[str] = ()) -> List[tuple]:
+               merge_xml: Sequence[str] = (), book_operator: str = "",
+               other_operators: Optional[Sequence[str]] = None) -> List[tuple]:
     """A Station Working Book for each (station, platforms), one file each, shared over the CPU cores (each
     helper reads the XML once). Returns [(station, path, warnings, summary, error)] in the order given; a
     station that cannot be made gives its error, the others are still made."""
@@ -870,7 +909,8 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
     if not entries:
         raise StationBookError("Choose the station(s).")
     kw = dict(out_dir=out_dir, operator=operator, timetable=timetable, services=services, day_types=tuple(day_types),
-              merge_xml=tuple(merge_xml))
+              merge_xml=tuple(merge_xml), book_operator=book_operator,
+              other_operators=None if other_operators is None else tuple(other_operators))
     import multiprocessing
     workers = min(max(1, (os.cpu_count() or 1) - 1), len(entries) // 2)
     if workers >= 2 and multiprocessing.parent_process() is None:
@@ -897,6 +937,61 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
         res = _books_job(xml, [(station, plats)], dict(kw, log=log, progress=part))[0]
         results.append(res)
     return results
+
+
+# --------------------------------------------------------------------------- #
+# which of GTR's operators (TLGN / SNGX) a train belongs to
+# --------------------------------------------------------------------------- #
+BOOK_OPERATORS = {"TLGN": ("GTR(TLGN)", "Thameslink and Great Northern services only"),
+                  "SNGX": ("GTR(SNGX)", "Southern and Gatwick Express services only"),
+                  "GTR": ("GTR", "")}
+TOC_GROUP = {"SN": "SNGX", "GX": "SNGX", "SNGX": "SNGX", "TL": "TLGN", "GN": "TLGN", "TLGN": "TLGN"}
+
+
+def book_operator_of(text: str) -> str:
+    """'TLGN' / 'SNGX' / 'GTR' for an operator choice ('GTR(SNGX)', 'sngx', 'All GTR' ...), '' for free text
+    that names none of them (the book then has every train)."""
+    t = re.sub(r"[^A-Z]", "", (text or "").upper())
+    for key in ("TLGN", "SNGX"):
+        if t.endswith(key):
+            return key
+    return "GTR" if t in ("GTR", "ALLGTR") else ""
+
+
+def train_groups(plan: Plan) -> Dict[str, Set[str]]:
+    """{train ID: {'TLGN' and/or 'SNGX'}} for the book's own trains, from the depot of each unit diagram that
+    works them (SNGX: BI, SU, SL; TLGN: HE, TB - rstools.statspack.model.OPERATOR_DEPOTS). A train with no such
+    diagram takes the operator of its plan where that is a GTR operator (a VPT's header, e.g. 'SN')."""
+    from rstools.statspack.model import OPERATOR_DEPOTS, operator_of
+    out: Dict[str, Set[str]] = defaultdict(set)
+    for d in plan.diagrams:
+        m = re.match(r"[A-Z]+", d.key)
+        op = operator_of(m.group()) if m else ""
+        if op not in OPERATOR_DEPOTS:
+            continue
+        for mv in d.moves:
+            if mv.train:
+                out[mv.train].add(op)
+    fallback = TOC_GROUP.get(plan.operator.strip().upper(), "")
+    if fallback:
+        for tid, versions in plan.trains.items():
+            if tid not in out and not any(t.operator for t in versions):
+                out[tid].add(fallback)
+    return dict(out)
+
+
+def list_operators(paths: Sequence[str]) -> List[str]:
+    """The operators of the trains in other operators' files (XML, VPT or F3 print), sorted; a file that
+    cannot be read is skipped. Shown in the app so a book can leave some of them out."""
+    found: Set[str] = set()
+    for p in paths:
+        try:
+            other = _plan_of(p)
+        except Exception:
+            continue
+        op = other.operator or os.path.splitext(os.path.basename(p))[0][:12]
+        found |= {t.operator or op for versions in other.trains.values() for t in versions}
+    return sorted(x for x in found if x)
 
 
 def _short(operator: str) -> str:

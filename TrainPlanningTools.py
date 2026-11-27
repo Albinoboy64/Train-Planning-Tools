@@ -7,7 +7,8 @@ Command-line use:
     TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days FO   (Friday trains only)
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
-                                       [--sheets SX,SO,Su] [--merge OTHER_OPERATOR.xml|.vpt ...]
+                                       [--sheets SX,SO,Su] [--book-operator TLGN|SNGX|GTR]
+                                       [--merge OTHER_OPERATOR.xml|.vpt|F3.pdf ...] [--other-operators XC,SE]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge ...] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
@@ -139,21 +140,32 @@ def stationbook_cli(argv):
     from rstools.stationbook import StationBookError, make_book, make_books, parse_station_list
     ap = argparse.ArgumentParser(prog="TrainPlanningTools stationbook",
                                  description="Station Working Book (TRACS-RS layout) from an Attune XML")
-    ap.add_argument("--xml", required=True, help="Attune diagram XML (with every day's unit diagrams)")
+    ap.add_argument("--xml", required=True, help="Attune diagram XML (preferred: with every day's unit diagrams) or "
+                                                 "a VPT (no stock column)")
     ap.add_argument("--station", required=True, help="station name as in the XML, e.g. 'London Kings Cross'; "
                                                      "several: 'London Kings Cross; Cambridge; London Bridge [10-15]' "
                                                      "(a book each, made on several CPU cores)")
     ap.add_argument("--platforms", default="", help="only these platforms, e.g. 10-15 or 1,2,4A")
-    ap.add_argument("--operator", default="GTR(TLGN)", help="for the title, e.g. GTR(TLGN)")
+    ap.add_argument("--book-operator", default="TLGN", type=str.upper, choices=("TLGN", "SNGX", "GTR"),
+                    help="whose trains the book has (by unit diagram depot) and its title: TLGN, SNGX or GTR "
+                         "(all GTR trains). Default TLGN")
+    ap.add_argument("--operator", default="", help="title text instead of the book operator's, e.g. GTR(TLGN)")
     ap.add_argument("--timetable", default="", help="for the title, e.g. Dec23 (default: from the XML)")
-    ap.add_argument("--services", default="Thameslink and Great Northern services only", help="for the title")
+    ap.add_argument("--services", default="", help="for the title (default: from --book-operator, e.g. "
+                                                   "'Thameslink and Great Northern services only')")
     ap.add_argument("--label", default="", help="sheet name before SX / SO / Su (default: station (operator))")
     ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
-    ap.add_argument("--merge", "--merge-xml", nargs="+", default=[], metavar="XML",
-                    help="other operators' Attune XML(s) or VPT(s) whose trains are merged into the book")
+    ap.add_argument("--merge", "--merge-xml", nargs="+", default=[], metavar="FILE",
+                    help="other operators' files whose trains are merged into the book: Attune XML (preferred, "
+                         "gives the stock), VPT or Attune Single Train Report (F3) print (.pdf / .docx)")
+    ap.add_argument("--other-operators", default=None, metavar="OPS",
+                    help="only these merged operators, e.g. XC,SE (default: all of them); needs --merge")
     ap.add_argument("--name", default="", help="output name")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     a = _local_out(ap, ap.parse_args(argv))
+    if a.other_operators is not None and not a.merge:
+        ap.error("--other-operators chooses among the merged operators: give their files with --merge")
+    others = None if a.other_operators is None else [o.strip() for o in a.other_operators.split(",") if o.strip()]
     entries = parse_station_list(a.station)
     if len(entries) > 1:
         extra = [f for f, v in (("--name", a.name), ("--label", a.label), ("--platforms", a.platforms)) if v]
@@ -163,7 +175,7 @@ def stationbook_cli(argv):
         try:
             results = make_books(a.xml, entries, a.out, a.operator, a.timetable, a.services,
                                  [s.strip() for s in a.sheets.split(",") if s.strip()], log=print,
-                                 merge_xml=a.merge)
+                                 merge_xml=a.merge, book_operator=a.book_operator, other_operators=others)
         except StationBookError as exc:
             print("ERROR: " + str(exc))
             sys.exit(1)
@@ -175,7 +187,8 @@ def stationbook_cli(argv):
     try:
         path, warnings, summary = make_book(a.xml, a.station, a.out, a.name, a.operator, a.timetable, a.services,
                                             a.label, a.platforms, [s.strip() for s in a.sheets.split(",") if s.strip()],
-                                            log=print, merge_xml=a.merge)
+                                            log=print, merge_xml=a.merge, book_operator=a.book_operator,
+                                            other_operators=others)
     except StationBookError as exc:
         print("ERROR: " + str(exc))
         sys.exit(1)
@@ -445,8 +458,9 @@ def timetable_cli(argv):
     ap.add_argument("--vs", nargs="+", help="updated train print(s) or train list")
     ap.add_argument("--vpt", metavar="VPT", help="with --s4-check: a VPT of the same timetable, whose running lines "
                                                  "settle clashes where only some lines are blocked")
-    ap.add_argument("--other-vpt", nargs="+", default=[], metavar="VPT",
-                    help="with --s4-check: other operators' VPT(s), whose trains are checked too")
+    ap.add_argument("--other-vpt", "--other", nargs="+", default=[], metavar="FILE", dest="other_vpt",
+                    help="with --s4-check: other operators' VPT(s) (preferred) or Attune Single Train Report (F3) "
+                         "prints (.pdf / .docx), whose trains are checked too")
     ap.add_argument("--s4", nargs="+", default=[], help="Section 4 PDF(s): for --s4-check, or the original set "
                                                         "compared with --vs-s4")
     ap.add_argument("--vs-s4", nargs="+", default=[], help="updated Section 4 PDF(s), compared with --s4")
@@ -518,8 +532,9 @@ def section4_cli(argv):
                     help="Network Rail Section 4 PDF(s) (default: the Section 4 rule set in use)")
     ap.add_argument("--vpt", metavar="VPT", help="a VPT of the same timetable, whose running lines settle clashes "
                                                  "where only some lines are blocked")
-    ap.add_argument("--other-vpt", nargs="+", default=[], metavar="VPT",
-                    help="other operators' VPT(s), whose trains are checked too")
+    ap.add_argument("--other-vpt", "--other", nargs="+", default=[], metavar="FILE", dest="other_vpt",
+                    help="other operators' VPT(s) (preferred) or Attune Single Train Report (F3) prints "
+                         "(.pdf / .docx), whose trains are checked too")
     ap.add_argument("--name", default="", help="output name (default chosen from the XML)")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
@@ -535,12 +550,20 @@ def section4_cli(argv):
     _section4_cli(a)
 
 
-def _check_vpts(ap, a):
-    """--vpt / --other-vpt must be Attune VPT exports (checked before any large file is read)."""
+def _other_ok(path: str) -> bool:
+    """An other operator's file for the Section 4 check: an Attune VPT export, or a train print (PDF / Word) -
+    whether it is an Attune Single Train Report is checked when it is read."""
     from rstools.timetable.vpt import is_vpt
-    bad = [p for p in ([a.vpt] if a.vpt else []) + list(a.other_vpt) if not (os.path.isfile(p) and is_vpt(p))]
+    return os.path.isfile(path) and (is_vpt(path) or path.lower().endswith((".pdf", ".docx", ".docm")))
+
+
+def _check_vpts(ap, a):
+    """--vpt must be an Attune VPT export, --other-vpt VPTs or F3 prints (checked before any large file is read)."""
+    from rstools.timetable.vpt import is_vpt
+    bad = [p for p in ([a.vpt] if a.vpt else []) if not (os.path.isfile(p) and is_vpt(p))]
+    bad += [p for p in a.other_vpt if not _other_ok(p)]
     if bad:
-        ap.error("these are not Attune VPT exports (.vpt): " + ", ".join(bad))
+        ap.error("these are not Attune VPT exports (.vpt) or F3 prints (.pdf / .docx): " + ", ".join(bad))
 
 
 def _section4_cli(a):
@@ -554,9 +577,11 @@ def _section4_cli(a):
         if missing:
             raise Section4Error("These Section 4 PDF(s) could not be found:\n" + "\n".join(missing))
         from rstools.timetable.vpt import is_vpt
-        bad = [p for p in ([a.vpt] if a.vpt else []) + list(a.other_vpt) if not (os.path.isfile(p) and is_vpt(p))]
+        bad = [p for p in ([a.vpt] if a.vpt else []) if not (os.path.isfile(p) and is_vpt(p))]
+        bad += [p for p in a.other_vpt if not _other_ok(p)]
         if bad:
-            raise Section4Error("These are not Attune VPT exports (.vpt):\n" + "\n".join(bad))
+            raise Section4Error("These are not Attune VPT exports (.vpt) or F3 prints (.pdf / .docx):\n"
+                                + "\n".join(bad))
         path, res, st, _start = run_check(a.s4_check, a.s4, a.out, a.name, a.format, log=print,
                                           vpt=a.vpt or "", others=a.other_vpt)
     except (Section4Error, TimetableRunError) as exc:
@@ -603,6 +628,9 @@ def berthing_cli(argv):
     ap.add_argument("--others", nargs="+", default=[], metavar="FILE",
                     help="with --xml or --chart: other operators' files (Attune XML, VPT or Network Rail CIF); "
                          "their units are added in grey, matched by place where the file has no next-day workings")
+    ap.add_argument("--no-notes", action="store_true",
+                    help="leave the location notes off the chart (by default they are shown, with any changed for "
+                         "the XML's timetable in the app's Data > Berthing chart notes)")
     ap.add_argument("--original", nargs="+", help="the Attune XML(s) the chart was made from")
     ap.add_argument("--updated", nargs="+", help="the changed Attune XML(s)")
     ap.add_argument("--issue", default="", help="the issue shown under the cover's title, e.g. 'Proof 2' or 'Final' "
@@ -616,7 +644,7 @@ def berthing_cli(argv):
     if a.blank:
         extra = [flag for flag, value in [("--chart", a.chart), ("--compare", a.compare), ("--original", a.original),
                                           ("--updated", a.updated), ("--colour", a.colour), ("--others", a.others),
-                                          ("--counts", a.counts)] if value]
+                                          ("--counts", a.counts), ("--no-notes", a.no_notes)] if value]
         if a.xml:
             extra += [flag for flag, value in blank_only if value]
         if extra:
@@ -644,7 +672,8 @@ def berthing_cli(argv):
         ap.error(f"{', '.join(used_blank)} can only be used with --blank")
     chart_only = [("--operator", a.operator != "SNGX"), ("--leave-out", a.leave_out), ("--add", a.add)]
     ignored = {"--compare": [("--layout", a.layout), ("--issue", a.issue), ("--original", a.original),
-                             ("--updated", a.updated), ("--others", a.others)] + chart_only,
+                             ("--updated", a.updated), ("--others", a.others), ("--no-notes", a.no_notes)]
+                + chart_only,
                "--xml": [("--original", a.original), ("--updated", a.updated), ("--colour", a.colour)],
                "--chart": [("--layout", a.layout)] + chart_only}
     used = "--compare" if a.compare else "--xml" if a.xml else "--chart"
@@ -660,12 +689,13 @@ def berthing_cli(argv):
             raise BerthingError(f"'{a.colour}' is not a colour: use a name ({', '.join(PRESET_COLOURS)}) or RRGGBB.")
         if a.xml:
             res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print, counts=a.counts,
-                                  operator=a.operator, leave_out=a.leave_out, add=a.add, others=a.others)
+                                  operator=a.operator, leave_out=a.leave_out, add=a.add, others=a.others,
+                                  show_notes=not a.no_notes)
         elif a.chart:
             if not (a.original and a.updated):
                 raise BerthingError("--chart needs --original XML and --updated XML.")
             res = engine.add_round(a.chart, a.original, a.updated, colour or "92D050", a.out, a.name, a.issue,
-                                   log=print, counts=a.counts, others=a.others)
+                                   log=print, counts=a.counts, others=a.others, show_notes=not a.no_notes)
         else:
             res = engine.compare_charts(a.compare[0], a.compare[1], colour or "FFFF00", a.out, a.name, log=print,
                                         counts=a.counts)

@@ -136,7 +136,7 @@ def test_every_module_imports():
             name = mod.name
             if not have_tk and (name.endswith(("gui", "gui_tab", "theme", "widgets", "icons", "help_text", "notify",
                                                "update_dialog", "autocomplete", "rules_dialog",
-                                               "locations_dialog"))):
+                                               "locations_dialog", "notes_dialog"))):
                 continue
             importlib.import_module(name)
 
@@ -1464,6 +1464,51 @@ def test_painting_is_held_on_the_client_window_and_always_switched_back(monkeypa
     except ValueError:
         pass
     assert calls == [("send", 123, 0x000B, 0), ("send", 123, 0x000B, 1), ("redraw", 999)]
+
+
+def test_recent_files_by_name_with_missing_files_marked():
+    """Recent files are listed by name (or full path when chosen), with the folder added where two share a name,
+    and files no longer there marked; typing matches the name or the path, and the full path goes in the box."""
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools.autocomplete import MISSING, matches, recent_choices
+    paths = [r"C:\Plans\May26\CWN.xlsx", r"C:\Plans\Dec26\CWN.xlsx", r"D:\Old\gone.xml", r"C:\Plans\Unique.xlsx"]
+    got = recent_choices(paths, False, lambda p: "gone" not in p)
+    assert [c.label for c in got] == ["CWN.xlsx  -  May26", "CWN.xlsx  -  Dec26", "gone.xml" + MISSING,
+                                      "Unique.xlsx"]
+    assert [str(c) for c in got] == paths and [c.missing for c in got] == [False, False, True, False]
+    assert [c.label for c in recent_choices(paths[:1], True, lambda p: True)] == [paths[0]]
+    assert matches("uni", got) == [paths[3]] and matches("dec26", got) == [paths[1]]
+    assert matches("C:\\Plans\\May", got) == [paths[0]]
+
+
+def test_no_tip_over_an_open_drop_down_list():
+    """A tooltip is hidden when a drop-down list opens and none is shown until it closes."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from rstools import widgets
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return
+    try:
+        label = tk.Label(root, text="x")
+        label.pack()
+        root.update()
+        tip = widgets.Tooltip(label, "help")
+        tip.show()
+        assert tip.tip is not None
+        widgets.popup_opened("popup")
+        assert tip.tip is None and widgets.popup_open()
+        tip.show()
+        assert tip.tip is None
+        widgets.popup_closed("popup")
+        tip.show()
+        assert tip.tip is not None
+        tip.hide()
+    finally:
+        widgets.popup_closed("popup")
+        root.destroy()
 
 
 def test_long_recent_file_paths_keep_the_drive_last_folders_and_file_name():

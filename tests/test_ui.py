@@ -13,7 +13,7 @@ from rstools.naming import file_label, plural  # noqa: E402
 
 GUI_FILES = ["cwn_compare/gui.py", "rstools/statspack/gui_tab.py", "rstools/timetable/gui_tab.py",
              "rstools/live/gui_tab.py", "rstools/update_dialog.py", "rstools/rules_dialog.py", "rstools/widgets.py",
-             "rstools/live/popout.py"]
+             "rstools/live/popout.py", "rstools/berthing/notes_dialog.py"]
 
 
 def test_plurals_and_box_names_read_as_words():
