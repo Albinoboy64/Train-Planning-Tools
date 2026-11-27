@@ -1463,3 +1463,53 @@ def test_painting_is_held_on_the_client_window_and_always_switched_back(monkeypa
     except ValueError:
         pass
     assert calls == [("send", 123, 0x000B, 0), ("send", 123, 0x000B, 1), ("redraw", 999)]
+
+
+def test_long_recent_file_paths_keep_the_drive_last_folders_and_file_name():
+    """A path too long for the recent-files list loses folders after the drive first; the file name stays."""
+    shorten_path = naming.shorten_path
+    p = r"C:\Users\Someone\Downloads\Workings\victoria_workings.xlsx"
+    assert shorten_path(p, lambda t: True) == p
+    assert shorten_path(p, lambda t: len(t) <= 48) == r"C:\...\Downloads\Workings\victoria_workings.xlsx"
+    assert shorten_path(p, lambda t: len(t) <= 30) == r"C:\...\victoria_workings.xlsx"
+    assert shorten_path(p, lambda t: len(t) <= 10) == "victoria_workings.xlsx"
+    assert shorten_path("/home/a/b/c.xlsx", lambda t: len(t) <= 14) == "/...\\b/c.xlsx".replace("\\", "/")
+
+
+def test_file_box_arrow_lists_whole_recent_paths():
+    """The drop-down arrow of a file box opens the recent files, wide enough for their whole paths; a second
+    click closes it, and taking a row puts the whole path in the box."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    from tkinter import ttk
+    from rstools.autocomplete import Suggest
+    paths = ["C:\\Users\\Someone\\Downloads\\" + "a" * 60 + ".xlsx", "C:\\Data\\b.xlsx"]
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return
+    try:
+        picked = []
+        box = ttk.Combobox(root, width=15)
+        box.pack(padx=20, pady=20)
+        s = Suggest(box, lambda: paths, picked.append, paths=True)
+        root.update()
+        w, h = box.winfo_width(), box.winfo_height()
+        if "downarrow" not in str(box.identify(w - 5, h // 2)):
+            pytest.skip("this theme's combobox has no separate arrow element")
+        box.event_generate("<ButtonPress-1>", x=w - 5, y=h // 2)
+        root.update()
+        assert s.shown and s.popup.winfo_width() > w and list(s.box.get(0, "end"))[1] == paths[1]
+        box.focus_force()
+        root.update()
+        box.event_generate("<Down>")
+        box.event_generate("<Return>")
+        root.update()
+        assert picked == [paths[0]] and box.get() == paths[0] and not s.shown
+        box.event_generate("<ButtonPress-1>", x=w - 5, y=h // 2)
+        root.update()
+        box.event_generate("<ButtonPress-1>", x=w - 5, y=h // 2)
+        root.update()
+        assert not s.shown
+    finally:
+        root.destroy()

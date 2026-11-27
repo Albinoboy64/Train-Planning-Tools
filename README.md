@@ -437,8 +437,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
-**3.37.1** - platform workings with dated day tabs
+**3.37.1** - platform workings with dated day tabs; recent files with their whole paths
 * **Day tabs named with their date** (*MO 14-12-26*, *SuO 13-12-26*, as in the daily platform workings) are read as day tabs: *Add berthing arrangements to platform workings* no longer stops with "No platform workings day tabs were found", and two weeks' workings are compared Monday against Monday, Tuesday against Tuesday, rather than every tab being reported as removed and new.
+* **Recent files**: file boxes have a drop-down arrow again, which opens (and closes) the list of recently used files. The list is as wide as the paths need, up to the width of the screen, so each whole path shows; a path too long even for that keeps its drive, last folders and file name.
 
 **3.37.0** - the window checked through: clearer wording, the same layout on every tab, quicker to use
 * **Same layout on every tab**: Run, a progress bar and Stop on one row with the status underneath (the Live View's Stop button was hidden under its progress bar), **Tab** moves through the boxes in the order they are shown, and day boxes have *All / Weekdays / Weekend / None* on every tab.

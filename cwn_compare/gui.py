@@ -882,11 +882,12 @@ class App(tk.Tk):
             _open_path(p)
 
     def file_box(self, master, var: tk.StringVar, kind: str, exts=None) -> ttk.Combobox:
-        """A file box (no drop-down arrow) that lists the recently used files of this kind when it is clicked
-        while empty, or as a path is typed. `exts()`, if given, gives the file types the box takes now."""
+        """A file box that lists the recently used files of this kind, with their whole paths, when its
+        drop-down arrow is clicked, when it is clicked while empty, or as a path is typed. `exts()`, if given,
+        gives the file types the box takes now."""
         from rstools.autocomplete import Suggest
-        box = ttk.Combobox(master, textvariable=var, style="Suggest.TCombobox")
-        Suggest(box, lambda: self.recent(kind, tuple(exts()) if exts else ()))
+        box = ttk.Combobox(master, textvariable=var)
+        Suggest(box, lambda: self.recent(kind, tuple(exts()) if exts else ()), paths=True)
         return box
 
     # ------------------------------------------------------------ window
