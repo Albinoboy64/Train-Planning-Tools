@@ -69,7 +69,7 @@ def load_tiplocs() -> Dict[str, str]:
                     code, _sep, name = line.partition(",")
                     if code.strip() and name.strip():
                         table[code.strip().upper()] = name.strip()
-        except OSError:
+        except (OSError, UnicodeDecodeError):      # e.g. re-saved from Excel in another encoding: skipped
             pass
     return table
 

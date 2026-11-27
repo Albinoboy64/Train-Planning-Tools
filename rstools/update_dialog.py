@@ -151,6 +151,11 @@ class UpdateDialog(tk.Toplevel):
                  "progress": lambda f: self.prog.configure(value=f)}[kind](value)
         except queue.Empty:
             pass
+        except Exception:                           # a handler failed: log it and keep the dialog working
+            import traceback
+
+            from rstools import errorlog
+            errorlog.write(traceback.format_exc())
         try:
             if self.winfo_exists():
                 self._poll_id = self.after(100, self._poll)

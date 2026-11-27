@@ -313,3 +313,25 @@ def test_the_window_runs_the_berthing_task(tmp_path, monkeypatch):
         assert section(app.result["cwn"], "MO")["Platform 5"] != "" and shown[0] in ("info", "warn")
     finally:
         app.destroy()
+
+
+def test_a_longer_section_never_overwrites_what_follows_it(tmp_path):
+    src = wf.make(str(tmp_path / "w.xlsx"), "victoria")                 # no section yet: one is added
+    book = openpyxl.load_workbook(src)
+    ws = book["MO "]
+    last = max(r for r in range(1, ws.max_row + 1) if ws.cell(row=r, column=1).value)
+    ws.cell(row=last + 8, column=1, value="Signed: the planner")      # a note where the new section goes
+    book.save(src)
+    res = wb.add_berthing(src, (), str(tmp_path))
+    out = openpyxl.load_workbook(res.chart)["MO "]
+    assert any(out.cell(row=r, column=1).value == "Signed: the planner" for r in range(1, out.max_row + 1))
+    assert "05 05" in section(res.chart, "MO")["Platform 14"]
+
+
+def test_a_class_with_a_sub_class_still_finds_its_road(tmp_path):
+    roads = {(0, 1, "377", (5 * 60 + 28) % 1440, 0): 1}
+    lay = wb.LAYOUTS["victoria"]
+    sid = lay.sidings[0]
+    unit = wb.Unit(8, "377/4", "", "05+28", 1, 5 * 60 + 28, False, "train")
+    got = dict(wb._assign_roads(0, sid, [unit], roads, lay, lambda _m: None))
+    assert got[sid.roads[1][0]].startswith("8 377")

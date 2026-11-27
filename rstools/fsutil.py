@@ -83,7 +83,8 @@ def output_folder(chosen: str = "") -> str:
 
 def temp_path(path: str) -> str:
     """A short temporary name in the same folder (a long '<name>.tmp' could pass the path limit)."""
-    return os.path.join(os.path.dirname(os.path.abspath(path)), f"~tpt{os.getpid() % 100000}{os.urandom(2).hex()}.tmp")
+    import secrets
+    return os.path.join(os.path.dirname(os.path.abspath(path)), f"~tpt{secrets.token_hex(6)}.tmp")
 
 
 _BAD_NAME = None
@@ -160,6 +161,20 @@ def atomic_path(path: str):
         raise
 
 
+def copy_default(src: str, dest: str) -> bool:
+    """Make the user's editable copy of a built-in text file (UTF-8 with a BOM, so Excel shows it correctly).
+    Written to a temporary file first, so a half-written copy is never left; False if it could not be made."""
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(src, encoding="utf-8") as fh:
+            text = fh.read()
+        with atomic_path(dest) as tmp, open(tmp, "x", encoding="utf-8-sig", newline="") as out:
+            out.write(text)
+        return True
+    except OSError:
+        return False
+
+
 def write_json(path: str, data) -> bool:
     """Save settings as JSON safely; False (and the old file kept) if the folder cannot be written."""
     try:
@@ -182,13 +197,6 @@ def plain_text(ws):
                 cell.data_type = "s"
 
 
-# the Office file limits (rstools.limits, where they can be changed): the defaults, kept here for older imports
-from rstools.limits import DEFAULTS as _LIMITS  # noqa: E402
-
-ZIP_PART_LIMIT = _LIMITS["ZIP_PART_LIMIT"]
-ZIP_TOTAL_LIMIT = _LIMITS["ZIP_TOTAL_LIMIT"]
-ZIP_RATIO_LIMIT = _LIMITS["ZIP_RATIO_LIMIT"]
-
 
 class UnsafeFileError(OSError):          # an OSError, so every reader reports it as an unreadable file
     pass
@@ -200,12 +208,13 @@ def check_zip(z, name: str = ""):
     anything is unpacked."""
     from rstools import limits
     part, whole, most = limits.get("ZIP_PART_LIMIT"), limits.get("ZIP_TOTAL_LIMIT"), limits.get("ZIP_RATIO_LIMIT")
+    big = limits.get("ZIP_RATIO_FROM")
     infos = [z.getinfo(name)] if name else z.infolist()
     total = 0
     for info in infos:
         total += info.file_size
         ratio = info.file_size / max(info.compress_size, 1)
-        if info.file_size > part or (info.file_size > 50 * 1024 * 1024 and ratio > most):
+        if info.file_size > part or (info.file_size > big and ratio > most):
             raise UnsafeFileError(f"'{os.path.basename(str(z.filename))}' unpacks to an unrealistic size "
                                   f"({info.file_size // (1024 * 1024)} MB in one part), so it was not opened. It "
                                   "may be damaged or not a genuine Office file.")

@@ -779,9 +779,13 @@ class LiveTab(ttk.Frame):
             return
         path = filedialog.asksaveasfilename(
             parent=self, title="Export the Live View", defaultextension=".xlsx",
-            initialfile=f"Live View {time.strftime('%d-%m-%Y %H%M')}",
+            initialfile=f"Live View {time.strftime('%d-%m-%Y %H%M')}", initialdir=self._export_folder(),
             filetypes=[("Excel workbook", "*.xlsx"), ("PDF", "*.pdf"), ("Word document", "*.docx")])
         if not path:
+            return
+        from rstools.fsutil import NETWORK_REFUSED, is_network_path
+        if is_network_path(path):                       # outputs are only ever saved on this PC
+            messagebox.showwarning(TITLE, NETWORK_REFUSED, parent=self)
             return
         items = list(self._visible())
         res, filt, find = self.result, self.filter_box.get(), self.search.get().strip()
@@ -797,6 +801,14 @@ class LiveTab(ttk.Frame):
                 self.q.put(("exported", path, errorlog.file_problem(exc) or f"The export failed: {exc}"))
         threading.Thread(target=work, daemon=True).start()
         self.app.pump.kick()
+
+    def _export_folder(self) -> str:
+        """The app's output folder (the 'Save to folder' chosen, else Downloads)."""
+        from rstools.fsutil import output_folder
+        try:
+            return output_folder(getattr(self.app.opts, "output_dir", "") or "")
+        except Exception:
+            return ""
 
     def _clear(self):
         self.result, self.raw, self.items, self.fresh, self.watch = None, None, {}, set(), {}

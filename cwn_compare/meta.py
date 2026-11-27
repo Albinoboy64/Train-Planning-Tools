@@ -33,9 +33,10 @@ def write_meta(wb, data: dict):
 
 def is_comparison_output(path: str) -> bool:
     """Cheap check (no workbook load) for the hidden data sheet."""
+    from rstools.fsutil import zip_read
     try:
         with zipfile.ZipFile(path) as z:
-            return META_SHEET.encode() in z.read("xl/workbook.xml")
+            return META_SHEET.encode() in zip_read(z, "xl/workbook.xml")    # size-checked before unpacking
     except Exception:
         return False
 
@@ -56,7 +57,13 @@ def read_meta_file(path: str):
         if not col or col[0] != MAGIC:
             return None
         blob = "".join(str(v or "") for v in col[3:3 + int(col[2] or 0)])
-        return json.loads(zlib.decompress(base64.b64decode(blob)).decode("utf-8"))
+        from rstools import limits
+        cap = limits.get("META_MAX_BYTES")
+        d = zlib.decompressobj()
+        raw = d.decompress(base64.b64decode(blob), cap + 1)     # never unpack more than the limit
+        if len(raw) > cap or d.unconsumed_tail:
+            return None
+        return json.loads(raw.decode("utf-8"))
     except Exception:
         return None
     finally:

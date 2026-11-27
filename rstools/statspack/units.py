@@ -40,12 +40,8 @@ def ensure_user_depots() -> str:
     """The editable depot list (created from the built-in one on first use)."""
     path = user_depots_path()
     if not os.path.exists(path):
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(DEFAULT_DEPOTS, encoding="utf-8") as src, open(path, "w", encoding="utf-8-sig",
-                                                                     newline="") as dst:
-                dst.write(src.read())
-        except OSError:
+        from rstools.fsutil import copy_default
+        if not copy_default(DEFAULT_DEPOTS, path):
             return DEFAULT_DEPOTS
     return path
 
@@ -62,7 +58,12 @@ class Depots:
     @classmethod
     def load(cls, names: Dict[str, str], path: Optional[str] = None) -> "Depots":
         table: Dict[str, str] = {}
+        from rstools import limits
         for p in (DEFAULT_DEPOTS, path or ensure_user_depots()):
+            try:
+                limits.check_size(p, "SETTINGS_CSV_MAX_BYTES", "depot list")
+            except OSError:                   # missing or far too large: the other list is still used
+                continue
             for enc in ("utf-8-sig", "cp1252"):
                 try:
                     with open(p, newline="", encoding=enc) as fh:

@@ -75,6 +75,8 @@ def guess(label: str, rows: Dict[str, Berth]) -> Optional[Berth]:
 
 
 def _read(path: str) -> List[Dict[str, str]]:
+    from rstools import limits
+    limits.check_size(path, "SETTINGS_CSV_MAX_BYTES", "berth list")     # an OSError, reported by the caller
     for enc in ("utf-8-sig", "cp1252"):
         try:
             with open(path, newline="", encoding=enc) as fh:
@@ -106,11 +108,8 @@ def ensure_user_copy() -> str:
     data folder cannot be written."""
     path = user_path()
     if not os.path.exists(path):
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(DEFAULT_CSV, encoding="utf-8") as src, open(path, "w", encoding="utf-8-sig", newline="") as dst:
-                dst.write(src.read())
-        except OSError:
+        from rstools.fsutil import copy_default
+        if not copy_default(DEFAULT_CSV, path):
             return DEFAULT_CSV
     return path
 

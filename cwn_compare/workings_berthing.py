@@ -408,7 +408,7 @@ def _assign_roads(d: int, siding: Siding, groups: List[Unit], roads, lay: Layout
             log(f"CHECK: {DAY_NAMES[d]} {siding.location}: {u.cars} {u.cls} stand there at the end of the day but "
                 "no train takes them out within the week")
             continue
-        road = roads.get((d, u.day, u.cls, u.minutes % 1440, 0)) if roads else None
+        road = roads.get((d, u.day, u.cls.split("/")[0], u.minutes % 1440, 0)) if roads else None
         if road is None:
             road = min(i, len(siding.roads) - 1)
             log(f"CHECK: {DAY_NAMES[d]} {siding.location}: {u.cars} {u.cls} for {_tt(u.time)} {DAY_CODES[u.day]} "
@@ -446,6 +446,18 @@ def roads_from_xml(paths: Sequence[str], lay: Layout, log: Log) -> Dict[Tuple[in
 
 
 # --------------------------------------------------------------------------- writing
+def _section_rows(lay: Layout, lines: List[Tuple[str, str]]) -> int:
+    """How many rows a section takes: the heading, its lines and the gaps before and between sidings."""
+    road_of = {label: ri for sid in lay.sidings for ri, (label, _c) in enumerate(sid.roads)}
+    rows, seen = 1, False
+    for label, _text in lines:
+        rows += 1
+        if label in road_of:
+            rows += lay.gap_between_sidings if seen and road_of[label] == 0 else (0 if seen else lay.gap_before_sidings)
+            seen = True
+    return rows
+
+
 def _write(ws, sm: SheetModel, lay: Layout, day: int, lines: List[Tuple[str, str]], log: Log) -> int:
     """Write one tab's section in place of the one it has (if any). Returns the number of lines that differ
     from the old section."""
@@ -453,14 +465,22 @@ def _write(ws, sm: SheetModel, lay: Layout, day: int, lines: List[Tuple[str, str
     last = max((b.end_row for b in sm.blocks), default=sm.header_row)
     old = {e["label"].casefold(): e["text"] for e in sm.footer}
     start = sm.footer[0]["r"] if sm.footer else last + 4
-    if sm.footer:
-        end = sm.footer[-1]["r"]
-        for m in [m for m in ws.merged_cells.ranges if m.min_row >= start]:
-            ws.unmerge_cells(str(m))
-        for r in range(start, end + 1):
-            for c in range(1, max(sm.max_col, 12) + 1):
-                cell = ws.cell(row=r, column=c)
-                cell.value = None
+    end = sm.footer[-1]["r"] if sm.footer else start - 1
+    width = max(sm.max_col, 12)
+    for m in [m for m in ws.merged_cells.ranges if start <= m.min_row <= end]:
+        ws.unmerge_cells(str(m))               # only the old section's own merged cells
+    for r in range(start, end + 1):
+        for c in range(1, width + 1):
+            ws.cell(row=r, column=c).value = None
+    need = _section_rows(lay, lines)
+    below = next((r for r in range(end + 1, ws.max_row + 1)
+                  if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, width + 1))), None)
+    if below is not None and start + need > below:    # never write over what follows the section
+        more = start + need - below + 1
+        ws.insert_rows(below, more)
+        for m in list(ws.merged_cells.ranges):
+            if m.min_row >= below:
+                m.shift(0, more)
     base = ws.cell(row=sm.blocks[0].start_row if sm.blocks else sm.header_row + 1, column=1).font
     size = base.sz or 11
     bold = Font(name="Arial", size=size, bold=True)
@@ -514,7 +534,10 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
         wb = load_any(path)
     except (LoadError, OSError) as exc:
         raise WorkingsError(str(exc))
-    model = parse_workbook(wb)
+    try:
+        model = parse_workbook(wb)
+    except Exception as exc:                   # an unexpected layout: a message, not a traceback
+        raise WorkingsError(f"{os.path.basename(path)} could not be read as platform workings ({exc}).")
     tabs = {k: sm for k, sm in model.sheets.items() if k in SHEET_DAYS}
     if not tabs:
         raise WorkingsError("No platform workings day tabs (MO, TO, WO, ThO, FO, SO, SuO) were found in "
@@ -540,6 +563,8 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
     except PermissionError:
         raise WorkingsError(f"Cannot save {out}\nThe folder may be read-only, or a file with that name is open "
                             "in Excel.")
+    except OSError as exc:
+        raise WorkingsError(f"Cannot save {out}\n{exc}")
     summary = (f"Berthing arrangements added to {len(sections)} day tab(s) of the {lay.name} workings"
                + (f"; {diffs} line(s) differ from the section that was there (see the log)." if diffs else "."))
     log(f"Saved: {out}")

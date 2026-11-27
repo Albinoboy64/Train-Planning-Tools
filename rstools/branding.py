@@ -10,12 +10,12 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tempfile
 from typing import Dict
 
 APP_NAME = "Train Planning Tools"
 FOLDER = "TrainPlanningTools"
 PORTABLE_FOLDER = FOLDER + "-data"            # beside the exe
-SETTINGS_FILES = ("settings.json", "statspack.json", "timetable.json", "fleet.csv", "depots.csv")
 
 _chosen: Dict[str, str] = {}                  # portable folder -> the folder in use (checked once per run)
 
@@ -35,9 +35,8 @@ def _writable(path: str) -> bool:
     """True if the folder exists (or can be made) and a file can be written in it."""
     try:
         os.makedirs(path, exist_ok=True)
-        probe = os.path.join(path, f"~write{os.getpid()}.tmp")
-        with open(probe, "w"):
-            pass
+        fd, probe = tempfile.mkstemp(prefix="~write", suffix=".tmp", dir=path)   # a new, unique file
+        os.close(fd)
         os.remove(probe)
         return True
     except OSError:

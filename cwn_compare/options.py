@@ -33,7 +33,7 @@ def default_categories() -> Dict[str, Dict[str, bool]]:
 
 @dataclass
 class Options:
-    mode: str = "compare"            # compare | cumulative | batch | reorder | station | berth_make / round / compare
+    mode: str = "compare"            # compare | cumulative | batch | reorder | station | berth_* | work_berth
     variant_order: str = "day"       # reorder mode: day (MO first ... FO, SO, Su) | time (departure time first)
     merge_variants: bool = False     # reorder mode: merge a train's variants that differ only in their days
     merge_diagrams: bool = False     # ... also when only their diagram numbers differ (each shown with its days)

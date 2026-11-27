@@ -55,6 +55,11 @@ def _float(v) -> Optional[float]:
 
 def _read_csv(path: str) -> Tuple[List[str], List[Dict[str, str]]]:
     """Header and rows of a fleet CSV (UTF-8, or the Windows encoding Excel may save it in)."""
+    from rstools import limits
+    try:
+        limits.check_size(path, "SETTINGS_CSV_MAX_BYTES", "fleet list")
+    except limits.TooLargeError:
+        return [], []
     for enc in ("utf-8-sig", "cp1252"):
         try:
             with open(path, newline="", encoding=enc) as fh:

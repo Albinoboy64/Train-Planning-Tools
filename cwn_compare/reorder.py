@@ -321,14 +321,16 @@ def plan_sheet(sm: SheetModel, base, by_time: bool, merge: bool = False, sx_styl
     return [replacement.get(b.key, b) for b in sm.blocks], moved, merges, apart
 
 
-def _write_varies(ws, cell, v: "Varies | str", dvs: Dict[tuple, list]):
+def _write_varies(cell, v: "Varies | str", dvs: Dict[tuple, list]):
     """Write a merged cell that differs by day: the main value and marker in the accent colour, and an input
     message (and drop-down) listing each day's value, shown when the cell is clicked."""
     if isinstance(v, str):
         cell.value = v
+        cell.data_type = "s"                       # text from the CWN stays text, never a formula
         return
     from openpyxl.styles import Font
     cell.value = v.text
+    cell.data_type = "s"
     f = cell.font
     cell.font = Font(name=f.name, sz=f.sz, b=f.b, i=f.i, u=f.u, strike=f.strike, vertAlign=f.vertAlign,
                      color=ACCENT)
@@ -455,7 +457,7 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
             widths[days_col].append(cell)
         for (offset, col), v in changed.items():
             cell = ws.cell(row=at + offset, column=col)
-            _write_varies(ws, cell, v, dvs)
+            _write_varies(cell, v, dvs)
             widths[col].append(cell)
         for b in gone:                            # links to a variant merged away now lead to the merged one
             for row in range(b.start_row, b.end_row + 1):

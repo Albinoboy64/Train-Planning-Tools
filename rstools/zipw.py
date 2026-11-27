@@ -73,7 +73,7 @@ def write_zip(path: str, items: Iterable[Tuple[str, object]]):
     from .fsutil import long_path, temp_path
     tmp, final = long_path(temp_path(path)), long_path(path)
     try:
-        with open(tmp, "wb") as fh:
+        with open(tmp, "xb") as fh:          # a new file only: never one already there
             central = []
             for (name, data), (crc, comp) in zip(parts, packed):
                 size = data.size if isinstance(data, Deflated) else len(data)      # type: ignore[arg-type]

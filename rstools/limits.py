@@ -25,6 +25,10 @@ DEFAULTS: Dict[str, int] = {
     "ZIP_PART_LIMIT": 512 * MB,         # one part of an Office file, unpacked (the largest real CWN part ~100 MB)
     "ZIP_TOTAL_LIMIT": 2 * GB,          # a whole Office file, unpacked
     "ZIP_RATIO_LIMIT": 200,             # unpacked / packed size of a part over 50 MB: real workbooks are under ~30
+    "ZIP_RATIO_FROM": 50 * MB,          # the part size from which ZIP_RATIO_LIMIT is checked
+    "META_MAX_BYTES": 256 * MB,         # the comparison data hidden in an output, unpacked (real ones are a few MB)
+    "SETTINGS_CSV_MAX_BYTES": 16 * MB,  # a fleet, depot or units CSV kept in the data folder (real ones are a few KB)
+    "PROGRESS_MAX_BYTES": 64 * MB,      # a saved Live View progress file (real ones are well under 1 MB)
 }
 FILE_NAME = "limits.json"
 

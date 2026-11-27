@@ -63,16 +63,14 @@ def ensure_user_groups() -> str:
             stale = False
         if stale:
             try:
-                os.replace(path, path + ".old")
-            except OSError:
+                from rstools.fsutil import unique_stem
+                folder, name = os.path.split(path)
+                os.replace(path, os.path.join(folder, unique_stem(folder, name, (".old",)) + ".old"))
+            except OSError:                    # an earlier backup is kept: a new one gets ' (2)'
                 pass
     if not os.path.exists(path):
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(DEFAULT_GROUPS, encoding="utf-8") as src, open(path, "w", encoding="utf-8-sig",
-                                                                     newline="") as dst:
-                dst.write(src.read())
-        except OSError:
+        from rstools.fsutil import copy_default
+        if not copy_default(DEFAULT_GROUPS, path):
             return DEFAULT_GROUPS
     return path
 
@@ -197,8 +195,10 @@ def network_stations(attune) -> List[str]:
 
 def load_groups(path: Optional[str] = None) -> List[Group]:
     path = path or ensure_user_groups()
+    from rstools import limits
     for enc in ("utf-8-sig", "cp1252"):
         try:
+            limits.check_size(path, "SETTINGS_CSV_MAX_BYTES", "settings list")
             with open(path, newline="", encoding=enc) as fh:
                 rows = list(csv.DictReader(fh))
             break

@@ -61,7 +61,9 @@ def save(path: str, mode: str, files: Dict[str, List[str]], confirmed: Dict[str,
 def load(path: str) -> dict:
     """A progress file read back and checked: {'mode', 'files', 'state', 'confirmed', 'changed', 'saved'}.
     Raises ValueError for a file that is not Live View progress."""
+    from rstools import limits
     try:
+        limits.check_size(path, "PROGRESS_MAX_BYTES", "progress file")
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:

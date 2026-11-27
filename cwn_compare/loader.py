@@ -10,7 +10,7 @@ import datetime as _dt
 import os
 from typing import TYPE_CHECKING
 
-from rstools.fsutil import sheet_title
+from rstools.fsutil import clean_cell, sheet_title
 
 if TYPE_CHECKING:                      # openpyxl itself is imported only when a file is read
     import openpyxl
@@ -26,6 +26,15 @@ FILE_TYPES = [
 
 class LoadError(Exception):
     pass
+
+
+def _put(ws, row: int, col: int, value):
+    """Copy a value read from an .xls / .xlsb into a cell as data: control characters removed, and text kept as
+    text even if it starts with '=' (openpyxl would otherwise store it as a live formula in the outputs)."""
+    cell = ws.cell(row=row, column=col, value=clean_cell(value))
+    if isinstance(value, str):
+        cell.data_type = "s"
+    return cell
 
 
 def _load_native(path: str, read_only: bool, rich_text: bool, progress):
@@ -143,7 +152,7 @@ def _load_xls(path: str) -> "openpyxl.Workbook":
                     xf = None
                 if val is None and xf is None:
                     continue
-                oc = ws.cell(row=r + 1, column=c + 1, value=val)
+                oc = _put(ws, r + 1, c + 1, val)
                 if xf is not None:
                     f = book.font_list[xf.font_index]
                     oc.font = Font(name=f.name, size=f.height / 20.0, bold=bool(f.bold),
@@ -186,5 +195,5 @@ def _load_xlsb(path: str) -> "openpyxl.Workbook":
                         v = c.v
                         if isinstance(v, float) and v.is_integer():
                             v = int(v)
-                        ws.cell(row=c.r + 1, column=c.c + 1, value=v)
+                        _put(ws, c.r + 1, c.c + 1, v)
     return wb

@@ -28,6 +28,7 @@ API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 ASSET = "TrainPlanningTools.exe"
 TIMEOUT = 20
+MAX_DOWNLOAD = 1024 * 1024 * 1024        # a hard cap when GitHub gives no size (the real exe is ~60 MB)
 
 
 class UpdateError(Exception):
@@ -120,11 +121,17 @@ def latest_release(token: str = "") -> Release:
         if asset is None:
             raise UpdateError(f"The latest release has no {ASSET} to download.")
         return Release(version=str(data.get("tag_name") or "").lstrip("vV"), tag=str(data.get("tag_name") or ""),
-                       notes=str(data.get("body") or "").strip(), page=data.get("html_url") or RELEASES_PAGE,
+                       notes=str(data.get("body") or "").strip(), page=_safe_page(data.get("html_url")),
                        asset_api=str(asset["url"]), asset_size=int(asset.get("size") or 0),
                        digest=str(asset.get("digest") or ""))
     except (AttributeError, KeyError, TypeError, ValueError):     # not the reply GitHub normally sends
         raise UpdateError("GitHub's reply about the latest release could not be read - please try again later.")
+
+
+def _safe_page(url) -> str:
+    """The release page to open in the browser: GitHub's address only (never another scheme or site)."""
+    url = str(url or "")
+    return url if url.startswith("https://github.com/") else RELEASES_PAGE
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -136,7 +143,8 @@ def download(rel: Release, dest: str, token: str = "", progress: Callable[[float
     """Download the release's exe to `dest`, verifying its size and SHA-256 digest."""
     opener = urllib.request.build_opener(_NoRedirect)
     req = _request(rel.asset_api, token, accept="application/octet-stream")
-    tmp = dest + ".part"
+    fd, tmp = tempfile.mkstemp(prefix="~tptdl", suffix=".part", dir=os.path.dirname(os.path.abspath(dest)))
+    os.close(fd)                             # a new, unique file: nothing already there is overwritten
     try:
         try:
             resp = opener.open(req, timeout=TIMEOUT)
@@ -159,15 +167,17 @@ def download(rel: Release, dest: str, token: str = "", progress: Callable[[float
                 fh.write(chunk)
                 sha.update(chunk)
                 done += len(chunk)
+                if done > (rel.asset_size or MAX_DOWNLOAD):
+                    raise UpdateError("The download was larger than expected, so it was not used.")
                 if rel.asset_size:
                     progress(min(done / rel.asset_size, 1.0))
-    except UpdateError:
-        raise
-    except Exception as exc:                 # network, disk, or a connection cut mid-download (IncompleteRead)
+    except BaseException as exc:             # network, disk, a cut connection (IncompleteRead), or too large
         try:
             os.remove(tmp)                   # never leave a half-downloaded file behind
         except OSError:
             pass
+        if isinstance(exc, UpdateError) or not isinstance(exc, Exception):
+            raise
         raise UpdateError(f"The download failed: {exc}")
     if rel.asset_size and done != rel.asset_size:
         os.remove(tmp)
@@ -185,8 +195,53 @@ def download(rel: Release, dest: str, token: str = "", progress: Callable[[float
             fh.close()
             os.remove(tmp)
             raise UpdateError("The download is not a Windows program, so it was not used.")
+    if signature_state(tmp) == "bad":
+        os.remove(tmp)
+        raise UpdateError("The download has a digital signature that Windows does not accept, so it was not used.")
     os.replace(tmp, dest)
     return dest
+
+
+def signature_state(path: str) -> str:
+    """'good' if Windows accepts the file's Authenticode signature, 'none' if it is unsigned (or this is not
+    Windows), 'bad' if it is signed but the signature is not valid (tampered with, or an untrusted signer)."""
+    if not sys.platform.startswith("win"):
+        return "none"
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class GUID(ctypes.Structure):
+            _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD),
+                        ("d", ctypes.c_ubyte * 8)]
+
+        class FILE_INFO(ctypes.Structure):
+            _fields_ = [("cbStruct", wintypes.DWORD), ("pcwszFilePath", wintypes.LPCWSTR),
+                        ("hFile", wintypes.HANDLE), ("pgKnownSubject", ctypes.c_void_p)]
+
+        class TRUST_DATA(ctypes.Structure):
+            _fields_ = [("cbStruct", wintypes.DWORD), ("pPolicyCallbackData", ctypes.c_void_p),
+                        ("pSIPClientData", ctypes.c_void_p), ("dwUIChoice", wintypes.DWORD),
+                        ("fdwRevocationChecks", wintypes.DWORD), ("dwUnionChoice", wintypes.DWORD),
+                        ("pFile", ctypes.POINTER(FILE_INFO)), ("dwStateAction", wintypes.DWORD),
+                        ("hWVTStateData", wintypes.HANDLE), ("pwszURLReference", wintypes.LPCWSTR),
+                        ("dwProvFlags", wintypes.DWORD), ("dwUIContext", wintypes.DWORD),
+                        ("pSignatureSettings", ctypes.c_void_p)]
+        action = GUID(0xAAC56B, 0xCD44, 0x11D0, (ctypes.c_ubyte * 8)(0x8C, 0xC2, 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE))
+        info = FILE_INFO(ctypes.sizeof(FILE_INFO), path, None, None)
+        data = TRUST_DATA(cbStruct=ctypes.sizeof(TRUST_DATA), dwUIChoice=2, fdwRevocationChecks=0,
+                          dwUnionChoice=1, pFile=ctypes.pointer(info), dwStateAction=0, dwProvFlags=0x1000)
+        verify = ctypes.windll.wintrust.WinVerifyTrust
+        verify.argtypes = [wintypes.HWND, ctypes.POINTER(GUID), ctypes.c_void_p]
+        verify.restype = ctypes.c_long
+        result = verify(None, ctypes.byref(action), ctypes.byref(data)) & 0xFFFFFFFF
+    except Exception:
+        return "none"                        # cannot check here: the checksum above still applies
+    if result == 0:
+        return "good"
+    if result in (0x800B0100, 0x800B0003, 0x800B0001):    # no signature / unknown subject or provider
+        return "none"
+    return "bad"
 
 
 def expected_sha256(rel: Release) -> str:
@@ -217,7 +272,10 @@ def download_target(rel: Release) -> str:
     if exe and can_replace_in_place():
         return exe + ".new"
     from rstools.fsutil import downloads_dir          # where Windows keeps it, even when moved or renamed
-    return os.path.join(downloads_dir(), f"TrainPlanningTools-{rel.version or 'latest'}.exe")
+    from rstools.fsutil import unique_stem
+    folder = downloads_dir()
+    version = re.sub(r"\.{2,}", ".", re.sub(r"[^0-9A-Za-z.\-]", "", rel.version or "")).strip(".")[:40] or "latest"
+    return os.path.join(folder, unique_stem(folder, f"TrainPlanningTools-{version}", (".exe",)) + ".exe")
 
 
 def _fresh_env() -> dict:

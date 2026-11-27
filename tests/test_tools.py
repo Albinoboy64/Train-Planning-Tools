@@ -245,7 +245,7 @@ def test_updater_only_installs_verified_windows_programs(monkeypatch):
     payload = b"<html>not a program</html>"
     with pytest.raises(updater.UpdateError, match="not a Windows program"):
         updater.download(rel("sha256:" + hashlib.sha256(payload).hexdigest()), os.path.join(d, "bad.exe"))
-    assert not os.path.exists(os.path.join(d, "bad.exe")) and not os.path.exists(os.path.join(d, "bad.exe.part"))
+    assert not os.path.exists(os.path.join(d, "bad.exe")) and not any(n.endswith(".part") for n in os.listdir(d))
     assert updater._cmd_path(r"C:\Users\a%PATH%b\x.exe") == r"C:\Users\a%%PATH%%b\x.exe"
     with pytest.raises(updater.UpdateError):
         updater._cmd_path('C:\\a" & del x\\b.exe')
