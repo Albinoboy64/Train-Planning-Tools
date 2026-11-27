@@ -57,6 +57,24 @@ def file_problem(exc: BaseException) -> str:
     return ""
 
 
+def workbook_problem(path: str, exc: BaseException) -> str:
+    """A plain message for an Excel input that could not be opened (the details go to the log)."""
+    import os
+    name = os.path.basename(path)
+    if isinstance(exc, PermissionError):
+        return f"'{name}' could not be opened - it may be open in Excel. Close it there and try again."
+    if path.lower().endswith(".xls"):
+        return (f"'{name}' is an older Excel 97-2003 (.xls) file, which this task cannot read. Open it in Excel, "
+                "save it as an Excel Workbook (.xlsx) and choose that file.")
+    from rstools.fsutil import UnsafeFileError
+    from rstools.limits import TooLargeError
+    if isinstance(exc, (UnsafeFileError, TooLargeError)):
+        return str(exc)
+    write(f"Reading {path} failed:\n{''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+    return (f"'{name}' could not be read as an Excel workbook. It may be damaged, password-protected or not an "
+            f"Excel file: open it in Excel, save it again and retry. (Details: {exc})")
+
+
 def describe(exc: BaseException, tb: str = "") -> str:
     """The message to show for an error no reader explained: a file problem in plain words, otherwise
     'Unexpected error' with the log's location (or the details themselves if the log cannot be written)."""

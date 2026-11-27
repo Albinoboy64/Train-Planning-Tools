@@ -39,10 +39,12 @@ SIDES = {
 }
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _PV = _PR + (".vpt",)                                   # two sets of train prints: or Attune VPT exports
-_FT = {_PV: [("Train prints and VPT exports", "*.pdf *.docx *.vpt"), ("PDF", "*.pdf"), ("Word", "*.docx"),
+_FT = {_PV: [("Train prints and VPT exports", "*.pdf *.docx *.docm *.vpt"), ("PDF", "*.pdf"),
+             ("Word", "*.docx *.docm"),
              ("Attune VPT export", "*.vpt"), ("All files", "*.*")],
        _XL: [("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
-       _PR: [("Train prints", "*.pdf *.docx"), ("PDF", "*.pdf"), ("Word", "*.docx"), ("All files", "*.*")],
+       _PR: [("Train prints", "*.pdf *.docx *.docm"), ("PDF", "*.pdf"), ("Word", "*.docx *.docm"),
+             ("All files", "*.*")],
        _LI: [("Excel workbook or CSV", "*.xlsx *.xlsm *.csv"), ("All files", "*.*")],
        (".pdf",): [("PDF", "*.pdf"), ("All files", "*.*")]}
 EXTS = {"timetables": (_XL, _XL), "print_tt": (_PR, _XL), "list_tt": (_LI, _XL), "prints": (_PV, _PV),

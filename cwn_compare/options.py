@@ -75,6 +75,8 @@ class Options:
     live_changed_only: bool = False  # Live View details: only the rows that differ
     live_zoom: int = 0               # Live View list and details: steps of text size (-2 .. 5)
     live_list_hidden: bool = False   # Live View: the train list hidden (details only)
+    live_mode: str = ""              # Live View: the task last used ('' = the first)
+    live_folder: str = ""            # Live View: the folder files were last chosen from
     check_updates: bool = True       # look for a newer release on GitHub when the app starts
     notify_done: bool = True         # flash the taskbar and show a notice when a run ends in the background
     saved: Dict[str, dict] = field(default_factory=dict)     # saved comparisons: name -> {tab, state}

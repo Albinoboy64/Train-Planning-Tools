@@ -27,7 +27,10 @@ from .model import ADDED, CHANGED, DIFF_STATES, ISSUE, PAIRED, REMOVED, SAME, vi
 TITLE = f"{APP_NAME} - Live View"
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _PV = _PR + (".vpt",)                                   # train prints, or Attune VPT exports
-_CWN = (".xlsx", ".xlsm", ".xls", ".xlsb")
+_CWN = (".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm")
+_TYPE_NAMES = {".xlsx": "Excel", ".xlsm": "Excel", ".xls": "Excel", ".xlsb": "Excel", ".xltx": "Excel",
+               ".xltm": "Excel", ".csv": "CSV", ".pdf": "PDF", ".docx": "Word", ".docm": "Word", ".xml": "Attune XML",
+               ".vpt": "Attune VPT export"}
 FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, label, file types, several?
     "cwn": [("a", "Original CWN:", _CWN, False), ("b", "Updated CWN:", _CWN, False)],
     "sp_plans": [("xa", "Original Attune XML:", (".xml",), False),
@@ -130,7 +133,8 @@ class LiveTab(ttk.Frame):
         ttk.Label(top, text="Task:", font="AppBold").grid(row=0, column=0, sticky="w")
         self.mode_box = TaskBox(top, MODE_GROUPS, width=52)
         self.mode_names = {m: lab for m, lab in self.mode_box.tasks}
-        self.mode_box.show("cwn")
+        last = getattr(self.app.opts, "live_mode", "") or "cwn"
+        self.mode_box.show(last if last in FILES else "cwn")        # the task used last time
         self.mode_box.grid(row=0, column=1, sticky="w", padx=4, pady=2)
         self.mode_box.bind("<<ComboboxSelected>>", lambda _e: (self.mode_box.show(self.mode()), self._mode_changed()))
         self.files_frame = ttk.Frame(top)
@@ -269,6 +273,7 @@ class LiveTab(ttk.Frame):
         self.search = tk.StringVar()
         ent = ttk.Entry(lf, textvariable=self.search)
         ent.grid(row=0, column=3, sticky="ew", padx=4)
+        self.find_entry = ent
         self._search_after = None
         self.search.trace_add("write", lambda *_a: self._search_soon())
         self.listv = ttk.Treeview(left, columns=("ok", "group", "train", "status"), show="headings",
@@ -332,6 +337,7 @@ class LiveTab(ttk.Frame):
         for widget in (self.listv, self.detail):
             widget.bind("<F3>", lambda _e: self.step(1) or "break")
             widget.bind("<Shift-F3>", lambda _e: self.step(-1) or "break")
+        self.bind_all("<Control-f>", lambda _e: self._find_key(), add="+")      # Ctrl+F: the Find box
         self.bind_all("<F3>", lambda _e: self._f3(1), add="+")
         self.bind_all("<Shift-F3>", lambda _e: self._f3(-1), add="+")
         self._apply_zoom()
@@ -451,6 +457,10 @@ class LiveTab(ttk.Frame):
 
     def _mode_changed(self):
         mode = self.mode()
+        try:
+            self.app.opts.live_mode = mode
+        except AttributeError:
+            pass
         spec = FILES[mode]
         shown = {k for k, *_ in spec}
         for key, (lab, box, btn) in self.rows.items():
@@ -492,16 +502,31 @@ class LiveTab(ttk.Frame):
     def _browse(self, key):
         mode = self.mode()
         _k, label, exts, many = next(s for s in FILES[mode] if s[0] == key)
-        types = [("Files", " ".join("*" + e for e in exts)), ("All files", "*.*")]
+        kinds = " or ".join(dict.fromkeys(_TYPE_NAMES.get(e, e) for e in exts))
+        types = [(kinds + " files", " ".join("*" + e for e in exts)), ("All files", "*.*")]
         kw = dict(parent=self, title=label.rstrip(":"), filetypes=types)
+        start = os.path.dirname(self.vars[key].get().split(";")[0].strip().strip('"')) or self._last_folder()
+        if start and os.path.isdir(start):
+            kw["initialdir"] = start
         if many:                                      # added to the files already in the box
             chosen = filedialog.askopenfilenames(**kw)
             if chosen:
                 self.vars[key].set(_join(self.vars[key].get(), (os.path.normpath(p) for p in chosen)))
+                self._remember_folder(chosen[0])
         else:
             chosen = filedialog.askopenfilename(**kw)
             if chosen:
                 self.vars[key].set(os.path.normpath(chosen))
+                self._remember_folder(chosen)
+
+    def _last_folder(self) -> str:
+        return getattr(self.app.opts, "live_folder", "") or ""
+
+    def _remember_folder(self, path: str):
+        try:
+            self.app.opts.live_folder = os.path.dirname(os.path.normpath(path))
+        except AttributeError:
+            pass
 
     def enable_drag_and_drop(self, dnd_files: str):
         self._dnd = dnd_files
@@ -1119,6 +1144,13 @@ class LiveTab(ttk.Frame):
         self.notes.delete("1.0", "end")
         self.notes.insert("end", "\n".join(lines))
         self.notes.configure(state="disabled")
+
+    def _find_key(self):
+        if self.winfo_ismapped() or self.out_holder.winfo_ismapped():
+            self.find_entry.focus_set()
+            self.find_entry.select_range(0, "end")
+            return "break"
+        return None
 
     def _f3(self, direction):
         if self.winfo_ismapped() and self.items:

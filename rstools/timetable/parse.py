@@ -166,7 +166,8 @@ def read_timetable(path: str) -> Timetable:
         check_office_file(path)     # refuse a 'zip bomb' before unpacking
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     except Exception as exc:               # not a readable workbook
-        raise TimetableError(f"'{os.path.basename(path)}' could not be read as an Excel workbook ({exc}).")
+        from rstools.errorlog import workbook_problem
+        raise TimetableError(workbook_problem(path, exc))
     sections: Dict[str, List[TTrain]] = defaultdict(list)
     locations: Dict[str, List[Tuple[str, str]]] = {}
     warnings: List[str] = []

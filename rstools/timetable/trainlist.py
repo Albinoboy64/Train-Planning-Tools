@@ -107,8 +107,20 @@ def read_train_list(path: str) -> TrainList:
             limits.check_size(path, "CSV_MAX_BYTES", "train list")
         except limits.TooLargeError as exc:
             raise TrainListError(str(exc))
-        with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
-            sheets = [("CSV", [list(r) for r in csv.reader(fh)])]
+        sheets = []
+        for enc in ("utf-8-sig", "cp1252"):      # Excel saves 'CSV' in the Windows encoding, 'CSV UTF-8' in UTF-8
+            try:
+                with open(path, newline="", encoding=enc) as fh:
+                    sheets = [("CSV", [list(r) for r in csv.reader(fh)])]
+                break
+            except UnicodeDecodeError:
+                continue
+            except OSError as exc:
+                from rstools.errorlog import workbook_problem
+                raise TrainListError(workbook_problem(path, exc))
+        if not sheets:
+            with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
+                sheets = [("CSV", [list(r) for r in csv.reader(fh)])]
     else:
         try:
             import openpyxl
@@ -116,7 +128,8 @@ def read_train_list(path: str) -> TrainList:
             check_office_file(path)     # refuse a 'zip bomb' before unpacking
             wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         except Exception as exc:
-            raise TrainListError(f"'{os.path.basename(path)}' could not be read as an Excel workbook ({exc}).")
+            from rstools.errorlog import workbook_problem
+            raise TrainListError(workbook_problem(path, exc))
         try:
             sheets = [(ws.title, [list(r) for r in ws.iter_rows(values_only=True)]) for ws in wb.worksheets]
         except Exception as exc:        # a damaged sheet inside the workbook
