@@ -478,6 +478,7 @@ def test_window_rescales_when_moved_to_a_display_with_other_scaling(monkeypatch)
             # on a slow machine it fires mid-test and (correctly) switches back to the real display's scaling
             shown = {"dpi": base_dpi}
             monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
+            monkeypatch.setattr(g.theme, "displays", lambda: [])        # (Windows: the real displays are not used)
             line = font.nametofont("TkDefaultFont", app).metrics("linespace")
             wrap = int(str(app.dnd_hint.cget("wraplength")))
             col = int(app.outer.columnconfigure(0)["minsize"])
@@ -908,6 +909,7 @@ def test_display_watcher_only_watches_the_main_window(monkeypatch):
             app.update()
             shown = {"dpi": app.dpi}
             monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
+            monkeypatch.setattr(g.theme, "displays", lambda: [])        # (Windows: the real displays are not used)
             real_moved = app._moved
             app.bind_class("TPTMain", "<Configure>", lambda e: (seen.append(e.widget), real_moved(e)))
             monkeypatch.setattr(app, "dpi_changed", lambda dpi: rescaled.append(dpi))
@@ -1013,6 +1015,7 @@ def test_rescale_waits_for_the_drag_to_end_then_fits_the_window(monkeypatch):
             app.update()
             shown = {"dpi": app.dpi, "held": True}
             monkeypatch.setattr(g.theme, "window_dpi", lambda root: shown["dpi"])
+            monkeypatch.setattr(g.theme, "displays", lambda: [])        # (Windows: the real displays are not used)
             monkeypatch.setattr(g.theme, "mouse_held", lambda: shown["held"])
             area = theme.screen_area(app)
             app.geometry(f"1100x700+{area[2] - 1150}+{area[1] + 20}")      # near the right edge
