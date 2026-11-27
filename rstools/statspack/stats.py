@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Sequence
 from .model import DayModel, Part, TrainRun, service_type
 
 MORNING = (7 * 3600, 9 * 3600 + 59 * 60)       # 07:00 - 09:59 (end exclusive, as TRACS-RS)
-EVENING = (16 * 3600, 17 * 3600 + 59 * 60)     # 16:00 - 17:59
+EVENING = (16 * 3600, 19 * 3600)               # 16:00 - 19:00 (to 18:59:59)
 PEAK_BANDS = [(0, MORNING[0]), MORNING, (MORNING[1], EVENING[0]), EVENING, (EVENING[1], 86400)]
 
 

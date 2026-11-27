@@ -448,6 +448,10 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.37.3** - stats pack evening peak to 19:00
+* **Stats pack:** the evening peak now runs from 16:00 until 19:00 (was 16:00 - 17:59), in *Vehicle Counts at Stops by Peak* and the calling pattern tabs; the time after it starts at 19:00.
+* **Build:** a green build of any branch, not only `claude/**`, is merged into `main`, and `main` is built after every merge.
+
 **3.37.2** - other operators' trains (Attune XML, VPT or Network Rail CIF)
 * **Other operators' trains** from their Attune XML, a VPT or a **Network Rail CIF** (new reader, as TPS exports): on **berthing charts** (in grey; matched by place, and shown by headcode, where the file has no next-day workings or unit types), in the **berthing arrangements of platform workings** (the operator code in place of the unit type), and in a new task, **Add other operators' trains to a CWN or platform workings** (rows in time order in grey italics, the operator code as the stock, the existing rows unchanged). Each has an *Include other operators' trains* switch. Station books take CIF files too. Command line: `berthing --others`, `workings-berthing --others`, `other-trains`.
 

@@ -1075,3 +1075,16 @@ def test_possible_option_in_the_unit_reports_and_command_line(capsys):
         with pytest.raises(SystemExit) as bad:
             cli.main(["statspack", "--trent", p, "--possible", "over"])
         assert bad.value.code == 2 and "--possible is used with --unit-reports" in capsys.readouterr().err
+
+
+def test_evening_peak_runs_until_19_00():
+    import json
+    from rstools.statspack import stats
+    a, e = stats.EVENING
+    assert (a, e) == (16 * 3600, 19 * 3600)
+    inside = [b for b, (lo, hi) in enumerate(stats.PEAK_BANDS) if lo <= 18 * 3600 + 59 * 60 < hi]
+    after = [b for b, (lo, hi) in enumerate(stats.PEAK_BANDS) if lo <= 19 * 3600 < hi]
+    assert inside == [3] and after == [4]
+    with open(os.path.join(os.path.dirname(stats.__file__), "layout.json"), encoding="utf-8") as fh:
+        text = fh.read()
+    assert "Evening Peak (16:00 - 19:00)" in text and "17:59" not in json.dumps(json.loads(text))
