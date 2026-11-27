@@ -57,9 +57,16 @@ def _codes(model: CWNModel) -> List[str]:
 SHEET_DAYS = {"MO": 0, "TO": 1, "WO": 2, "THO": 3, "FO": 4, "SO": 5, "SUO": 6}
 
 
+def tab_day(key: str) -> Optional[int]:
+    """The day of a platform workings tab from its name: 'MO', 'SuO', or the code followed by a date or
+    other words ('MO 14-12-26', 'SuO_13.12.26'); else None."""
+    first = re.split(r"[\s_\-.#(]+", (key or "").strip().upper(), maxsplit=1)[0]
+    return SHEET_DAYS.get(first)
+
+
 def sheet_day(sm: SheetModel) -> Optional[int]:
     """The day of a platform workings tab, else None."""
-    return SHEET_DAYS.get(sm.key) if "cars" in sm.cols else None
+    return tab_day(sm.key) if "cars" in sm.cols else None
 
 
 def coverage(model: CWNModel, path: str = "") -> Tuple[Set[int], bool]:
@@ -181,9 +188,9 @@ def _read_here(path: str, mtime: float) -> Optional[tuple]:
 def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str, Optional[tuple]]:
     """The days each CWN covers: {path: (modified time, days, assumed?)}, or None for a file that cannot be read.
     `cache` holds earlier results (a file is read again only when it has changed). Small files are read here; all
-    the large ones go to ONE pool of helper processes (started once, not once per file), with every file
-    sent before any result is waited for. If the helper process cannot be used, or a file's job fails, that file is
-    read here instead."""
+    the large ones go to ONE pool of helper processes (started once, not once per file; at most one per CPU core
+    less one), with every file sent before any result is waited for. If the helper process cannot be used, or a
+    file's job fails, that file is read here instead."""
     found: Dict[str, Optional[tuple]] = {}
     large: List[Tuple[str, float]] = []
     for path in paths:
@@ -208,7 +215,8 @@ def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str,
         try:
             from concurrent.futures import ProcessPoolExecutor
             from multiprocessing import get_context
-            with ProcessPoolExecutor(max_workers=len(large), mp_context=get_context("spawn")) as pool:
+            workers = min(len(large), max(1, (os.cpu_count() or 1) - 1))
+            with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
                 jobs = [(path, mtime, pool.submit(read_days, path)) for path, mtime in large]
                 for path, mtime, job in jobs:
                     try:

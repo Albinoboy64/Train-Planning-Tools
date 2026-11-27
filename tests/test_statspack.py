@@ -7,6 +7,8 @@ import os
 import sys
 import tempfile
 import zipfile
+
+import pytest
 from xml.sax.saxutils import escape
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1075,3 +1077,103 @@ def test_possible_option_in_the_unit_reports_and_command_line(capsys):
         with pytest.raises(SystemExit) as bad:
             cli.main(["statspack", "--trent", p, "--possible", "over"])
         assert bad.value.code == 2 and "--possible is used with --unit-reports" in capsys.readouterr().err
+
+
+def test_evening_peak_runs_until_19_00():
+    import json
+    from rstools.statspack import stats
+    a, e = stats.EVENING
+    assert (a, e) == (16 * 3600, 19 * 3600)
+    inside = [b for b, (lo, hi) in enumerate(stats.PEAK_BANDS) if lo <= 18 * 3600 + 59 * 60 < hi]
+    after = [b for b, (lo, hi) in enumerate(stats.PEAK_BANDS) if lo <= 19 * 3600 < hi]
+    assert inside == [3] and after == [4]
+    with open(os.path.join(os.path.dirname(stats.__file__), "layout.json"), encoding="utf-8") as fh:
+        text = fh.read()
+    assert "Evening Peak (16:00 - 19:00)" in text and "17:59" not in json.dumps(json.loads(text))
+
+
+def test_mileage_over_a_period_counts_each_date_and_stp_only_on_its_dates():
+    """The whole timetable, a month or any dates: each date counts its day's diagrams, and an STP version of a
+    diagram replaces the LTP one only on the dates it is valid for."""
+    import copy
+
+    import openpyxl
+    from rstools.statspack import period as pm
+    from rstools.statspack.engine import StatsPackError, period_mileage
+    with tempfile.TemporaryDirectory() as d:
+        plan = setup_plan(d)
+        whole, _w, summary = period_mileage(plan, opts(d, [0]), "timetable", "test")
+        # 13/12/2026 - 15/05/2027: 22 Mondays (BI1 50 + HE7 30 miles) and 22 Tuesdays (BI1 50 miles)
+        assert "2,860.00 unit miles" in summary and os.path.basename(whole[0]).startswith("DEC26 Mileage 13-12-2026")
+        unit = {r.cells[0]: r.cells for r in tab(whole[0], "Mileage by Unit").rows}
+        assert unit["377/4"][3] == 44 * 50 and unit["700/0"][3] == 22 * 30
+        month, _w, summary = period_mileage(plan, opts(d, [0]), "month", "test", month="January 2027")
+        assert "520.00 unit miles" in summary                     # 4 Mondays and 4 Tuesdays
+        ltp = next(x for x in plan.trent.diagrams if x.key == "BI1" and x.days_code == "MO")
+        stp = copy.deepcopy(ltp)
+        stp.plan, stp.start, stp.end = "STP", "19/12/2026", "25/12/2026"
+        stp.rows = [ltp.rows[0], ltp.rows[-1]]                    # the STP version runs only the 10-mile ECS move
+        plan.trent.diagrams.append(stp)
+        week, _w, summary = period_mileage(plan, opts(d, [0]), "custom", "test", start="14/12/2026",
+                                           end="2026-12-28")
+        by_date = {r[0].date(): r for r in openpyxl.load_workbook(week[0])["Mileage by Date"].iter_rows(
+            min_row=4, values_only=True) if hasattr(r[0], "date")}
+        import datetime as dt
+        assert by_date[dt.date(2026, 12, 14)][6] == 80 and by_date[dt.date(2026, 12, 28)][6] == 80   # LTP
+        assert by_date[dt.date(2026, 12, 21)][6] == 40 and by_date[dt.date(2026, 12, 21)][3] == 1    # STP week
+        assert "300.00 unit miles" in summary                     # 80 + 50, 40 + 50, 80 (Monday 28th)
+        for kind, kw, msg in (("month", {"month": "July 2027"}, "outside the timetable"),
+                              ("month", {"month": "Smarch"}, "not a month"),
+                              ("custom", {"start": "20/12/2026", "end": "14/12/2026"}, "before the first"),
+                              ("custom", {"start": "x", "end": "14/12/2026"}, "not a date"),
+                              ("other", {}, "not a period")):
+            with pytest.raises(StatsPackError, match=msg):
+                period_mileage(plan, opts(d, [0]), kind, "test", **kw)
+        assert pm.months(plan.trent)[:2] == ["December 2026", "January 2027"] and len(pm.months(plan.trent)) == 6
+
+
+def test_the_window_makes_mileage_for_a_month(tmp_path, monkeypatch):
+    import time
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "data"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    try:
+        import cwn_compare.gui as g
+        app = g.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        monkeypatch.setattr(g.App, "open_outputs", lambda self, *_a, **_k: None)
+        from rstools.statspack import gui_tab
+        shown = []
+        for name in ("showinfo", "showwarning", "showerror"):
+            monkeypatch.setattr(gui_tab.messagebox, name, lambda *a, _n=name, **_k: shown.append((_n, a[1:2])))
+        plan_dir = str(tmp_path)
+        write_xml(os.path.join(plan_dir, "a.xml"))
+        write_docx(os.path.join(plan_dir, "a.docx"), plan_lines())
+        tab = app.stats_tab
+        tab.mode.set("mileage")
+        tab._mode_changed()
+        assert tab.run_btn.cget("text") == "Create mileage" and str(tab.mileage_frame.winfo_manager()) == "grid"
+        tab.vars["xml_a"].set(os.path.join(plan_dir, "a.xml"))
+        tab.vars["trent_a"].set(os.path.join(plan_dir, "a.docx"))
+        end = time.time() + 30
+        while time.time() < end and not tab.month_box.cget("values"):
+            app.update()
+            time.sleep(0.05)
+        assert "January 2027" in tab.month_box.cget("values")
+        tab.mileage_month.set("January 2027")
+        assert tab.mileage_kind.get() == "month"
+        tab.out_dir.set(plan_dir)
+        for v in tab.day_vars:
+            v.set(False)                                # the days are not used for a period
+        tab.run()
+        end = time.time() + 60
+        while time.time() < end and tab.running:
+            app.update()
+            time.sleep(0.05)
+        assert tab.outputs and os.path.basename(tab.outputs[0]) == "DEC26 Mileage January 2027.xlsx", \
+            (shown, tab.log.get("1.0", "end"))
+        assert [k for k, _m in shown] == ["showinfo"]
+    finally:
+        app.destroy()

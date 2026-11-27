@@ -559,3 +559,38 @@ def seats_report(plan: LoadedPlan, opts: PackOptions, kind: str, group_name: str
                    + ".")
     progress(0.9, "Saving...")
     return [_save_reports(reports, opts, stem)], warnings, summary
+
+
+# --------------------------------------------------------------------------- #
+# mileage over a period
+# --------------------------------------------------------------------------- #
+def period_name(trent: TrentData, period) -> str:
+    """'DEC26 Mileage 13-12-2026 to 15-05-2027' (or '... January 2027')."""
+    tt = timetable(trent)
+    label = period.label.split(" (")[0]
+    if " - " in label:
+        label = f"{period.start:%d-%m-%Y} to {period.end:%d-%m-%Y}"
+    return naming.clip(" ".join(x for x in (tt, "Mileage", label) if x))
+
+
+def period_mileage(plan: LoadedPlan, opts: PackOptions, kind: str, version: str, month: str = "", start: str = "",
+                   end: str = "", progress: Callable[[float, str], None] = lambda f, m: None
+                   ) -> Tuple[List[str], List[str], str]:
+    """The stats pack's mileage tabs added up over the whole timetable, one month or a custom period (see
+    rstools.statspack.period). Returns ([path], warnings, summary)."""
+    from . import period as pm
+    try:
+        per = pm.resolve(plan.trent, kind, month, start, end)
+        info = _info(plan, version)
+        info["inputs"] += f"\nPeriod: {per.label}"
+        totals, by_date, warnings = pm.build(plan.trent, plan.attune, opts.operators, opts.fleets, per, info,
+                                             progress)
+    except pm.PeriodError as exc:
+        raise StatsPackError(str(exc))
+    folder = output_folder(opts.output_dir)
+    stem = _safe(opts.output_name.strip() or period_name(plan.trent, per))
+    progress(0.95, "Writing...")
+    path = pm.write(totals, by_date, per, opts.fmt, lambda s, ext: unique_path(folder, s, ext), stem, info)
+    total = by_date.rows[-1].cells
+    miles = f"{total[6]:,.2f} unit miles" if isinstance(total[6], float) else "unit miles unknown (???)"
+    return [path], warnings, f"{per.label}: {per.days} day(s), {miles}."

@@ -23,6 +23,7 @@ pyinstaller --noconfirm packaging\TrainPlanningTools.spec || goto :failed
 REM smoke test: the built exe compares two small CWNs (as the release build does)
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_compare as t; d = os.path.abspath('smoke'); os.makedirs(d, exist_ok=True); t.make(os.path.join(d, 'a.xlsx'), t.BTN_ORIG, t.VIC_ORIG); b, v = t._upd_rows(); t.make(os.path.join(d, 'b.xlsx'), b, v)" || goto :failed
 if exist smoke\smoke.xlsx del smoke\smoke.xlsx
+if exist "smoke\smoke - Change Report.xlsx" del "smoke\smoke - Change Report.xlsx"
 start /wait "" dist\TrainPlanningTools.exe --original smoke\a.xlsx --updated smoke\b.xlsx --out smoke --name smoke
 if not exist smoke\smoke.xlsx (
     echo The built exe did not produce its smoke-test output.
@@ -68,8 +69,9 @@ python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=
 python -c "import sys; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')" || goto :failed
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_compare as t; [os.makedirs('smoke/' + d, exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make('smoke/bo/' + n + ' Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make('smoke/bu/' + n + ' Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')" || goto :failed
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml swb_sngx s4check_f3 berth_nonotes) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml berth_tlgn berth_places wk_others wk_berth_others berth_others berth_blank berth_blank_tlgn sp_tt sp_month sp_custom swb_sngx s4check_f3 berth_nonotes) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
 if exist "smoke\wk_cmp - Change Report.xlsx" del "smoke\wk_cmp - Change Report.xlsx"
+if exist "smoke\cumulative - Change Report.xlsx" del "smoke\cumulative - Change Report.xlsx"
 for %%f in (sp.pdf units.docx berth_cmp.xlsx) do if exist smoke\%%f del smoke\%%f
 if exist "smoke\K_D26 Consolidated TT Comparison.xlsx" del "smoke\K_D26 Consolidated TT Comparison.xlsx"
 if exist "smoke\berth_cmp - Change Report.xlsx" del "smoke\berth_cmp - Change Report.xlsx"
@@ -89,6 +91,8 @@ start /wait "" dist\TrainPlanningTools.exe --original-folder smoke\bo --updated 
 start /wait "" dist\TrainPlanningTools.exe reorder smoke\multi.xlsx --out smoke --name reordered
 start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\berth.xml --counts --issue Smoke --out smoke --name berth_default
 start /wait "" dist\TrainPlanningTools.exe berthing --compare smoke\berth_layout.xlsx smoke\berth.xlsx --out smoke --name berth_cmp
+start /wait "" dist\TrainPlanningTools.exe berthing --blank --leave-out Barnham --issue Smoke --out smoke --name berth_blank
+start /wait "" dist\TrainPlanningTools.exe berthing --blank --operator TLGN --add Brighton --timetable "May 2027" --out smoke --name berth_blank_tlgn
 python -c "import sys; sys.path.insert(0, 'tests'); import workings_fixture as w; w.make_smoke('smoke')" || goto :failed
 start /wait "" dist\TrainPlanningTools.exe workings-berthing --workings smoke\wk_a.xlsx --out smoke --name wk_berth
 start /wait "" dist\TrainPlanningTools.exe --original smoke\wk_a.xlsx --updated smoke\wk_b.xlsx --out smoke --name wk_cmp
@@ -98,14 +102,24 @@ start /wait "" dist\TrainPlanningTools.exe timetable --base-list smoke\l1.csv --
 start /wait "" dist\TrainPlanningTools.exe --previous smoke\smoke.xlsx --updated smoke\b.xlsx --out smoke --name cumulative
 start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO --out smoke --name sp_mo
 start /wait "" dist\TrainPlanningTools.exe statspack --old-pack smoke\sp.xlsx --new-pack smoke\sp_mo.xlsx --out smoke --name packs
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --mileage-period timetable --out smoke --name sp_tt
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --mileage-period month --month 2027-01 --out smoke --name sp_month
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --mileage-period custom --period-from 14/12/2026 --period-to 20/12/2026 --out smoke --name sp_custom
 start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name cap_group --capacity-group 1A
 start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name cap_ft --capacity-from Brighton --capacity-to "East Croydon"
 start /wait "" dist\TrainPlanningTools.exe berthing --chart smoke\berth.xlsx --original smoke\berth.xml --updated smoke\berth.xml --out smoke --name berth_round
 start /wait "" dist\TrainPlanningTools.exe workings-berthing --workings smoke\wk_a.xlsx --xml smoke\berth.xml --out smoke --name wk_xml
+python -c "import sys; sys.path.insert(0, 'tests'); import test_berthing as t; open('smoke/tlgn.xml', 'w').write(t.tlgn_xml())" || goto :failed
+start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\tlgn.xml --operator TLGN --issue Final --out smoke --name berth_tlgn
+start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\tlgn.xml --leave-out "Hove Yard" --add Bedford --out smoke --name berth_places
+python -c "import sys; sys.path.insert(0, 'tests'); import others_fixture as f; f.southeastern_cif('smoke/se.cif')" || goto :failed
+start /wait "" dist\TrainPlanningTools.exe other-trains --file smoke\wk_a.xlsx --others smoke\se.cif --out smoke --name wk_others
+start /wait "" dist\TrainPlanningTools.exe workings-berthing --workings smoke\wk_a.xlsx --others smoke\se.cif --out smoke --name wk_berth_others
+start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\berth.xml --others smoke\se.cif --out smoke --name berth_others
 start /wait "" dist\TrainPlanningTools.exe stationbook --xml smoke\swb.xml --station Alpha --book-operator SNGX --merge smoke\attune.pdf --other-operators SN --out smoke --name swb_sngx
 start /wait "" dist\TrainPlanningTools.exe timetable --s4-check smoke\s4plan.xml --s4 smoke\s4_old.pdf --other smoke\attune.pdf --out smoke --name s4check_f3
 start /wait "" dist\TrainPlanningTools.exe berthing --xml smoke\berth.xml --no-notes --out smoke --name berth_nonotes
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml swb_sngx s4check_f3 berth_nonotes) do if not exist smoke\%%f.xlsx (
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml berth_tlgn berth_places wk_others wk_berth_others berth_others berth_blank berth_blank_tlgn sp_tt sp_month sp_custom swb_sngx s4check_f3 berth_nonotes) do if not exist smoke\%%f.xlsx (
     echo The built exe did not produce smoke\%%f.xlsx.
     goto :failed
 )

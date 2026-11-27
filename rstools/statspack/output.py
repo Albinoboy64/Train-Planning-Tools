@@ -5,6 +5,7 @@ these 'sinks', so all of them can be produced in any of the three formats.
 """
 from __future__ import annotations
 
+import datetime as _dt
 from typing import List, Optional, Sequence
 
 from rstools.branding import APP_NAME
@@ -46,6 +47,8 @@ def _show(v, unknown: bool) -> str:
         return fmt_dur(v)
     if isinstance(v, float):
         return f"{v:,.2f}"
+    if isinstance(v, _dt.date):
+        return f"{v:%d/%m/%Y}"
     return str(v)
 
 

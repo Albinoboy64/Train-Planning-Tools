@@ -28,14 +28,16 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from rstools import naming
 from rstools.fsutil import clean_cell, output_folder, unique_stem
 
-from .days import SHEET_DAYS
+from .days import tab_day
 from .model import Block, CWNModel, SheetModel, parse_workbook, time_minutes
 from rstools.days import DAY_CODES, DAY_NAMES
 
 Log = Callable[[str], None]
 
 _CODE_DAY = {"MO": 0, "TO": 1, "WO": 2, "THO": 3, "FO": 4, "SO": 5, "SUO": 6, "SU": 6, "SUN": 6}
-_NEXT = re.compile(r"^(?:berth\s+)?[A-Za-z]{1,4}\d{1,4}\s+(\d{1,2})([.+:])(\d{2})\s*([A-Za-z]{1,4})?", re.I)
+# 'Berth BI56 05.05TO', or another operator's 'Berth 1T05 05.40TO' (the train it forms, by headcode)
+_NEXT = re.compile(r"^(?:berth\s+)?(?:[A-Za-z]{1,4}\d{1,4}|\d[A-Za-z]\d{2})\s+"
+                   r"(\d{1,2})([.+:])(\d{2})\s*([A-Za-z]{1,4})?", re.I)
 
 
 class WorkingsError(Exception):
@@ -98,6 +100,11 @@ def station_layout(model_title: str, existing: Sequence[str] = (), seen: Sequenc
 def _plat(text: str) -> str:
     m = re.match(r"\s*(\d+)", text or "")
     return m.group(1) if m else ""
+
+
+def _other_operator(unit: str, cars: str) -> bool:
+    """Another operator's unit added from its own file: the operator code as the stock and no car count."""
+    return bool(re.fullmatch(r"[A-Za-z]{2,4}", (unit or "").strip())) and not (cars or "").strip()
 
 
 def _cars(text: str) -> int:
@@ -168,7 +175,8 @@ def platform_units(sm: SheetModel) -> Tuple[Dict[Tuple[str, str, str, str, int],
         only = next(iter(by_row.values())) if len(by_row) == 1 else None
         for u in b.units:
             nxt = by_row.get(u.row, only)
-            if not plat or nxt is None or not u.cars:
+            other = _other_operator(u.raw.get("unit", ""), u.raw.get("cars", ""))
+            if not plat or nxt is None or not (u.cars or other):
                 problems.append(f"{sm.title.strip()}: a berthed unit ({b.raw.get('dest', '')}) has no platform, "
                                 "cars or next working and is left out - check it")
                 continue
@@ -239,7 +247,7 @@ def siding_events(sm: SheetModel, locations: Dict[str, int]) -> List[Move]:
 def _text(lay: Layout, cars: int, cls: str, op: str, time: str, day: int, rp: bool) -> str:
     code = lay.sunday if day == 6 else DAY_CODES[day]
     label = f"{cls} TLK" if lay.tlk and op == "TLK" else cls
-    return f"{cars} {label} for {'RP ' if rp else ''}{_tt(time)} {code}"
+    return f"{str(cars) + ' ' if cars else ''}{label} for {'RP ' if rp else ''}{_tt(time)} {code}"
 
 
 def _join(lay: Layout, units: List[Unit]) -> str:
@@ -261,10 +269,20 @@ def _stamp(day_from: int, nxt: int, minutes: int) -> int:
     return ((nxt - day_from) % 7) * 2880 + minutes
 
 
+def day_tabs(model: CWNModel) -> Dict[int, SheetModel]:
+    """{day: tab} of the workings' day tabs, named 'MO' ... 'SuO' with or without a date after the code."""
+    tabs: Dict[int, SheetModel] = {}
+    for k, sm in model.sheets.items():
+        d = tab_day(k)
+        if d is not None:
+            tabs.setdefault(d, sm)
+    return tabs
+
+
 def build_sections(model: CWNModel, lay: Layout, roads: Optional[Dict[Tuple[int, int, str, int, int], int]] = None,
                    log: Log = lambda _m: None) -> Dict[int, List[Tuple[str, str]]]:
     """{day: [(label, text), ...]} for each day tab of the workings (the lines of its section, in order)."""
-    tabs: Dict[int, SheetModel] = {SHEET_DAYS[k]: sm for k, sm in model.sheets.items() if k in SHEET_DAYS}
+    tabs = day_tabs(model)
     if not tabs:
         raise WorkingsError("No day tabs (MO, TO, WO, ThO, FO, SO, SuO) were found in these platform workings.")
     platform_by_day, departs = {}, {}
@@ -517,9 +535,29 @@ def _write(ws, sm: SheetModel, lay: Layout, day: int, lines: List[Tuple[str, str
     return differ
 
 
+def _with_others(path: str, others: Sequence[str], log: Log):
+    """The workings read again with the other operators' trains added (in memory only)."""
+    from rstools import others as O
+    from .loader import LoadError, load_any
+    from .other_trains import add_to_workbook
+    try:
+        plans = O.load(others, log)
+        wb2 = load_any(path)
+    except (O.OthersError, LoadError, OSError) as exc:
+        raise WorkingsError(str(exc))
+    model2 = parse_workbook(wb2)
+    added, warnings = add_to_workbook(wb2, model2, plans, set(range(7)))
+    for w in warnings:
+        log(f"NOTE: {w}")
+    log(f"Other operators: {added} train(s) taken into the berthing arrangements")
+    return parse_workbook(wb2)
+
+
 def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", name: str = "",
-                 log: Log = lambda _m: None):
-    """Save a copy of the platform workings with each day's berthing arrangements made from its trains."""
+                 log: Log = lambda _m: None, others: Sequence[str] = ()):
+    """Save a copy of the platform workings with each day's berthing arrangements made from its trains.
+    others: other operators' files (Attune XML, VPT or CIF): their units berthed at the platforms are in the
+    arrangements too (worked out from a copy with their trains added; the workings' own rows are not changed)."""
     from rstools.berthing.engine import Result
     from .loader import LoadError, load_any
     from .xlsxfix import save_workbook
@@ -537,7 +575,7 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
         model = parse_workbook(wb)
     except Exception as exc:                   # an unexpected layout: a message, not a traceback
         raise WorkingsError(f"{os.path.basename(path)} could not be read as platform workings ({exc}).")
-    tabs = {k: sm for k, sm in model.sheets.items() if k in SHEET_DAYS}
+    tabs = day_tabs(model)
     if not tabs:
         raise WorkingsError("No platform workings day tabs (MO, TO, WO, ThO, FO, SO, SuO) were found in "
                             f"{os.path.basename(path)}.")
@@ -548,10 +586,12 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
     roads = roads_from_xml(xml_paths, lay, log) if (xml_paths and lay.sidings) else None
     if xml_paths and not lay.sidings:
         log(f"NOTE: {lay.name} has no sidings in its section, so the XML is not needed")
-    sections = build_sections(model, lay, roads, log)
+    source = model
+    if others:
+        source = _with_others(path, others, log)
+    sections = build_sections(source, lay, roads, log)
     diffs = 0
-    for key, sm in tabs.items():
-        day = SHEET_DAYS[key]
+    for day, sm in tabs.items():
         diffs += _write(wb[sm.title], sm, lay, day, sections[day], log)
     folder = output_folder(out_dir)
     stem = naming.clip(name or f"{os.path.splitext(os.path.basename(path))[0]} (berthing added)")

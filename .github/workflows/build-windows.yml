@@ -212,6 +212,10 @@ jobs:
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_nonotes.xlsx)) { throw "exe did not make a berthing chart without notes" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp' -Wait -PassThru
           if (!(Test-Path "smoke\berth_cmp - Change Report.xlsx")) { throw "exe did not compare two berthing charts" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--leave-out','Barnham','--issue','Smoke','--out','smoke','--name','berth_blank' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_blank.xlsx)) { throw "exe did not make a blank SNGX berthing chart" }
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--operator','TLGN','--add','Brighton','--timetable','"May 2027"','--out','smoke','--name','berth_blank_tlgn' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_blank_tlgn.xlsx)) { throw "exe did not make a blank TLGN berthing chart" }
           python -c "import sys; sys.path.insert(0,'tests'); import workings_fixture as w; w.make_smoke('smoke')"
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'workings-berthing','--workings','smoke\wk_a.xlsx','--out','smoke','--name','wk_berth' -Wait -PassThru
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\wk_berth.xlsx)) { throw "exe did not add berthing arrangements to platform workings" }
@@ -229,10 +233,20 @@ jobs:
           Smoke @('--previous','smoke\smoke.xlsx','--updated','smoke\b.xlsx','--out','smoke','--name','cumulative') 'smoke\cumulative.xlsx' 'add a round to a comparison CWN'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO','--out','smoke','--name','sp_mo') 'smoke\sp_mo.xlsx' 'make a one-day stats pack'
           Smoke @('statspack','--old-pack','smoke\sp.xlsx','--new-pack','smoke\sp_mo.xlsx','--out','smoke','--name','packs') 'smoke\packs.xlsx' 'compare two stats packs'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','timetable','--out','smoke','--name','sp_tt') 'smoke\sp_tt.xlsx' 'make the mileage for the whole timetable'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','month','--month','2027-01','--out','smoke','--name','sp_month') 'smoke\sp_month.xlsx' 'make the mileage for one month'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','custom','--period-from','14/12/2026','--period-to','20/12/2026','--out','smoke','--name','sp_custom') 'smoke\sp_custom.xlsx' 'make the mileage for a custom period'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_group','--capacity-group','1A') 'smoke\cap_group.xlsx' 'make a service group capacity report'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_ft','--capacity-from','Brighton','--capacity-to','"East Croydon"') 'smoke\cap_ft.xlsx' 'make a from-to capacity report'
           Smoke @('berthing','--chart','smoke\berth.xlsx','--original','smoke\berth.xml','--updated','smoke\berth.xml','--out','smoke','--name','berth_round') 'smoke\berth_round.xlsx' 'add a round to a berthing chart'
           Smoke @('workings-berthing','--workings','smoke\wk_a.xlsx','--xml','smoke\berth.xml','--out','smoke','--name','wk_xml') 'smoke\wk_xml.xlsx' 'add berthing arrangements with siding roads from an XML'
+          python -c "import sys; sys.path.insert(0,'tests'); import test_berthing as t; open('smoke/tlgn.xml', 'w').write(t.tlgn_xml())"
+          Smoke @('berthing','--xml','smoke\tlgn.xml','--operator','TLGN','--issue','Final','--out','smoke','--name','berth_tlgn') 'smoke\berth_tlgn.xlsx' 'make a TLGN berthing chart'
+          Smoke @('berthing','--xml','smoke\tlgn.xml','--leave-out','"Hove Yard"','--add','Bedford','--out','smoke','--name','berth_places') 'smoke\berth_places.xlsx' 'make a berthing chart with locations left out and added'
+          python -c "import sys; sys.path.insert(0,'tests'); import others_fixture as f; f.southeastern_cif('smoke/se.cif')"
+          Smoke @('other-trains','--file','smoke\wk_a.xlsx','--others','smoke\se.cif','--out','smoke','--name','wk_others') 'smoke\wk_others.xlsx' 'add other operators trains to platform workings'
+          Smoke @('workings-berthing','--workings','smoke\wk_a.xlsx','--others','smoke\se.cif','--out','smoke','--name','wk_berth_others') 'smoke\wk_berth_others.xlsx' 'add berthing arrangements with other operators'
+          Smoke @('berthing','--xml','smoke\berth.xml','--others','smoke\se.cif','--out','smoke','--name','berth_others') 'smoke\berth_others.xlsx' 'make a berthing chart with other operators'
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--acwn','--highlight-only' -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "exe accepted --acwn with --highlight-only" }
 
@@ -343,19 +357,27 @@ jobs:
             TrainPlanningTools.cdx.json
             SHA256SUMS.txt
 
-  # Automatic merge into main and release. After a green build (lint, type-check, tests, exe, smoke tests) of a
-  # claude/** branch, the branch is merged into main and the new version is built and released as the portable app.
+  # Automatic merge into main and release. After a green build (lint, type-check, tests, exe, smoke tests) of any
+  # branch other than main, pushed from any account, the branch is merged into main and the new version is built and
+  # released as the portable app. Dependabot's branches are built and tested but left for review (its runs have no
+  # write access).
+  #   * When main has moved on since the branch was made (another branch was merged first), the merge result itself is
+  #     linted, type-checked and tested before it is pushed, so main only ever gets code that passed. A branch that
+  #     would take __version__ backwards (one made from an old main) is refused.
+  #   * If main moves while this runs (a push by hand), the merge and checks are done again once on the new main.
   #   * With no setup, GitHub's own token does the merge. GitHub does not let that token change files in
   #     .github/workflows, and a push it makes does not start the build on main, so main is built and released by
-  #     starting the workflow on main directly (below).
+  #     starting the workflow on main directly (below). A branch that edits a workflow is then merged by a pull request.
   #   * To remove both limits, add a repository secret AUTO_MERGE_TOKEN (a fine-grained personal access token for this
   #     repository with Contents and Workflows read and write). Its push to main then starts the normal build and
   #     release by itself.
   # The release is made once per version: bump cwn_compare/__init__.py __version__ for a new release.
   promote:
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/')
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
+      && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/')
+    runs-on: windows-latest        # the same system as the tests, so the merge result is checked like the branch
     permissions:
       contents: write
       actions: write
@@ -364,50 +386,91 @@ jobs:
       cancel-in-progress: false
     env:
       AUTO_MERGE_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.AUTO_MERGE_TOKEN || github.token }}
 
-      - name: Merge the tested commit into main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14.6"
+
+      - name: Merge the tested commit into main (checking the merge result when main has moved on)
         id: merge
-        shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
           tested="$GITHUB_SHA"
-          if git merge-base --is-ancestor origin/main "$tested"; then
-            target="$tested"                                   # main is behind the branch: a fast-forward
-          else
-            git checkout -q --detach origin/main
-            if ! git merge --no-ff -m "Merge $GITHUB_REF_NAME into main (build passed)" "$tested"; then
-              git merge --abort || true
-              echo "::error::$GITHUB_REF_NAME and main changed the same lines, so it cannot be merged automatically. Merge main into the branch (resolve the conflict), push, and this runs again."
+          version_of() { git show "$1:cwn_compare/__init__.py" | python -c "import re, sys; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', sys.stdin.read()).group(1))"; }
+          installed=""
+          check_merge() {
+            if [[ -z "$installed" ]]; then
+              python -m pip install pip==26.3
+              pip install --no-deps -r packaging/build-requirements.txt
+              pip check
+              installed=1
+            fi
+            ruff check . && mypy && python -m pytest -q tests
+          }
+          for attempt in 1 2; do
+            git fetch origin main
+            main_sha=$(git rev-parse origin/main)
+            if git merge-base --is-ancestor "$tested" "$main_sha"; then
+              target="$main_sha"; merged=false                 # main already has this commit
+            elif git merge-base --is-ancestor "$main_sha" "$tested"; then
+              target="$tested"; merged=false                   # main is behind the branch: a fast-forward
+            else
+              git checkout -q --detach "$main_sha"
+              if ! git merge --no-ff -m "Merge $GITHUB_REF_NAME into main (build passed)" "$tested"; then
+                git merge --abort || true
+                echo "::error::$GITHUB_REF_NAME and main changed the same lines, so it cannot be merged automatically. Merge main into the branch (resolve the conflict), push, and this runs again."
+                exit 1
+              fi
+              target=$(git rev-parse HEAD); merged=true
+            fi
+            old=$(version_of "$main_sha"); new=$(version_of "$target")
+            if ! python -c "import sys; v=lambda s: tuple(int(x) for x in s.split('.')); sys.exit(0 if v(sys.argv[2]) >= v(sys.argv[1]) else 1)" "$old" "$new"; then
+              echo "::error::Merging $GITHUB_REF_NAME would take the version from $old back to $new (the branch was made from an older main). Merge main into the branch, bump __version__, push, and this runs again."
               exit 1
             fi
-            target=$(git rev-parse HEAD)
-          fi
-          if [[ "$target" == "$(git rev-parse origin/main)" ]]; then
-            echo "main already has this commit; nothing to merge."
-          elif ! git push origin "$target:refs/heads/main"; then
+            if [[ "$merged" == true ]] && ! check_merge; then
+              echo "::error::main has changed since $GITHUB_REF_NAME was made, and the two merged together fail the checks above. Merge main into the branch, fix what fails, push, and this runs again. main is unchanged."
+              exit 1
+            fi
+            if [[ "$target" == "$main_sha" ]]; then
+              echo "main already has this commit; nothing to merge."
+              break
+            fi
+            if git push origin "$target:refs/heads/main"; then
+              break
+            fi
+            git fetch origin main
+            if [[ "$attempt" == 1 && "$(git rev-parse origin/main)" != "$main_sha" ]]; then
+              echo "main moved while this ran: merging and checking again on the new main."
+              continue
+            fi
             echo "::error::GitHub refused the push to main. If the message above mentions workflow files, this change edits .github/workflows: merge this branch into main once by hand (a pull request), or add the AUTO_MERGE_TOKEN secret (see the notes on this job). If it mentions protected branch or required checks, allow this push in Settings > Rules / Branches."
             exit 1
-          fi
-          version=$(git show "$target:cwn_compare/__init__.py" | python3 -c "import re, sys; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', sys.stdin.read()).group(1))")
+          done
+          version=$(version_of "$target")
           tag=""
           if [[ -n "$version" && -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]]; then
             tag="v$version"
           else
-            echo "v$version is already released: main is updated but no new release is made (bump __version__ for one)."
+            echo "v$version is already released: main is updated and built but no new release is made (bump __version__ for one)."
           fi
+          moved=$([[ "$target" == "$main_sha" ]] && echo false || echo true)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "moved=$moved" >> "$GITHUB_OUTPUT"
           echo "Merged into main; release tag: ${tag:-none}"
 
-      - name: Build and release main (started directly, as a push by GitHub's own token does not start it)
-        if: steps.merge.outputs.tag != '' && env.AUTO_MERGE_TOKEN == ''
+      - name: Build (and release) main (started directly, as a push by GitHub's own token does not start it)
+        if: (steps.merge.outputs.tag != '' || steps.merge.outputs.moved == 'true') && env.AUTO_MERGE_TOKEN == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run build-windows.yml --ref main -f release_tag="${{ steps.merge.outputs.tag }}"

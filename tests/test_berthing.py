@@ -77,6 +77,27 @@ def base_plan(arrive="02:02:00", plan="L"):
     return trains, diagrams
 
 
+def tlgn_xml(start="2026-12-13"):
+    """The base plan plus TLGN units: a 700/0 berths at Bedford platform 3 every night (out at 05:00) and a 700/1
+    at Bedford Cauldwell depot (left off a TLGN chart, as depots are)."""
+    trains, diagrams = base_plan()
+    trains += [train("5B01TL", "20", [("STPX", "23:00:00", "BEDFDM", "23:59:00", "", "3")]),
+               train("2B02TL", "21", [("BEDFDM", "05:00:00", "STPX", "06:00:00", "3", "")]),
+               train("5C01TL", "22", [("STPX", "23:00:00", "BDFDCWD", "23:59:00", "", "")]),
+               train("5C02TL", "23", [("BDFDCWD", "06:00:00", "STPX", "07:00:00", "", "")])]
+    diagrams += [diagram(50, "700/0", [("STPX", "23:00:00", "BEDFDM", "23:59:00", "5B01TL", "20", [])], "BF51 05:00",
+                         depot="BF"),
+                 diagram(51, "700/0", [("BEDFDM", "05:00:00", "STPX", "06:00:00", "2B02TL", "21", [])], "BF50 23+00",
+                         depot="BF"),
+                 diagram(52, "700/1", [("STPX", "23:00:00", "BDFDCWD", "23:59:00", "5C01TL", "22", [])], "BF53 06+00",
+                         depot="BF"),
+                 diagram(53, "700/1", [("BDFDCWD", "06:00:00", "STPX", "07:00:00", "5C02TL", "23", [])], "BF52 23+00",
+                         depot="BF")]
+    return xml(trains, diagrams, start).replace(
+        "</locationList>", '<location tiploc="BEDFDM" longDesc="Bedford"/>'
+                           '<location tiploc="BDFDCWD" longDesc="Bedford Cauldwell T&amp;RSMD"/></locationList>')
+
+
 def make_chart(path, extra_sheet=None, rdh_name="Hove Yard"):
     """A chart laid out like SNGX's, with the old counting rows and formulas, notes and a spelling slip."""
     wb = openpyxl.Workbook()
@@ -610,3 +631,203 @@ def test_location_notes_entry_round_trip():
     assert notes.apply(layout, "DEC26", {"DEC26": {"Bognor|Sdg 3": e}}) == 1
     assert blk.notes == {0: ("", "CET"), 1: ("Max 12", "CET"), 2: ("Short", ""), 3: ("OUT OF USE", "")}
     assert notes.apply(layout, "MAY27", {"DEC26": {"Bognor|Sdg 3": e}}) == 0
+def _cover(path):
+    ws = openpyxl.load_workbook(path)["Cover"]
+    return [ws.cell(r, 1).value for r in range(1, 5)]
+
+
+def test_cover_title_is_the_timetable_and_the_built_in_issue_is_not_used(data):
+    """The title reads '<timetable> Berthing Chart' (from the XML's start date); the built-in chart's 'Proof 2'
+    is not copied onto a new chart; the issue chosen goes under the title; a later round keeps it or changes it."""
+    plain = engine.generate([str(data / "plan.xml")], "", str(data), "plain")
+    title, issue, dates = _cover(plain.chart)[1:4]
+    assert title == "December 2026 Berthing Chart" and not issue and dates == "13/12/26 - 15/05/27"
+    final = engine.generate([str(data / "plan.xml")], "", str(data), "final", "Final")
+    assert _cover(final.chart)[1:3] == ["December 2026 Berthing Chart", "Final"]
+    kept = engine.add_round(final.chart, [str(data / "plan.xml")], [str(data / "plan.xml")], "92D050", str(data),
+                            "kept")
+    assert _cover(kept.chart)[2] == "Final"
+    typed = engine.add_round(plain.chart, [str(data / "plan.xml")], [str(data / "plan.xml")], "92D050", str(data),
+                             "typed", "Timetable change 2")
+    assert _cover(typed.chart)[1:4] == ["December 2026 Berthing Chart", "Timetable change 2", "13/12/26 - 15/05/27"]
+    trains, diagrams = base_plan()
+    (data / "may.xml").write_text(xml(trains, diagrams, start="2027-05-16", end="2027-12-11"))
+    may = engine.generate([str(data / "may.xml")], str(data / "chart.xlsx"), str(data), "may", "Proof 1")
+    assert _cover(may.chart)[1:3] == ["May 2027 Berthing Chart", "Proof 1"]
+    assert "May 27 Proof 1" in engine.generate([str(data / "may.xml")], "", str(data), "", "Proof 1").chart
+
+
+def test_locations_can_be_left_out_and_added(data):
+    """A sheet can be left off the chart and a location in the XML added (by name or TIPLOC): it gets a sheet with
+    a berth for each platform its units use, and a later round of changes still fills it."""
+    (data / "tl.xml").write_text(tlgn_xml())
+    r = engine.generate([str(data / "tl.xml")], str(data / "chart.xlsx"), str(data), "places",
+                        leave_out=["hove yard"], add=["Bedford", "Nowhere", "BRGHTN"])
+    wb = openpyxl.load_workbook(r.chart)
+    assert "Hove Yard" not in wb.sheetnames and "Brighton" in wb.sheetnames and "Bedford" in wb.sheetnames
+    bed = wb["Bedford"]
+    assert bed["A1"].value == "TIPLOC BEDFDM"
+    p3 = row_of(bed, "Plat 3")
+    assert bed.cell(p3, 9).value == "8 700 23+59 TLK" and bed.cell(p3, 10).value == "8 700 0500 TLK"
+    assert any("'Nowhere' is not a location" in w for w in r.warnings)
+    assert any("Brighton (BRGHTN) is already on the chart" in w for w in r.warnings)
+    trains, diagrams = base_plan()
+    later = tlgn_xml().replace('dep="05:00:00" dest="STPX" arr="06:00:00"', 'dep="05:10:00" dest="STPX" arr="06:00:00"')
+    (data / "tl2.xml").write_text(later)
+    rnd = engine.add_round(r.chart, [str(data / "tl.xml")], [str(data / "tl2.xml")], "92D050", str(data), "round")
+    bed = openpyxl.load_workbook(rnd.chart)["Bedford"]
+    assert bed.cell(row_of(bed, "Plat 3"), 10).value == "8 700 0510 TLK"
+    rows = [[c.value for c in row] for row in openpyxl.load_workbook(rnd.report)["Changes"].iter_rows(min_row=2)
+            if row[0].value]
+    assert rows and all(row[0] == "Bedford" for row in rows)
+    with pytest.raises(BerthingError, match="No locations are left"):
+        engine.generate([str(data / "plan.xml")], str(data / "chart.xlsx"), str(data), "none",
+                        leave_out=["Brighton", "Hove Yard"])
+
+
+def test_tlgn_chart_is_laid_out_from_the_xml_without_depots(data):
+    """A TLGN chart has a sheet for each place TLGN units berth (not depots), only TLGN units, and a TLGN cover with
+    its own unit types; a round of changes keeps to TLGN units."""
+    (data / "tl.xml").write_text(tlgn_xml())
+    r = engine.generate([str(data / "tl.xml")], "", str(data), "", "Proof 1", operator="tlgn",
+                        leave_out=["STPX"])
+    wb = openpyxl.load_workbook(r.chart)
+    assert wb.sheetnames == ["Cover", "Bedford", "Notes"]                  # no depot, no SNGX-only Brighton
+    assert os.path.basename(r.chart) == "TLGN Berthing Chart Dec 26 Proof 1.xlsx"
+    cover = wb["Cover"]
+    assert _cover(r.chart)[:3] == ["Thameslink/Great Northern", "December 2026 Berthing Chart", "Proof 1"]
+    lines = {(cover.cell(i, 2).value, cover.cell(i, 3).value) for i in range(1, cover.max_row + 1)}
+    assert ("700/0", "is an 8 car unit") in lines and ("700/1", "is a 12 car unit") in lines
+    assert not any(a in ("377/4", "387/2") for a, _b in lines)
+    texts = [c.value for row in cover.iter_rows() for c in row if isinstance(c.value, str)]
+    assert not any("Gatwick Express red" in t for t in texts) and "[Cambridge]" in texts
+    rnd = engine.add_round(r.chart, [str(data / "tl.xml")], [str(data / "tl.xml")], "92D050", str(data), "round")
+    assert openpyxl.load_workbook(rnd.chart).sheetnames == ["Cover", "Bedford", "Notes"]
+    with pytest.raises(BerthingError, match="laid out from the XML"):
+        engine.generate([str(data / "tl.xml")], str(data / "chart.xlsx"), str(data), operator="TLGN")
+    with pytest.raises(BerthingError, match="not a chart type"):
+        engine.generate([str(data / "tl.xml")], "", str(data), operator="XYZ")
+
+
+def test_find_places_and_the_choose_locations_ticks(data):
+    from rstools.berthing import auto
+    (data / "tl.xml").write_text(tlgn_xml())
+    tl = {p.tiploc: p for p in engine.find_places([str(data / "tl.xml")], "TLGN")}
+    assert set(tl) == {"BEDFDM", "BDFDCWD", "STPX"} and tl["BDFDCWD"].depot and not tl["BEDFDM"].depot
+    sn = {p.tiploc: p for p in engine.find_places([str(data / "tl.xml")], "SNGX")}
+    assert sn["BRGHTN"].on_chart and not sn["BEDFDM"].on_chart
+    rows = auto.initial_choices("SNGX", ["Brighton", "Hove Yard"], ["Hove Yard"], ["XYZ"])
+    rows = auto.merge_places(rows, list(sn.values()), "SNGX")
+    for r in rows:
+        if r.key == "BEDFDM":
+            r.ticked = True
+    leave, add = auto.chosen(rows)
+    assert leave == ["Hove Yard"] and set(add) == {"XYZ", "BEDFDM"}
+    rows = auto.merge_places(auto.initial_choices("TLGN", [], [], []), list(tl.values()), "TLGN")
+    assert {r.key: r.ticked for r in rows} == {"BEDFDM": True, "STPX": True, "BDFDCWD": False}
+
+
+def test_command_line_operator_and_locations(data, capsys):
+    import TrainPlanningTools as cli
+    (data / "tl.xml").write_text(tlgn_xml())
+    cli.main(["berthing", "--xml", str(data / "tl.xml"), "--operator", "tlgn", "--leave-out", "STPX", "--out",
+              str(data), "--name", "cli_tl"])
+    assert openpyxl.load_workbook(str(data / "cli_tl.xlsx")).sheetnames == ["Cover", "Bedford", "Notes"]
+    cli.main(["berthing", "--blank", "--operator", "TLGN", "--add", "Brighton", "--timetable", "May 2027", "--out",
+              str(data), "--name", "cli_blank"])
+    assert openpyxl.load_workbook(str(data / "cli_blank.xlsx")).sheetnames == ["Cover", "Brighton", "Notes"]
+    for bad in (["--compare", "a", "b", "--add", "X"], ["--xml", "a", "--layout", "b", "--operator", "TLGN"],
+                ["--blank", "--xml", "a", "--timetable", "May 2027"], ["--blank", "--counts"],
+                ["--xml", "a", "--timetable", "May 2027"], ["--blank", "--from", "2027-05-16"], []):
+        with pytest.raises(SystemExit):
+            cli.main(["berthing", *bad])
+
+
+def _all_text(path):
+    wb = openpyxl.load_workbook(path)
+    return wb, [c.value for ws in wb.worksheets if ws.title not in ("Cover", "Notes") for row in ws.iter_rows()
+                for c in row if isinstance(c.value, str)]
+
+
+def test_blank_sngx_chart_keeps_the_layout_and_notes_with_no_units(data):
+    """A blank SNGX chart: every built-in sheet, berth, capacity and note, no units; the built-in chart's issue and
+    dates are not carried over; locations can be left out and added (berths from the berth list)."""
+    import re
+    r = engine.blank("SNGX", out_dir=str(data), issue="Proof 1", timetable="May 2027", leave_out=["Barnham"],
+                     add=["Nowhere at all"])
+    wb, texts = _all_text(r.chart)
+    assert os.path.basename(r.chart) == "Blank Berthing Chart May 2027 Proof 1.xlsx"
+    assert "Barnham" not in wb.sheetnames and "Brighton" in wb.sheetnames and wb.sheetnames[-1] == "Notes"
+    assert not any(re.search(r"\b\d{3}/\d\b|\(\d{3}|\bBerth\b", t) for t in texts)     # no units, no 'Berth'
+    cover = [t for t in _cover(r.chart) if t]
+    assert cover[1:3] == ["May 2027 Berthing Chart", "Proof 1"]
+    assert "Proof 2" not in cover and not any(re.fullmatch(r"\d\d/\d\d/\d\d - \d\d/\d\d/\d\d", t) for t in cover)
+    every = [c.value for row in wb["Cover"].iter_rows() for c in row if isinstance(c.value, str)]
+    assert any("Units/diagrams shown in brackets" in t for t in every)                 # the notes are kept
+    assert not any(re.fullmatch(r"\d\d/\d\d/\d\d - \d\d/\d\d/\d\d", t) for t in every)
+    assert any("Nowhere at all" in w for w in r.warnings)
+    ws = wb["Bognor"]
+    caps = [c.value for row in ws.iter_rows() for c in row if str(c.value or "").isdigit()]
+    assert caps                                                                        # capacities are kept
+    dated = engine.blank("SNGX", out_dir=str(data), name="dated", start="2027-05-16", end="2027-12-11")
+    assert "16/05/27 - 11/12/27" in [c.value for row in openpyxl.load_workbook(dated.chart)["Cover"].iter_rows()
+                                     for c in row]
+
+
+def test_blank_tlgn_chart_from_an_xml_or_from_the_locations_added(data):
+    (data / "tl.xml").write_text(tlgn_xml())
+    r = engine.blank("TLGN", xml_paths=[str(data / "tl.xml")], out_dir=str(data), leave_out=["STPX"])
+    wb, texts = _all_text(r.chart)
+    assert wb.sheetnames == ["Cover", "Bedford", "Notes"]
+    assert not any("700" in t for t in texts)
+    assert _cover(r.chart)[:2] == ["Thameslink/Great Northern", "December 2026 Berthing Chart"]
+    typed = engine.blank("TLGN", out_dir=str(data), name="typed", add=["Brighton", "BEDFDM"])
+    wb = openpyxl.load_workbook(typed.chart)
+    assert wb.sheetnames[0] == "Cover" and "Brighton" in wb.sheetnames and len(wb.sheetnames) == 4
+    labels = [c.value for row in wb["Brighton"].iter_rows() for c in row if isinstance(c.value, str)]
+    assert "Plat 1" in labels                                       # berths from the berth list
+    with pytest.raises(BerthingError, match="only the locations you add"):
+        engine.blank("TLGN", out_dir=str(data))
+    with pytest.raises(BerthingError, match="no layout of its own"):
+        engine.blank("TLGN", str(data / "x.xlsx"), out_dir=str(data))
+    with pytest.raises(BerthingError, match="not a date"):
+        engine.blank("SNGX", out_dir=str(data), start="16/05/27", end="2027-12-11")
+
+
+def test_the_window_makes_a_blank_tlgn_chart(tmp_path, monkeypatch):
+    import time
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "data"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from cwn_compare import gui
+    shown = []
+    monkeypatch.setattr(gui.messagebox, "showinfo", lambda *_a, **_k: shown.append("info"))
+    monkeypatch.setattr(gui.messagebox, "showwarning", lambda *_a, **_k: shown.append("warn"))
+    monkeypatch.setattr(gui.App, "open_outputs", lambda self, *_a, **_k: None)
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return                                          # no display
+    try:
+        assert ("berth_blank", "Create a blank berthing chart") in gui.STOCK_TASKS
+        app.mode.set("berth_blank")
+        app._mode_changed()
+        app.berth_operator.set("TLGN")
+        app._berth_operator_changed()
+        app.update()
+        assert app.run_btn.cget("text") == "Create blank chart"
+        assert str(app.berth_counts_cb.winfo_manager()) == "" and str(app.berth_tt_entry.winfo_manager()) == "grid"
+        assert str(app.berth_rows["berth_blank"][1][1].winfo_manager()) == ""      # no layout box for TLGN
+        app.berth_add["TLGN"] = ["Brighton"]
+        app.berth_timetable.set("May 2027")
+        app.out_dir.set(str(tmp_path))
+        app._run()
+        end = time.time() + 60
+        while time.time() < end and not shown:
+            app.update()
+            time.sleep(0.05)
+        assert shown == ["info"], (shown, app.log.get("1.0", "end"), app.status.cget("text"))
+        out = os.path.join(str(tmp_path), "TLGN Blank Berthing Chart May 2027.xlsx")
+        assert openpyxl.load_workbook(out).sheetnames == ["Cover", "Brighton", "Notes"]
+    finally:
+        app.destroy()

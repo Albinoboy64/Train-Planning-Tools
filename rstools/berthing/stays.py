@@ -42,6 +42,8 @@ class Stay:
     nights: int                 # 1 = leaves the next day; 3 = berthed for two whole days as well
     arrive: End
     depart: Optional[End]       # None when the XML does not say what the unit works next
+    other: str = ""             # another operator's unit: its operator code ('' for the chart's own)
+    by_headcode: bool = False   # no unit type known: the headcodes are shown in its place
 
 
 @dataclass

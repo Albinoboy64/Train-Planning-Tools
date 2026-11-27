@@ -53,6 +53,11 @@ class Options:
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
     berth_counts: bool = False       # berthing chart: unit counts under each siding location
     berth_notes: bool = True         # berthing chart: location notes shown (with those edited for the timetable)
+    berth_timetable: str = ""        # blank berthing chart with no XML: the timetable on the cover, e.g. 'May 2027'
+    use_others: bool = True          # include the other operators' files given (berthing charts, workings)
+    berth_operator: str = "SNGX"     # berthing chart: SNGX (built-in layout) or TLGN (laid out from the XML)
+    berth_leave_out: Dict[str, List[str]] = field(default_factory=dict)  # operator -> sheets left off the chart
+    berth_add: Dict[str, List[str]] = field(default_factory=dict)        # operator -> locations added to it
     original: str = ""               # original CWN, or previous comparison CWN (cumulative)
     updated: str = ""
     output_type: str = "full"        # full (highlighted and noted) | highlight (highlighted only) | acwn
@@ -121,6 +126,11 @@ class Options:
                 o.book_group = "TLGN"
             o.recent = {k: [p for p in v if isinstance(p, str)] for k, v in o.recent.items()
                         if isinstance(k, str) and isinstance(v, list)}
+            for name in ("berth_leave_out", "berth_add"):
+                setattr(o, name, {k: [p for p in v if isinstance(p, str)] for k, v in getattr(o, name).items()
+                                  if isinstance(k, str) and isinstance(v, list)})
+            if o.berth_operator not in ("SNGX", "TLGN"):
+                o.berth_operator = "SNGX"
             o.saved = {k: v for k, v in o.saved.items() if isinstance(k, str) and isinstance(v, dict)
                        and isinstance(v.get("tab"), int) and isinstance(v.get("state"), dict)}
             cats = default_categories()

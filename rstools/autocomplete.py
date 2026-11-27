@@ -11,6 +11,8 @@ import re
 import tkinter as tk
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from rstools.naming import shorten_path
+
 MAX_ROWS = 10
 _NAV = {"Up", "Down", "Return", "KP_Enter", "Escape", "Tab", "Shift_L", "Shift_R", "Control_L", "Control_R",
         "Alt_L", "Alt_R", "Left", "Right", "Home", "End"}
@@ -81,16 +83,19 @@ def matches(typed: str, names: Sequence[str], limit: int = 200) -> List[str]:
 
 class Suggest:
     """Attach a suggestion list to an Entry or editable Combobox. `names` returns the names to suggest
-    (called each time, so the list follows the files chosen); `on_pick` runs after a name is taken."""
+    (called each time, so the list follows the files chosen); `on_pick` runs after a name is taken.
+    paths: the names are file paths; the list is made wide enough to show them whole (within the screen,
+    shortening the folders of any that still don't fit), and a Combobox's drop-down arrow opens it."""
 
     def __init__(self, entry: Any, names: Callable[[], Sequence[str]],
-                 on_pick: Optional[Callable[[str], None]] = None):
-        self.entry, self.names, self.on_pick = entry, names, on_pick
+                 on_pick: Optional[Callable[[str], None]] = None, paths: bool = False):
+        self.entry, self.names, self.on_pick, self.paths = entry, names, on_pick, paths
         self.popup: Optional[tk.Toplevel] = None
         self.box: Optional[tk.Listbox] = None
-        self.items: List[str] = []                  # what each row puts in the box (a Choice's full text)
+        self.items: List[str] = []                     # the names listed (the rows may show them shortened)
         self._path_tip: Optional[Tuple[tk.Toplevel, tk.Label]] = None
         self._hide_job = None
+        entry.bind("<ButtonPress-1>", self._pressed, add="+")
         entry.bind("<KeyRelease>", self._typed, add="+")
         entry.bind("<ButtonRelease-1>", self._clicked_box, add="+")
         entry.bind("<Down>", self._down)
@@ -103,8 +108,32 @@ class Suggest:
         entry.bind("<Destroy>", lambda _e: self._gone(), add="+")
         entry.bind("<Configure>", lambda _e: self._place() if self.shown else None, add="+")
 
-    def _clicked_box(self, _e=None):
-        """A click in the empty box lists everything it can suggest (there is no drop-down arrow)."""
+    def _on_arrow(self, e) -> bool:
+        try:
+            return e is not None and "downarrow" in str(self.entry.identify(e.x, e.y))
+        except (tk.TclError, AttributeError):
+            return False
+
+    def _pressed(self, e):
+        """The drop-down arrow opens (or closes) the list of everything it can suggest."""
+        if not self._on_arrow(e):
+            return None
+        try:
+            if str(self.entry.cget("state")) == "disabled":
+                return "break"
+        except tk.TclError:
+            return "break"
+        if self.shown:
+            self.hide()
+        else:
+            self.entry.focus_set()
+            self.show(list(self.names())[:MAX_ROWS * 20])
+        return "break"                             # not the Combobox's own (empty) list
+
+    def _clicked_box(self, e=None):
+        """A click in the empty box lists everything it can suggest."""
+        if self._on_arrow(e):
+            return
         try:
             if not self.entry.get().strip() and str(self.entry.cget("state")) != "disabled":
                 self.show(list(self.names())[:MAX_ROWS * 20])
@@ -143,32 +172,64 @@ class Suggest:
         p = theme.CURRENT or theme.PALETTES["light"]          # the theme in use now (it can be changed)
         box.configure(background=p["field"], foreground=p["fg"], selectbackground=p["select"],
                       selectforeground=p.get("select_fg", p["fg"]))
-        box.delete(0, "end")
         self.items = list(items)
-        for i, n in enumerate(self.items):
-            box.insert("end", _label(n))
+        width = self._list_width(items)
+        box.delete(0, "end")
+        for i, n in enumerate(items):
+            box.insert("end", self._row(n, width))
             if getattr(n, "missing", False):
                 box.itemconfig(i, foreground=p["error"], selectforeground=p["error"])
         box.configure(height=min(len(items), MAX_ROWS))
-        self._place()
+        self._place(width)
         popup.deiconify()
         popup.lift()
         from rstools import widgets
         widgets.popup_opened(self.popup)
 
-    def _place(self):
+    def _text_width(self, text: str) -> int:
+        from tkinter import font
+        try:
+            return font.Font(font=self.box.cget("font") if self.box is not None else None).measure(text)
+        except (tk.TclError, AttributeError):
+            return 7 * len(text)
+
+    def _list_width(self, items: Sequence[str]) -> int:
+        """The list's width: the box's (within the window); for paths, as wide as the longest path needs,
+        up to the width of the screen."""
         e = self.entry
         top = e.winfo_toplevel()
         from rstools.theme import screen_area
         area = screen_area(e)
         room = min(top.winfo_rootx() + top.winfo_width(), area[2]) - e.winfo_rootx() - 4
         width = max(min(e.winfo_width(), room), 160)          # within the window, not off its edge
+        if self.paths and items:
+            need = max(self._text_width(_label(n)) for n in items) + 24     # the border, padding and a scroll bar
+            width = max(width, min(need, area[2] - area[0] - 8))
+        return width
+
+    def _row(self, name: str, width: int) -> str:
+        """What a row shows: a recent file's name (a Choice's label), or a whole path, its folders shortened
+        where it does not fit."""
+        shown = _label(name)
+        if not self.paths or shown != str(name):
+            return shown
+        return shorten_path(shown, lambda t: self._text_width(t) + 24 <= width)
+
+    def _place(self, width: Optional[int] = None):
+        e = self.entry
+        if self.box is None or self.popup is None:
+            return
+        from rstools.theme import screen_area
+        area = screen_area(e)
+        if width is None:
+            width = self._list_width(self.items)
+        x = max(min(e.winfo_rootx(), area[2] - width - 4), area[0])   # moved left if it would go off screen
         self.box.update_idletasks()                          # the height for the rows just put in
         height = self.box.winfo_reqheight()
         y = e.winfo_rooty() + e.winfo_height()
         if y + height > area[3] and e.winfo_rooty() - height >= area[1]:
             y = e.winfo_rooty() - height                     # no room below the box: open above it
-        self.popup.geometry(f"{width}x{height}+{e.winfo_rootx()}+{y}")
+        self.popup.geometry(f"{width}x{height}+{x}+{y}")
 
     def hide(self):
         self._hide_path()
@@ -275,10 +336,10 @@ class Suggest:
     def _up(self, _e):
         return self._move(-1) if self.shown else None
 
-    def _row(self, i: int) -> Optional[str]:
+    def _pick(self, i: int) -> Optional[str]:
         """What row i puts in the box (None for a file that is no longer there)."""
-        n = self.items[i] if 0 <= i < len(self.items) else None
-        if n is None or getattr(n, "missing", False):
+        n = self._item(i)
+        if not n or getattr(n, "missing", False):
             try:
                 self.entry.bell()
             except tk.TclError:
@@ -296,16 +357,21 @@ class Suggest:
         if self.on_pick:
             self.on_pick(name)
 
+    def _item(self, i: int) -> str:
+        if 0 <= i < len(self.items) or self.box is None:
+            return self.items[i] if 0 <= i < len(self.items) else ""
+        return self.box.get(i)
+
     def _enter(self, _e):
         if self.shown and self.box.curselection():
-            self._take(self._row(self.box.curselection()[0]))
+            self._take(self._pick(self.box.curselection()[0]))
             return "break"
         self.hide()
         return None
 
     def _tab(self, _e):
         if self.shown and self.box.curselection():
-            self._take(self._row(self.box.curselection()[0]))
+            self._take(self._pick(self.box.curselection()[0]))
         self.hide()
 
     def _escape(self, _e):
@@ -326,7 +392,7 @@ class Suggest:
             self._hide_job = None
         i = self.box.nearest(event.y)
         if i >= 0:
-            name = self._row(i)
+            name = self._pick(i)
             if name is None:
                 return                              # a file no longer there: the list stays open
             self._take(name)

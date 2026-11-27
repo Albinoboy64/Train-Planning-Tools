@@ -14,8 +14,8 @@ import dataclasses
 from dataclasses import dataclass, asdict, fields
 from typing import Dict, List, Optional, Tuple
 
+from .days import tab_day
 from .model import Block, CWNModel, SheetModel, FIELD_LABELS, UnitRow, is_next_working
-from rstools.days import DAY_CODES
 
 # key, label, has "show previous value" option, tooltip
 CATEGORIES = [
@@ -223,6 +223,23 @@ def _row_spec(blk: Block, r: int) -> List[dict]:
     return [s for s in blk.rows if s.get("r") == r]
 
 
+def workings_tab_pairs(old: CWNModel, new: CWNModel) -> Dict[str, str]:
+    """{new tab key: old tab key} for platform workings day tabs named with different dates in the two
+    files ('MO 14-12-26' against 'MO 21-12-26'), so they are compared as the same day."""
+    from .days import sheet_day
+    spare_old: Dict[int, str] = {}
+    for k, sh in old.sheets.items():
+        d = sheet_day(sh)
+        if k not in new.sheets and d is not None:
+            spare_old.setdefault(d, k)
+    out: Dict[str, str] = {}
+    for k, sh in new.sheets.items():
+        d = sheet_day(sh)
+        if k not in old.sheets and d is not None and d in spare_old:
+            out[k] = spare_old.pop(d)
+    return out
+
+
 def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = False,
                    full_old: Optional[CWNModel] = None, full_new: Optional[CWNModel] = None) -> List[Change]:
     """All changes between two CWNs. loose: ignore differences only in spacing or punctuation in
@@ -240,9 +257,11 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
         sh = model.sheets.get(sk) if model else None
         return {b.base_id for b in sh.blocks if b.base_id} if sh else set()
     changes: List[Change] = []
-    keys = list(new.sheets) + [k for k in old.sheets if k not in new.sheets]
+    alias = workings_tab_pairs(old, new)
+    keys = list(new.sheets) + [k for k in old.sheets if k not in new.sheets and k not in alias.values()]
     for i, sk in enumerate(keys):
-        so = old.sheets.get(sk)
+        ok = alias.get(sk, sk)
+        so = old.sheets.get(ok)
         sn = new.sheets.get(sk)
         sheet = sn or so
         assert sheet is not None                # every key comes from one side or the other
@@ -287,7 +306,7 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
             when = n.raw.get("time") or n.raw.get("inwards") or ""
             where = n.raw.get("dest") or ""
             info = " ".join(x for x in (when, where) if x)
-            if full_old is not None and n.base_id and n.base_id in at(full_old, sk):
+            if full_old is not None and n.base_id and n.base_id in at(full_old, ok):
                 cat, desc = "DAYS", f"Now runs on the chosen day(s) ({info})"
             elif n.base_id and n.base_id not in old_ids:
                 cat, desc = "NEW", f"New train ({info})"
@@ -303,14 +322,12 @@ def compare_models(old: CWNModel, new: CWNModel, progress=None, loose: bool = Fa
     return changes
 
 
-_DAY_TAB = {c.upper(): i for i, c in enumerate(DAY_CODES)}
-
-
 def tab_order(title: str) -> tuple:
-    """Sort key for tab names: the day tabs of platform workings Monday first (their names can end in a space),
-    other tabs (CWN locations) alphabetically."""
+    """Sort key for tab names: the day tabs of platform workings Monday first, dated ones too ('MO 14-12-26',
+    'SuO 13-12-26'; their names can end in a space), then other tabs (CWN locations) alphabetically."""
     t = title.strip().upper()
-    return (0, _DAY_TAB[t], "") if t in _DAY_TAB else (1, 0, t)
+    day = tab_day(t)
+    return (0, day, t) if day is not None else (1, 0, t)
 
 
 def _footer_text(text: str) -> str:

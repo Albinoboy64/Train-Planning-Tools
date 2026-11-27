@@ -5,7 +5,7 @@ import datetime as _dt
 import os
 import re
 from collections import Counter
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 _DATE = re.compile(r"\b\d{1,2}[-./]\d{1,2}[-./]\d{2,4}\b")
@@ -106,3 +106,18 @@ def plural(n: int, word: str, many: str = "") -> str:
     if not many:
         many = word + ("es" if word.endswith(("s", "sh", "ch", "x")) else "s")
     return f"{n:,} {many}"
+
+
+def shorten_path(path: str, fits: Callable[[str], bool]) -> str:
+    """The path as it is if `fits` says so; else with folders after the drive left out, nearest the drive
+    first ('C:\\...\\Downloads\\file.xlsx'), so the drive, the last folders and the whole file name stay readable."""
+    if fits(path):
+        return path
+    sep = "\\" if "\\" in path else "/"
+    head, _, name = path.rpartition(sep)
+    first, *rest = head.split(sep)
+    for i in range(1, len(rest) + 1):
+        cand = sep.join([first, "...", *rest[i:], name])
+        if fits(cand):
+            return cand
+    return name
