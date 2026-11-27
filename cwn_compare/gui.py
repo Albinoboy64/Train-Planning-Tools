@@ -1730,7 +1730,7 @@ class App(tk.Tk):
         self._book_ops: List[str] = []
         rows = (("station", "Station:"), ("platforms", "Platforms (optional):"), ("list", "Several stations:"),
                 ("group", "Operator:"), ("timetable", "Timetable:"), ("services", "Services (blank: the operator's):"),
-                ("label", "Sheet name:"), ("merge", "Other operators (XML preferred; VPT or F3 print):"),
+                ("label", "Sheet name:"), ("merge", "Other operators (optional):"),
                 ("ops", "Other operators shown:"))
         for r, (key, text) in enumerate(rows):
             ttk.Label(sb, text=text).grid(row=r, column=0, sticky="w", pady=1)
@@ -1745,7 +1745,7 @@ class App(tk.Tk):
                                  values=[label for _k, label in BOOK_GROUPS])
                 w.bind("<<ComboboxSelected>>", lambda _e: self._book_group_changed())
             elif key == "ops":
-                self.book_ops_button = w = ttk.Menubutton(sb, text="(add other operators' files above)")
+                self.book_ops_button = w = ttk.Menubutton(sb, text="(none added)")
                 self.book_ops_menu = tk.Menu(w, tearoff=False)
                 w.configure(menu=self.book_ops_menu)
                 self.book_ops_vars: Dict[str, tk.BooleanVar] = {}
@@ -1850,7 +1850,7 @@ class App(tk.Tk):
                 self.book_hidden_ops.append(op)
         shown = [op for op, v in self.book_ops_vars.items() if v.get()]
         if not self.book_ops_vars:
-            text = "(add other operators' files above)"
+            text = "(none added)"
         elif len(shown) == len(self.book_ops_vars):
             text = "All: " + ", ".join(shown)
         else:

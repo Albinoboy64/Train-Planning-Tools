@@ -674,8 +674,8 @@ class StatsPackTab(ttk.Frame):
                 name = plans_name(self._prints[0], self._prints[1], get["xml_a"], get["xml_b"], ticked)
         except Exception:
             name = None
-        self.name_hint.configure(text=name or ("named from the two packs" if mode == "packs" else
-                                               "named from the timetable, e.g. Stats pack for DEC26"))
+        self.name_hint.configure(text=name or ("from the two packs' names" if mode == "packs" else
+                                               "e.g. Stats pack for DEC26"))
 
     def _browse(self, key):
         cur = self.vars[key].get().strip() or self.vars.get(key.replace("_b", "_a"), tk.StringVar()).get().strip()

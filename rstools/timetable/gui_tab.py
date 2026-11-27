@@ -195,7 +195,7 @@ class TimetableTab(ttk.Frame):
         self.s4_boxes = {}
         rows = (("xml", "Attune XML:", "Browse..."), ("pdf", "Section 4 PDF(s):", "Add..."),
                 ("vpt", "GTR VPT (optional):", "Browse..."),
-                ("others", "Other operators (optional; VPT preferred, or F3 print):", "Add..."))
+                ("others", "Other operators (optional):", "Add..."))
         for r, (key, text, btn) in enumerate(rows, start=1):
             pad = 2
             ttk.Label(uf, text=text).grid(row=r, column=0, sticky="w", pady=pad)

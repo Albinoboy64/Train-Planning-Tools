@@ -36,9 +36,6 @@ TIPS = {
     "CWN:": "The multi-day CWN. It is not changed - a copy is saved.",
     "GTR VPT (optional):": "A VPT of the same timetable: its running lines settle clashes where "
         "only some lines are blocked.",
-    "Other operators (optional; VPT preferred, or F3 print):": "Other operators' trains, checked too. A VPT export "
-        "is preferred; an Attune Single Train Report (F3) print, PDF or Word, also works (its Line column gives the "
-        "running lines).",
     "Check an Attune XML against Section 4 possessions": (
         "Check the Attune XML against the Engineering Access Statement Section 4: every train running through "
         "a section during one of its possessions. The XML has no running lines, so where only some lines are "
@@ -58,9 +55,6 @@ TIPS = {
     "Timetable:": "For the page header and file name, e.g. Dec23. Filled in from the XML's start date.",
     "Services (blank: the operator's):": "For the page header. Blank: the operator's, e.g. 'Thameslink and Great "
                                          "Northern services only' or 'Southern and Gatwick Express services only'.",
-    "Other operators (XML preferred; VPT or F3 print):": "Other operators' trains at the station, merged into the "
-        "book and marked with their operator. Attune XML is preferred (it gives the stock); a VPT export or an "
-        "Attune Single Train Report (F3) print, PDF or Word, also works but the stock is blank.",
     "Other operators shown:": "Tick which of the other operators found in those files are shown in the book.",
     "Sheet name:": "The start of each sheet's name, before SX / SO / Su. Blank: the station and operator, e.g. "
                    "'London Kings Cross (TLGN)'.",
@@ -113,9 +107,11 @@ TIPS = {
     "Add other operators' trains to a CWN or platform workings": "Other operators' trains (from their Attune XML, a "
         "VPT or a Network Rail CIF) added in time order in grey italics, the operator code as the stock. Existing rows "
         "are not changed.",
-    "Other operators (optional):": "Other operators' files: Attune XML, VPT or Network Rail CIF (use Browse to add "
-                                   "several). Without next-day workings or unit types, units are matched by place "
-                                   "and shown by headcode (chart) or operator code (workings).",
+    "Other operators (optional):": (
+        "Other operators' files, whose trains are added: Attune XML, VPT, Network Rail CIF or an Attune Single "
+        "Train Report (F3) print, as the task takes them. Browse / Add lists the preferred type first: Attune XML "
+        "for a station book or chart (it has the unit diagrams, so the stock is shown), VPT for the Section 4 "
+        "check. Separate several with ';'."),
     "Other operators' files:": "Attune XML, VPT or Network Rail CIF files of the other operators (use Browse to add "
                                "several).",
     "CWN or platform workings:": "The CWN or platform workings to add the other operators' trains to (a copy is "

@@ -402,8 +402,9 @@ class LimitsPage(ttk.Frame):
         from rstools import limits
         ttk.Label(self, text="The largest files the app reads. They are far above any real planning file; raise one "
                              "only if a genuine file is refused as too large.", style="Small.TLabel",
-                  wraplength=px(self, 640), justify="left").grid(row=0, column=0, columnspan=3, sticky="w",
+                  wraplength=px(self, 640), justify="left").grid(row=0, column=0, columnspan=4, sticky="w",
                                                                  pady=(0, 6))
+        self.columnconfigure(3, weight=1)               # the note's spare width goes here, not between the columns
         self.vars: Dict[str, tk.StringVar] = {}
         for r, name in enumerate(limits.DEFAULTS, start=1):
             mb = _is_mb(name)

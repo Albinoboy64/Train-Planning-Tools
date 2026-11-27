@@ -50,7 +50,7 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
     "s4check": [("xa", "Attune XML:", (".xml",), False),
                 ("a", "Section 4 PDF(s) (optional):", (".pdf",), True),
                 ("xb", "GTR VPT (optional):", (".vpt",), False),
-                ("tb", "Other operators (optional; VPT preferred, or F3 print):", (".vpt",) + _PR, True)],
+                ("tb", "Other operators (optional):", (".vpt",) + _PR, True)],
     "berthing": [("a", "Original berthing chart:", _XL, False), ("b", "Updated berthing chart:", _XL, False)],
     "units": [("xa", "Original Attune XML (optional):", (".xml",), False),
               ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
@@ -354,8 +354,8 @@ class LiveTab(ttk.Frame):
             sw.grid(row=0, column=col, padx=(0 if col == 0 else 10, 3))
             ttk.Label(keys, text=text, style="Small.TLabel").grid(row=0, column=col + 1)
             col += 2
-        ttk.Label(self.legend, text="Grey text: not compared.   * or bold: updated by the last refresh.   "
-                                    "!: changed since confirmed.   Click a row to see its full values.",
+        ttk.Label(self.legend, text="Grey: not compared.   * or bold: updated by the last refresh.   "
+                                    "!: changed since confirmed.",
                   style="Small.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
         for widget in (self.listv, self.detail):
             widget.bind("<F3>", lambda _e: self.step(1) or "break")
