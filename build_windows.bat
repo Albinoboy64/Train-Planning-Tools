@@ -67,7 +67,8 @@ python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=
 python -c "import sys; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')" || goto :failed
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_compare as t; [os.makedirs('smoke/' + d, exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make('smoke/bo/' + n + ' Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make('smoke/bu/' + n + ' Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')" || goto :failed
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+if exist "smoke\wk_cmp - Change Report.xlsx" del "smoke\wk_cmp - Change Report.xlsx"
 for %%f in (sp.pdf units.docx berth_cmp.xlsx) do if exist smoke\%%f del smoke\%%f
 if exist "smoke\K_D26 Consolidated TT Comparison.xlsx" del "smoke\K_D26 Consolidated TT Comparison.xlsx"
 if exist "smoke\berth_cmp - Change Report.xlsx" del "smoke\berth_cmp - Change Report.xlsx"
@@ -90,7 +91,17 @@ start /wait "" dist\TrainPlanningTools.exe berthing --compare smoke\berth_layout
 python -c "import sys; sys.path.insert(0, 'tests'); import workings_fixture as w; w.make_smoke('smoke')" || goto :failed
 start /wait "" dist\TrainPlanningTools.exe workings-berthing --workings smoke\wk_a.xlsx --out smoke --name wk_berth
 start /wait "" dist\TrainPlanningTools.exe --original smoke\wk_a.xlsx --updated smoke\wk_b.xlsx --out smoke --name wk_cmp
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp) do if not exist smoke\%%f.xlsx (
+python -c "open('smoke/l1.csv','w').write('Headcode,UID,Days,Origin,Origin Dep,Destination,Class\n1A00,C10000,SX,Brighton,0600,Bedford,377\n1A01,C10001,SX,Brighton,0610,Bedford,377\n'); open('smoke/l2.csv','w',encoding='cp1252').write('Headcode,UID,Days,Origin,Origin Dep,Destination,Class\n1A00,C10000,SX,Brighton,0603,Bedford \u00a3,377\n')" || goto :failed
+start /wait "" dist\TrainPlanningTools.exe timetable --lists smoke\l1.csv --vs smoke\l2.csv --out smoke --name lists
+start /wait "" dist\TrainPlanningTools.exe timetable --base-list smoke\l1.csv --check smoke\tt_check.xlsx --out smoke --name base_list
+start /wait "" dist\TrainPlanningTools.exe --previous smoke\smoke.xlsx --updated smoke\b.xlsx --out smoke --name cumulative
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO --out smoke --name sp_mo
+start /wait "" dist\TrainPlanningTools.exe statspack --old-pack smoke\sp.xlsx --new-pack smoke\sp_mo.xlsx --out smoke --name packs
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name cap_group --capacity-group 1A
+start /wait "" dist\TrainPlanningTools.exe statspack --xml smoke\sp.xml --trent smoke\sp.docx --days MO,TO --out smoke --name cap_ft --capacity-from Brighton --capacity-to "East Croydon"
+start /wait "" dist\TrainPlanningTools.exe berthing --chart smoke\berth.xlsx --original smoke\berth.xml --updated smoke\berth.xml --out smoke --name berth_round
+start /wait "" dist\TrainPlanningTools.exe workings-berthing --workings smoke\wk_a.xlsx --xml smoke\berth.xml --out smoke --name wk_xml
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml) do if not exist smoke\%%f.xlsx (
     echo The built exe did not produce smoke\%%f.xlsx.
     goto :failed
 )

@@ -73,7 +73,16 @@ def cli(argv):
     ap.add_argument("--exclude", default="", help="comma separated categories to strip, e.g. PLATFORM,DIAGRAM")
     ap.add_argument("--days", default="", help="check and output only trains running on these days, e.g. MO,FO")
     a = _local_out(ap, ap.parse_args(argv))
+    import re
+    if a.colour and not re.fullmatch(r"#?[0-9A-Fa-f]{6}", a.colour):
+        ap.error(f"--colour must be a hex colour such as FFFF00, not '{a.colour}'")
+    if a.acwn and a.highlight_only:
+        ap.error("--acwn and --highlight-only cannot be used together (an ACWN has only the changed trains)")
     o = Options()
+    unknown = [k for k in filter(None, (x.strip().upper() for x in a.exclude.split(","))) if k not in o.categories]
+    if unknown:
+        ap.error(f"--exclude: unknown categor{'y' if len(unknown) == 1 else 'ies'} {', '.join(unknown)} "
+                 f"(choose from {', '.join(o.categories)})")
     o.mode = "cumulative" if a.previous else "batch" if a.original_folder else "compare"
     o.original = a.previous or a.original or a.original_folder
     o.updated = a.updated
@@ -146,6 +155,10 @@ def stationbook_cli(argv):
     a = _local_out(ap, ap.parse_args(argv))
     entries = parse_station_list(a.station)
     if len(entries) > 1:
+        extra = [f for f, v in (("--name", a.name), ("--label", a.label), ("--platforms", a.platforms)) if v]
+        if extra:
+            ap.error(f"{', '.join(extra)} apply to one station: with several, give platforms in the list "
+                     "('London Bridge [10-15]') and each book is named after its station")
         try:
             results = make_books(a.xml, entries, a.out, a.operator, a.timetable, a.services,
                                  [s.strip() for s in a.sheets.split(",") if s.strip()], log=print,
@@ -284,6 +297,11 @@ def statspack_cli(argv):
         ap.error("--possible is used with --unit-reports")
     if a.unit_period and a.per_day:
         ap.error("use --unit-period days instead of --per-day, not both")
+    if (a.old_pack or a.new_pack) and a.xml:
+        ap.error("--old-pack / --new-pack compare two stats packs: leave out --xml (or compare the plans instead)")
+    capacity = any((a.seats_group, a.seats_corridor, a.seats_from, a.seats_to))
+    if a.per_day and not (a.unit_reports or capacity):
+        ap.error("--per-day is used with --unit-reports or a capacity report")
     try:
         window = _capacity_window(a)          # checked before the (slow) timetable is read
         from cwn_compare import __version__ as version
@@ -543,6 +561,14 @@ def berthing_cli(argv):
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--name", default="", help="output file name, without .xlsx")
     a = _local_out(ap, ap.parse_args(argv))
+    ignored = {"--compare": [("--layout", a.layout), ("--issue", a.issue), ("--original", a.original),
+                             ("--updated", a.updated)],
+               "--xml": [("--original", a.original), ("--updated", a.updated), ("--colour", a.colour)],
+               "--chart": [("--layout", a.layout)]}
+    used = "--compare" if a.compare else "--xml" if a.xml else "--chart"
+    extra = [flag for flag, value in ignored[used] if value]
+    if extra:
+        ap.error(f"{', '.join(extra)} cannot be used with {used}")
     named = {k.lower(): v for k, v in PRESET_COLOURS.items()}
     colour = named.get(a.colour.lower(), a.colour.lstrip("#")) if a.colour else ""
     try:

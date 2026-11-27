@@ -211,6 +211,24 @@ jobs:
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\wk_berth.xlsx)) { throw "exe did not add berthing arrangements to platform workings" }
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\wk_a.xlsx','--updated','smoke\wk_b.xlsx','--out','smoke','--name','wk_cmp' -Wait -PassThru
           if (!(Test-Path "smoke\wk_cmp - Change Report.xlsx")) { throw "exe did not compare two platform workings" }
+          # more modes (3.36): each must exit cleanly and save its output
+          function Smoke($argList, $out, $what) {
+            if (Test-Path $out) { Remove-Item $out }
+            $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList $argList -Wait -PassThru
+            if ($p.ExitCode -ne 0 -or !(Test-Path $out)) { throw "exe did not $what (exit $($p.ExitCode))" }
+          }
+          python -c "open('smoke/l1.csv','w').write('Headcode,UID,Days,Origin,Origin Dep,Destination,Class\n1A00,C10000,SX,Brighton,0600,Bedford,377\n1A01,C10001,SX,Brighton,0610,Bedford,377\n'); open('smoke/l2.csv','w',encoding='cp1252').write('Headcode,UID,Days,Origin,Origin Dep,Destination,Class\n1A00,C10000,SX,Brighton,0603,Bedford \u00a3,377\n')"
+          Smoke @('timetable','--lists','smoke\l1.csv','--vs','smoke\l2.csv','--out','smoke','--name','lists') 'smoke\lists.xlsx' 'compare two train lists'
+          Smoke @('timetable','--base-list','smoke\l1.csv','--check','smoke\tt_check.xlsx','--out','smoke','--name','base_list') 'smoke\base_list.xlsx' 'check a timetable against a train list'
+          Smoke @('--previous','smoke\smoke.xlsx','--updated','smoke\b.xlsx','--out','smoke','--name','cumulative') 'smoke\cumulative.xlsx' 'add a round to a comparison CWN'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO','--out','smoke','--name','sp_mo') 'smoke\sp_mo.xlsx' 'make a one-day stats pack'
+          Smoke @('statspack','--old-pack','smoke\sp.xlsx','--new-pack','smoke\sp_mo.xlsx','--out','smoke','--name','packs') 'smoke\packs.xlsx' 'compare two stats packs'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_group','--capacity-group','1A') 'smoke\cap_group.xlsx' 'make a service group capacity report'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_ft','--capacity-from','Brighton','--capacity-to','"East Croydon"') 'smoke\cap_ft.xlsx' 'make a from-to capacity report'
+          Smoke @('berthing','--chart','smoke\berth.xlsx','--original','smoke\berth.xml','--updated','smoke\berth.xml','--out','smoke','--name','berth_round') 'smoke\berth_round.xlsx' 'add a round to a berthing chart'
+          Smoke @('workings-berthing','--workings','smoke\wk_a.xlsx','--xml','smoke\berth.xml','--out','smoke','--name','wk_xml') 'smoke\wk_xml.xlsx' 'add berthing arrangements with siding roads from an XML'
+          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--acwn','--highlight-only' -Wait -PassThru
+          if ($p.ExitCode -eq 0) { throw "exe accepted --acwn with --highlight-only" }
 
       - name: Package
         shell: pwsh

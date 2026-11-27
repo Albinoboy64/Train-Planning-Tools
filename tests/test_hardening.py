@@ -142,3 +142,21 @@ def test_save_failures_become_one_plain_message(tmp_path):
         raise PermissionError(13, "denied")
     with pytest.raises(Problem, match="open in Excel"):
         fsutil.save_output(locked, str(tmp_path / "x.xlsx"), Problem)
+
+
+# --------------------------------------------------------------------------- command-line options checked up front
+@pytest.mark.parametrize("cmd, argv, msg", [
+    ("compare", ["--original", "a.xlsx", "--updated", "b.xlsx", "--colour", "yellowish"], "hex colour"),
+    ("compare", ["--original", "a.xlsx", "--updated", "b.xlsx", "--acwn", "--highlight-only"], "together"),
+    ("compare", ["--original", "a.xlsx", "--updated", "b.xlsx", "--exclude", "PLATFORM,NOPE"], "NOPE"),
+    ("berthing", ["--compare", "a.xlsx", "b.xlsx", "--layout", "c.xlsx"], "--layout"),
+    ("berthing", ["--xml", "a.xml", "--updated", "b.xml"], "--updated"),
+    ("statspack", ["--old-pack", "a.xlsx", "--new-pack", "b.xlsx", "--xml", "c.xml"], "--xml"),
+    ("statspack", ["--xml", "a.xml", "--trent", "t.docx", "--per-day"], "--per-day"),
+    ("stationbook", ["--xml", "a.xml", "--station", "A; B", "--name", "x"], "one station"),
+])
+def test_ignored_option_combinations_are_refused(cmd, argv, msg, capsys, tmp_path):
+    import TrainPlanningTools as T
+    with pytest.raises(SystemExit):
+        T.main(([] if cmd == "compare" else [cmd]) + argv + ["--out", str(tmp_path)])
+    assert msg in capsys.readouterr().err
