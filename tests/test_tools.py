@@ -1,31 +1,29 @@
-"""Tests for the shared helpers: parallel ZIP writer, updater logic, default names."""
+"""Tests for the shared helpers: parallel ZIP writer, updater logic, and default names."""
 import os
-import sys
 import tempfile
 import zipfile
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from rstools import naming, updater  # noqa: E402
-from rstools.zipw import write_zip  # noqa: E402
+from rstools import naming, updater
+from rstools.zipw import write_zip
 
 
 def test_zip_round_trip():
     parts = [(f"xl/worksheets/sheet{i}.xml", (f"<row r='{i}'/>" * 20000).encode()) for i in range(1, 6)]
     parts.append(("[Content_Types].xml", b"<Types/>"))
-    with tempfile.TemporaryDirectory() as d:
-        path = os.path.join(d, "t.xlsx")
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "t.xlsx")
         write_zip(path, parts)
-        with zipfile.ZipFile(path) as z:
-            assert z.testzip() is None
-            assert [(n, z.read(n)) for n in z.namelist()] == parts
+        with zipfile.ZipFile(path) as archive:
+            assert archive.testzip() is None
+            assert [(name, archive.read(name)) for name in archive.namelist()] == parts
         assert not os.path.exists(path + ".tmp")
 
 
 def test_versions_and_token():
     assert updater.is_newer("v2.1.5", "2.1.4")
     assert not updater.is_newer("v2.1.4", "2.1.4")
-    assert updater.is_newer("v2.1.0", "2.01") and not updater.is_newer("2.00", "2.1.4")
+    assert updater.is_newer("v2.1.0", "2.01")
+    assert not updater.is_newer("2.00", "2.1.4")
     assert updater.unprotect(updater.protect("secret-token")) == "secret-token"
     assert updater.unprotect("garbage") == "" and updater.protect("") == ""
 
