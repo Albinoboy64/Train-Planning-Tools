@@ -7,7 +7,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
-from rstools import safexml
 from rstools.days import days_of_mask
 from rstools.stationbook import Call, _calls, _secs, _unroll
 
@@ -60,8 +59,9 @@ class BerthXML:
 
 def read_xml(path: str, source: int = 0) -> BerthXML:
     """Read one Attune XML. Raises BerthingError with a plain message for a file that cannot be used."""
-    from rstools.fsutil import long_path
     import os
+
+    from rstools import attune_xml as AX
     name = os.path.basename(path)
     locations: Dict[str, str] = {}
     trains: Dict[str, TrainVersion] = {}
@@ -77,16 +77,12 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
     cdepot = cnum = ""
     in_static = False
     try:
-        for event, el in ET.iterparse(safexml.check_file(long_path(path)), events=("start", "end")):
-            tag = el.tag.rsplit("}", 1)[-1]
+        for event, tag, el in AX.walk(path):
             if event == "start":
                 if tag == "diagramExchange":
                     meta = dict(el.attrib)
                 elif tag == "train":
-                    plan = el.get("planType", "")
-                    if el.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
-                        plan = "D"                          # a draft (provisional) version of an LTP train
-                    cur_train = {"id": el.get("id", ""), "key": el.get("trainKey", ""), "plan": plan,
+                    cur_train = {"id": el.get("id", ""), "key": el.get("trainKey", ""), "plan": AX.plan_type(el.attrib),
                                  "days": days_of_mask(el.get("daysRun", ""))}
                     legs = []
                 elif tag == "unitDiagram":
@@ -112,7 +108,9 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
                 cur_train = None
                 el.clear()
             elif tag == "location":
-                locations[el.get("tiploc", "")] = el.get("longDesc") or el.get("shortDesc") or el.get("tiploc", "")
+                loc = AX.location(el)
+                if loc:
+                    locations[loc[0]] = loc[1]
                 el.clear()
             elif cur is not None:
                 if tag == "depot":

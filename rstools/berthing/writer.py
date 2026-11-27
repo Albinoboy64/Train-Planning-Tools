@@ -39,8 +39,8 @@ def _font(size: float = 10, bold: bool = False, colour: str = "", italic: bool =
 
 
 def _fill(colour: str):
-    _B, _F, PatternFill, _S = _styles()
-    return PatternFill("solid", fgColor="FF" + colour) if colour else PatternFill(fill_type=None)
+    from rstools.xlsave import fill
+    return fill(colour)
 
 
 def _border(left: str = "", right: str = "", bottom: str = "", left_colour: str = "", bottom_colour: str = "",
@@ -57,7 +57,7 @@ def write(layout: Layout, path: str, cover: Callable[[str], str] = lambda t: t,
     """Save the chart. `cover` rewrites each cover line (issue, dates); `legend` lines are added to the cover;
     `notes` go on a Notes sheet at the end; `counts` adds the unit counts of each siding location."""
     import openpyxl
-    from cwn_compare.xlsxfix import save_workbook
+    from rstools.xlsave import save_workbook
     from rstools.fsutil import plain_text, sheet_title
     wb = openpyxl.Workbook()
     wb.remove(wb.active)

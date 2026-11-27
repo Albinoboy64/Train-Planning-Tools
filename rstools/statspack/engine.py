@@ -196,8 +196,7 @@ def packs_name(old_path: str, new_path: str) -> str:
 
 
 def _safe(name: str) -> str:
-    name = naming.clip(re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name).strip().rstrip("."))
-    return name[:-5] if name.lower().endswith(".xlsx") else name
+    return naming.output_stem(name)
 
 
 def unique_path(folder: str, stem: str, ext: str = ".xlsx") -> str:

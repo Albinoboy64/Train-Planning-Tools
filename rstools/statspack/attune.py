@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
-from rstools import safexml
+from rstools.attune_xml import secs
 from rstools.days import days_of_mask
 
 
@@ -20,16 +20,6 @@ class AttuneError(Exception):
     pass
 
 
-def secs(text: Optional[str]) -> Optional[int]:
-    if not text:
-        return None
-    try:
-        parts = [int(p) for p in text.split(":")]
-    except ValueError:
-        return None
-    while len(parts) < 3:
-        parts.append(0)
-    return parts[0] * 3600 + parts[1] * 60 + parts[2]
 
 
 @dataclass
@@ -92,11 +82,8 @@ class AttuneData:
         return out
 
 
-def _local(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1]
-
-
 def parse_attune_xml(path: str) -> AttuneData:
+    from rstools import attune_xml as AX
     from rstools.fsutil import long_path
     path = long_path(path)              # files in very deep folders
     warnings: List[str] = []
@@ -109,17 +96,14 @@ def parse_attune_xml(path: str) -> AttuneData:
     cur_unit: Optional[UnitDiagram] = None
     in_coupled = 0
     try:
-        for event, el in ET.iterparse(safexml.check_file(path), events=("start", "end")):
-            tag = _local(el.tag)
+        for event, tag, el in AX.walk(path):
             if event == "start":
                 if tag == "diagramExchange":
                     meta = dict(el.attrib)
                 elif tag == "train":
                     a = el.attrib
-                    plan = a.get("planType", "")
-                    if a.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
-                        plan = "D"              # a draft (provisional) version of an LTP train
-                    cur_train = Train(id=a.get("id", ""), days=days_of_mask(a.get("daysRun", "")), plan=plan)
+                    cur_train = Train(id=a.get("id", ""), days=days_of_mask(a.get("daysRun", "")),
+                                      plan=AX.plan_type(a))
                 elif tag == "unitDiagram":
                     days = days_of_mask(el.get("daysrun", ""))
                     diagram_days |= days
@@ -149,19 +133,19 @@ def parse_attune_xml(path: str) -> AttuneData:
                 cur_train = None
                 el.clear()
             elif tag == "location":
-                tiploc = el.get("tiploc", "").strip()
-                if tiploc:                      # a location without a code cannot be looked up
-                    locations[tiploc] = el.get("longDesc") or el.get("shortDesc") or tiploc
+                loc = AX.location(el)
+                if loc:
+                    locations[loc[0]] = loc[1]
                 el.clear()
             elif tag == "coupled":
                 in_coupled -= 1
             elif cur_unit is not None and tag == "depot" and not in_coupled and not cur_unit.depot:
                 cur_unit.depot = el.get("id", "").strip()
             elif cur_unit is not None and tag == "text" and not in_coupled and (el.text or "").strip():
-                cur_unit.notes.append(el.text.strip())
+                cur_unit.notes.append((el.text or "").strip())
             elif cur_unit is not None and tag == "activity" and not in_coupled \
                     and el.get("id", "").strip() in ("WASH", "CET", "FUEL"):
-                act = el.get("id").strip()
+                act = el.get("id", "").strip()
                 cur_unit.activities[act] = cur_unit.activities.get(act, 0) + 1
             elif tag == "unitDiagram":
                 if cur_unit is not None:

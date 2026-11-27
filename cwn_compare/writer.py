@@ -31,7 +31,8 @@ _LINK_RE = re.compile(r"^'?(.*?)'?!\$?([A-Z]{1,3})\$?(\d+)(.*)$")
 
 
 def _fill(colour: str) -> PatternFill:
-    return PatternFill("solid", fgColor="FF" + colour[-6:].upper())
+    from rstools.xlsave import fill
+    return fill(colour)
 
 
 def _font_with(font, **kw):

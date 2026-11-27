@@ -75,6 +75,16 @@ def clip(name: str) -> str:
     return name if len(name) <= MAX_NAME else name[:MAX_NAME].rstrip(" -.")
 
 
+def output_stem(name: str) -> str:
+    """A typed output name made safe as a file name: characters Windows does not allow become '-', a typed
+    '.xlsx' is dropped and the name is shortened to MAX_NAME ('' stays '': the caller picks a default)."""
+    import re
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name or "").strip().rstrip(".")
+    if name.lower().endswith(".xlsx"):
+        name = name[:-5]
+    return clip(name)
+
+
 _PLAIN_FIRST = {"original", "updated", "earlier", "timetable", "train"}
 
 

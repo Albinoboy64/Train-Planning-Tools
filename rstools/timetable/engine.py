@@ -222,10 +222,9 @@ def run(mode: str, first: Sequence[str], second: Sequence[str], out_dir: str, na
 
 def _save(wb, path: str, sections=None):
     from .xlstyle import save
-    try:
-        save(wb, path, os.path.splitext(os.path.basename(path))[0], sections)
-    except PermissionError:
-        raise TimetableRunError(f"Could not save:\n{path}\n\nIs it open in another program? Close it and run again.")
+    from rstools.fsutil import save_output
+    save_output(lambda: save(wb, path, os.path.splitext(os.path.basename(path))[0], sections), path,
+                TimetableRunError)
 
 
 def _cmp_timetables(gtr_path, nr_path, p, lg):

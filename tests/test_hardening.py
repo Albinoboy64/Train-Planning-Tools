@@ -99,3 +99,46 @@ def test_a_download_larger_than_expected_is_refused(tmp_path, monkeypatch):
     with pytest.raises(updater.UpdateError, match="larger than expected"):
         updater.download(rel, str(tmp_path / "new.exe"))
     assert os.listdir(tmp_path) == []
+
+
+# --------------------------------------------------------------------------- shared helpers (3.36 clean-up)
+def test_shared_helpers():
+    import xml.etree.ElementTree as ET
+    from rstools import attune_xml, clock, naming
+    assert attune_xml.location(ET.fromstring('<location tiploc=" " longDesc="X"/>')) is None
+    assert attune_xml.location(ET.fromstring('<location tiploc="VICT" shortDesc="Vic"/>')) == ("VICT", "Vic")
+    assert attune_xml.plan_type({"planType": "L", "provisional": "true"}) == "D"
+    assert attune_xml.secs("25:01") == 90060 and attune_xml.secs("x") is None
+    assert clock.clock(90060, "+") == "01+01" and clock.clock(None) == "" and clock.hhmm(1445) == "0005"
+    assert naming.output_stem('a/b:c.xlsx') == "a-b-c" and naming.output_stem("") == ""
+
+
+def test_the_file_cache_keeps_unchanged_files_and_is_bounded(tmp_path):
+    from rstools import filecache
+    filecache.clear()
+    reads = []
+
+    def reader(path):
+        reads.append(path)
+        return open(path).read()
+    paths = []
+    for i in range(filecache.SIZE + 2):
+        p = tmp_path / f"f{i}.txt"
+        p.write_text(str(i))
+        paths.append(str(p))
+    assert filecache.remember(reader, paths[0]) == "0"
+    assert filecache.remember(reader, paths[0]) == "0" and len(reads) == 1
+    for p in paths[1:]:
+        filecache.remember(reader, p)
+    filecache.remember(reader, paths[0])                     # pushed out by the newer ones: read again
+    assert reads.count(paths[0]) == 2 and len(filecache._STORE) == filecache.SIZE
+
+
+def test_save_failures_become_one_plain_message(tmp_path):
+    class Problem(Exception):
+        pass
+
+    def locked():
+        raise PermissionError(13, "denied")
+    with pytest.raises(Problem, match="open in Excel"):
+        fsutil.save_output(locked, str(tmp_path / "x.xlsx"), Problem)

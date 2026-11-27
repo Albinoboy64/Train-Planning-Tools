@@ -557,13 +557,8 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
     stem = naming.clip(name or f"{os.path.splitext(os.path.basename(path))[0]} (berthing added)")
     stem = unique_stem(folder, stem)
     out = os.path.join(folder, stem + ".xlsx")
-    try:
-        save_workbook(wb, out, trim="data")
-    except PermissionError:
-        raise WorkingsError(f"Cannot save {out}\nThe folder may be read-only, or a file with that name is open "
-                            "in Excel.")
-    except OSError as exc:
-        raise WorkingsError(f"Cannot save {out}\n{exc}")
+    from rstools.fsutil import save_output
+    save_output(lambda: save_workbook(wb, out, trim="data"), out, WorkingsError)
     summary = (f"Berthing arrangements added to {len(sections)} day tab(s) of the {lay.name} workings"
                + (f"; {diffs} line(s) differ from the section that was there (see the log)." if diffs else "."))
     log(f"Saved: {out}")

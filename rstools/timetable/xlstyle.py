@@ -88,7 +88,7 @@ def save(wb, path: str, title: str, sections=None):
     """Excel through the repaired writer (opens cleanly in Excel), or PDF / Word from the sheets
     (or from `sections`, when the sheets need laying out differently on paper)."""
     if path.lower().endswith(".xlsx"):
-        from cwn_compare.xlsxfix import save_workbook
+        from rstools.xlsave import save_workbook
         save_workbook(wb, path)
     else:
         from rstools.docexport import sections_from_workbook, write_document

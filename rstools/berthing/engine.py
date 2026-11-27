@@ -71,11 +71,8 @@ def _legend(stp: bool) -> List[str]:
 
 
 def _save(fn, path: str):
-    try:
-        fn()
-    except PermissionError:
-        raise BerthingError(f"Cannot save {path}\nThe folder may be read-only, or a file with that name is open "
-                            "in Excel.")
+    from rstools.fsutil import save_output
+    save_output(fn, path, BerthingError)
 
 
 def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "", name: str = "", issue: str = "",

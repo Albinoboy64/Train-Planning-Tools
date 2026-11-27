@@ -175,6 +175,22 @@ def copy_default(src: str, dest: str) -> bool:
         return False
 
 
+def save_output(fn, path: str, error_cls=OSError):
+    """Run fn() (which writes `path`), turning the usual failures into one plain message raised as error_cls: the
+    file open in Excel or a read-only folder, or another disk error (with a hint when the folder path is very long,
+    a common cause on Windows)."""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        fn()
+    except PermissionError:
+        raise error_cls(f"Cannot save {path}\nThe folder may be read-only, or a file with that name is open in "
+                        "Excel.")
+    except OSError as exc:
+        hint = ("\n\nThe folder path is very long. Choose a shorter 'Save to folder' (e.g. Documents) and run "
+                "again." if len(os.path.abspath(path)) > 240 else "")
+        raise error_cls(f"Cannot save {path}\n{exc.strerror or exc}{hint}")
+
+
 def write_json(path: str, data) -> bool:
     """Save settings as JSON safely; False (and the old file kept) if the folder cannot be written."""
     try:

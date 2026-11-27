@@ -15,7 +15,6 @@ from .loader import load_any
 from .meta import is_comparison_output, read_meta_file, write_meta
 from .model import CWNModel, leave_out_unread, parse_workbook, model_to_dict, model_from_dict
 from rstools.docexport import ext_for
-from rstools.naming import clip
 
 from .options import Options, default_name
 from .report import write_report
@@ -32,10 +31,8 @@ class RunError(Exception):
 
 
 def _safe(name: str) -> str:
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name).strip().rstrip(".")
-    if name.lower().endswith(".xlsx"):
-        name = name[:-5]
-    return clip(name) or default_name()
+    from rstools.naming import output_stem
+    return output_stem(name) or default_name()
 
 
 OUTPUT_LABELS = {"full": "Full CWN (changes highlighted and noted)",
@@ -85,15 +82,8 @@ def _baseline(meta: dict, path: str) -> CWNModel:
 
 
 def _save(fn, path):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fn()
-    except PermissionError:
-        raise RunError(f"Cannot save {path}\nThe folder may be read-only, or a file with that name is open in Excel.")
-    except OSError as exc:
-        hint = ("\n\nThe folder path is very long. Choose a shorter 'Save to folder' (e.g. Documents) and run "
-                "again." if len(os.path.abspath(path)) > 240 else "")
-        raise RunError(f"Cannot save {path}\n{exc.strerror or exc}{hint}")
+    from rstools.fsutil import save_output
+    save_output(fn, path, RunError)
 
 
 def _colour_word(hex_colour: str) -> str:

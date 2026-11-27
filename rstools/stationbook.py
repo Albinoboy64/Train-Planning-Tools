@@ -24,7 +24,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, cast
 
-from rstools import safexml
 from rstools.fsutil import output_folder
 from rstools.days import DAY_NAMES, days_of_mask
 
@@ -49,14 +48,8 @@ class StationBookError(Exception):
 # reading the XML
 # --------------------------------------------------------------------------- #
 def _secs(text: Optional[str]) -> Optional[int]:
-    if not text:
-        return None
-    try:
-        parts = [int(p) for p in text.split(":")]
-    except ValueError:
-        return None
-    parts += [0] * (3 - len(parts))
-    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    from rstools.attune_xml import secs
+    return secs(text)
 
 
 @dataclass
@@ -144,7 +137,7 @@ def read_plan(path: str) -> Plan:
     if path.lower().endswith(".vpt"):
         from rstools.timetable.vpt import read_plan as read_vpt_plan
         return read_vpt_plan(path)
-    from rstools.fsutil import long_path
+    from rstools import attune_xml as AX
     locations: Dict[str, str] = {}
     trains: Dict[str, List[Train]] = defaultdict(list)
     diagrams: List[Diagram] = []
@@ -158,16 +151,13 @@ def read_plan(path: str) -> Plan:
     coupled_depot = ""
     coupled_num = ""
     try:
-        for event, el in ET.iterparse(safexml.check_file(long_path(path)), events=("start", "end")):
-            tag = el.tag.rsplit("}", 1)[-1]
+        for event, tag, el in AX.walk(path):
             if event == "start":
                 if tag == "diagramExchange":
                     meta = dict(el.attrib)
                 elif tag == "train":
-                    plan = el.get("planType", "")
-                    if el.get("provisional", "").lower() == "true" and plan.upper() in ("", "L"):
-                        plan = "D"
-                    cur_train, legs = Train(el.get("id", ""), days_of_mask(el.get("daysRun", "")), plan,
+                    cur_train, legs = Train(el.get("id", ""), days_of_mask(el.get("daysRun", "")),
+                                            AX.plan_type(el.attrib),
                                             valid_from=el.get("validFrom", ""),
                                             valid_until=el.get("validUntil", ""),
                                             rar=runs_as_required(el.attrib)), []
@@ -191,7 +181,9 @@ def read_plan(path: str) -> Plan:
                 cur_train = None
                 el.clear()
             elif tag == "location":
-                locations[el.get("tiploc", "")] = el.get("longDesc") or el.get("shortDesc") or el.get("tiploc", "")
+                loc = AX.location(el)
+                if loc:
+                    locations[loc[0]] = loc[1]
                 el.clear()
             elif cur_diag is not None:
                 if tag == "depot":
@@ -671,7 +663,7 @@ def write_book(path: str, sheets: List[Tuple[str, List[List[str]]]], header: str
         ws.oddHeader.center.text = header
         ws.oddFooter.right.text = "&P/&N"
         plain_text(ws)
-    from cwn_compare.xlsxfix import save_workbook
+    from rstools.xlsave import save_workbook
     save_workbook(wb, path)
 
 

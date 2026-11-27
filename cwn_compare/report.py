@@ -24,7 +24,8 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 
 def _fill(c):
-    return PatternFill("solid", fgColor="FF" + c[-6:].upper())
+    from rstools.xlsave import fill
+    return fill(c)
 
 
 def _table(ws, start_row, headers, rows, widths=None, fills=None):
