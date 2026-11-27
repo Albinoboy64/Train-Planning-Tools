@@ -19,7 +19,7 @@ from . import auto
 from .layout import Block, GridSheet, Layout, from_dict, load_default, to_dict
 from .mapping import norm
 
-FIELDS = ("Sheet", "Berth", "Capacity", "TIPLOC", "Codes")      # the rows shown in Settings > Berthing locations
+FIELDS = ("Sheet", "Location", "Berth", "Capacity", "TIPLOC", "Codes")   # the rows in Settings > Berthing locations
 
 
 def path(operator: str) -> str:
@@ -114,19 +114,26 @@ def rows(operator: str, builtin: bool = False) -> List[Dict[str, str]]:
     for sh in sheets:
         if not isinstance(sh, GridSheet):
             continue
-        tip = auto.sheet_tiploc(sh)
+        made = _from_xml(sh)
         for b in sh.blocks:
-            br = None if tip else locations.berth(sh.name, b.label)
-            codes = b.codes or ("" if tip else ";".join(c for c in (br.codes if br else ()) if c != "*"))
-            out.append({"Sheet": sh.name, "Berth": b.label, "Capacity": b.capacity,
-                        "TIPLOC": tip or (br.tiploc if br else ""), "Codes": codes})
+            br = None if made else locations.berth(sh.name, b.label)
+            codes = b.codes or ("" if made else ";".join(c for c in (br.codes if br else ()) if c != "*"))
+            where = sh.sections[b.section] if len(sh.sections) > 1 and 0 <= b.section < len(sh.sections) else ""
+            out.append({"Sheet": sh.name, "Location": where, "Berth": b.label, "Capacity": b.capacity,
+                        "TIPLOC": auto.berth_tiploc(sh, b) if made else (br.tiploc if br else ""), "Codes": codes})
     return out
 
 
+def _from_xml(sheet) -> bool:
+    """A sheet made from an XML: its berths carry their own TIPLOCs (not the berth list)."""
+    return bool(auto.sheet_tiplocs(sheet) or any(b.tiploc for b in getattr(sheet, "blocks", [])))
+
+
 def sheets_from_rows(operator: str, table: List[Dict[str, str]]) -> list:
-    """The sheets for edited rows, in the rows' order. A berth that was there before keeps its notes and siding
-    location; a new sheet gets a TIPLOC line when a TIPLOC is given (so its berths are found without the berth
-    list). Depot sheets of the layout (SNGX) are kept as they are."""
+    """The sheets for edited rows, in the rows' order. A berth that was there before keeps its notes; the
+    Location column gives each siding location on a sheet (its banner), in order. A sheet made from an XML (all
+    TLGN sheets, and any new sheet) keeps each berth's TIPLOC and gets 'TIPLOC' lines, so its berths are found
+    without the berth list. Depot sheets of the layout (SNGX) are kept as they are."""
     before = stored_sheets(operator)
     if before is None:
         before = load_default().sheets if operator.upper() == "SNGX" else []
@@ -137,30 +144,44 @@ def sheets_from_rows(operator: str, table: List[Dict[str, str]]) -> list:
         name, label = _clean(r.get("Sheet", ""))[:31], _clean(r.get("Berth", ""))
         if not name or not label:
             continue
+        old_sheet = old_sheets.get(norm(name))
         sh = by_name.get(norm(name))
         if sh is None:
-            old = old_sheets.get(norm(name))
-            if isinstance(old, GridSheet):
-                sh = copy.deepcopy(old)
-                sh.name, sh.blocks = name, []
+            if isinstance(old_sheet, GridSheet):
+                sh = copy.deepcopy(old_sheet)
+                sh.name, sh.blocks, sh.sections = name, [], []
             else:
-                sh = GridSheet(name, corner=("Siding", "Capacity"), sections=[name])
+                sh = GridSheet(name, corner=("Siding", "Capacity"))
+            sh.preface = [(a, b) for a, b in sh.preface if not auto._TIPLOC.match(a)]
             by_name[norm(name)] = sh
             out.append(sh)
-        tip = _clean(r.get("TIPLOC", "")).upper()
-        if tip and (auto.sheet_tiploc(sh) or not isinstance(old_sheets.get(norm(name)), GridSheet)
-                    or operator.upper() != "SNGX"):
-            sh.preface = [(a, b) for a, b in sh.preface if not auto._TIPLOC.match(a)]
-            sh.preface.insert(0, (f"{auto.TIPLOC_LINE} {tip}", ""))
-        old_sheet = old_sheets.get(norm(name))
+        where = _clean(r.get("Location", "")) or (sh.sections[-1] if sh.sections else name)   # blank: as above
+        if norm(where) not in [norm(x) for x in sh.sections]:
+            sh.sections.append(where)
+        section = [norm(x) for x in sh.sections].index(norm(where))
         was = next((b for b in getattr(old_sheet, "blocks", []) if norm(b.label) == norm(label)), None)
-        blk = copy.deepcopy(was) if was is not None else Block(label, section=sh.blocks[-1].section if sh.blocks
-                                                               else 0)
-        blk.label, blk.capacity = label, _clean(r.get("Capacity", ""))
+        blk = copy.deepcopy(was) if was is not None else Block(label)
+        blk.label, blk.capacity, blk.section = label, _clean(r.get("Capacity", "")), section
         blk.codes = ";".join(c.strip().upper() for c in _clean(r.get("Codes", "")).replace(",", ";").split(";")
                              if c.strip())
+        tip = _clean(r.get("TIPLOC", "")).upper()
+        xml_sheet = operator.upper() != "SNGX" or not isinstance(old_sheet, GridSheet) or _from_xml(old_sheet)
+        blk.tiploc = tip if xml_sheet else ""
         blk.units = {}
         sh.blocks.append(blk)
+    for sh in out:                                         # the 'TIPLOC' lines: one per siding location
+        if not any(b.tiploc for b in sh.blocks):
+            continue
+        if len(sh.sections) == 1:
+            tip = next(b.tiploc for b in sh.blocks if b.tiploc)
+            sh.preface.insert(0, (f"{auto.TIPLOC_LINE} {tip}", ""))
+            continue
+        lines = []
+        for i, sec in enumerate(sh.sections):
+            tip = next((b.tiploc for b in sh.blocks if b.section == i and b.tiploc), "")
+            if tip:
+                lines.append((f"{auto.TIPLOC_LINE} {tip} \u2013 {sec}", ""))
+        sh.preface = lines + sh.preface
     for s in before:                                       # depot sheets are not edited here
         if not isinstance(s, GridSheet):
             out.append(s)

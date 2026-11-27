@@ -888,3 +888,57 @@ def test_sngx_location_set_overrides_the_built_in_layout(data):
     assert blk.capacity == "10"
     sets.reset("SNGX")
     assert len(engine.layout_sheets()) > 20
+
+
+def test_tlgn_locations_at_one_station_share_a_sheet():
+    """Locations that are part of one station or siding go on one sheet, a siding location each (like SNGX's
+    Brighton); other stations keep their own sheets, and 'London ...' names are not lumped together."""
+    from rstools.berthing import auto
+    P = auto.Place
+    found = [P("BEDFDM", "Bedford", 3, False, False), P("BEDFDCS", "Bedford Carriage Sidings", 2, False, False),
+             P("HITCUS", "Hitchin Up Sidings", 1, False, False), P("HITCDS", "Hitchin Down Sidings", 1, False, False),
+             P("STPX", "London St Pancras International", 1, False, False),
+             P("LNDNBDE", "London Bridge", 1, False, False)]
+    groups = [(name, [p.tiploc for p in ps]) for name, ps in auto.station_groups(found)]
+    assert groups == [("Bedford", ["BEDFDM", "BEDFDCS"]), ("Hitchin", ["HITCDS", "HITCUS"]),
+                      ("London Bridge", ["LNDNBDE"]), ("London St Pancras International", ["STPX"])]
+
+
+def _two_place_tlgn_xml():
+    """tlgn_xml with the second Bedford location as carriage sidings (not a depot)."""
+    return tlgn_xml().replace('tiploc="BDFDCWD" longDesc="Bedford Cauldwell T&amp;RSMD"',
+                              'tiploc="BDFDCWD" longDesc="Bedford Carriage Sidings"')
+
+
+def test_tlgn_chart_puts_a_station_and_its_sidings_on_one_sheet(data):
+    """A TLGN chart has one Bedford sheet with a banner each for its platforms and its carriage sidings; a round
+    of changes finds both again; leaving one location out (by TIPLOC) keeps the other on the sheet."""
+    from rstools.berthing import auto, sets
+    (data / "tl.xml").write_text(_two_place_tlgn_xml())
+    r = engine.generate([str(data / "tl.xml")], "", str(data), "grouped", operator="TLGN", leave_out=["STPX"])
+    wb = openpyxl.load_workbook(r.chart)
+    assert wb.sheetnames == ["Cover", "Bedford", "Notes"]
+    ws = wb["Bedford"]
+    texts = [str(c.value) for row in ws.iter_rows() for c in row if c.value]
+    assert any("Platforms" in t and t.startswith("Location") for t in texts)
+    assert any("Bedford Carriage Sidings" in t and t.startswith("Location") for t in texts)
+    assert any(t.startswith("TIPLOC BEDFDM") for t in texts) and any(t.startswith("TIPLOC BDFDCWD") for t in texts)
+    assert sum("700/1" in t or "(12 700)" in t or "12 700" in t for t in texts) >= 1          # the sidings' unit
+    rnd = engine.add_round(r.chart, [str(data / "tl.xml")], [str(data / "tl.xml")], "92D050", str(data), "round")
+    assert openpyxl.load_workbook(rnd.chart).sheetnames == ["Cover", "Bedford", "Notes"]
+    assert "no XML location" not in " ".join(rnd.warnings)
+    r2 = engine.generate([str(data / "tl.xml")], "", str(data), "less", operator="TLGN", leave_out=["STPX", "BDFDCWD"])
+    texts2 = [str(c.value) for row in openpyxl.load_workbook(r2.chart)["Bedford"].iter_rows() for c in row if c.value]
+    assert not any("Carriage Sidings" in t for t in texts2) and any("Plat 3" in t for t in texts2)
+    sheets = engine.make_location_set([str(data / "tl.xml")], "TLGN", leave_out=["STPX"])
+    assert sets.save("TLGN", sheets, "tl.xml")
+    rows = sets.rows("TLGN")
+    assert [(r["Sheet"], r["Location"], r["Berth"], r["TIPLOC"]) for r in rows] == [
+        ("Bedford", "Platforms", "Plat 3", "BEDFDM"), ("Bedford", "Bedford Carriage Sidings", auto.NO_ROAD, "BDFDCWD")]
+    assert sets.save_rows("TLGN", rows)
+    again = sets.stored_sheets("TLGN")[0]
+    assert again.sections == ["Platforms", "Bedford Carriage Sidings"]
+    assert [auto.berth_tiploc(again, b) for b in again.blocks] == ["BEDFDM", "BDFDCWD"]
+    r3 = engine.generate([str(data / "tl.xml")], "", str(data), "fromset", operator="TLGN")
+    assert openpyxl.load_workbook(r3.chart).sheetnames == ["Cover", "Bedford", "Notes"]
+    sets.reset("TLGN")

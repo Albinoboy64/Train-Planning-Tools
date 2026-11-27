@@ -20,7 +20,11 @@ from .stays import Berthing
 OPERATORS = {"SNGX": "Southern/Gatwick Express", "TLGN": "Thameslink/Great Northern"}
 TIPLOC_LINE = "TIPLOC"
 NO_ROAD = "Siding (none given)"
-_TIPLOC = re.compile(r"^\s*TIPLOC\s+([A-Z0-9]{2,8})\s*$", re.I)
+_TIPLOC = re.compile(r"^\s*TIPLOC\s+([A-Z0-9]{2,8})(?:\s+[-\u2013]\s+(.+?))?\s*$", re.I)
+# words after which a location's name says which siding, road or yard at a station it is ('Hitchin Up Sidings')
+_SIDING_WORDS = {"sidings", "siding", "sdg", "sdgs", "cs", "carriage", "carriages", "yard", "loop", "loops", "up",
+                 "down", "road", "roads", "platform", "platforms", "plat", "jn", "junction", "goods", "holding",
+                 "reception", "shed", "stabling", "berthing", "bay", "dock", "no"}
 _TITLE = re.compile(r"^(?:.*\s)?berthing\s+chart\s*$", re.I)
 _DATES = re.compile(r"^\s*\d{1,2}/\d{1,2}/\d{2,4}\s*-\s*\d{1,2}/\d{1,2}/\d{2,4}\s*$")
 _UNIT_TYPE = re.compile(r"^\s*(?:\d{3}/\d|MAINT)\s*$", re.I)
@@ -89,11 +93,83 @@ def _sort_key(label: str):
 
 
 def sheet_tiploc(sheet) -> str:
+    """The (first) TIPLOC of a sheet made from an XML, from its 'TIPLOC <code>' line; '' for a chart's own sheet."""
+    tips = sheet_tiplocs(sheet)
+    return tips[0][0] if tips else ""
+
+
+def sheet_tiplocs(sheet) -> List[Tuple[str, str]]:
+    """[(TIPLOC, siding location)] from a sheet's 'TIPLOC <code>' / 'TIPLOC <code> - <location>' lines."""
+    out = []
     for a, _b in getattr(sheet, "preface", []):
         m = _TIPLOC.match(a)
         if m:
-            return m.group(1).upper()
-    return ""
+            out.append((m.group(1).upper(), (m.group(2) or "").strip()))
+    return out
+
+
+def berth_tiploc(sheet, blk) -> str:
+    """The TIPLOC a berth of a sheet made from an XML is at: its own, else its siding location's, else the
+    sheet's."""
+    if getattr(blk, "tiploc", ""):
+        return blk.tiploc
+    tips = sheet_tiplocs(sheet)
+    sections = getattr(sheet, "sections", [])
+    name = sections[blk.section] if 0 <= blk.section < len(sections) else ""
+    hit = next((t for t, sec in tips if sec and norm(sec) == norm(name)), "")
+    return hit or (tips[0][0] if tips else "")
+
+
+def drop_locations(sheet, tiplocs: Set[str]) -> None:
+    """Take the berths at these TIPLOCs (normalised) off a sheet made from an XML, with their siding locations'
+    banners and TIPLOC lines; the other locations' sections are renumbered."""
+    sheet.blocks = [b for b in sheet.blocks if norm(berth_tiploc(sheet, b)) not in tiplocs]
+    used = sorted({b.section for b in sheet.blocks})
+    if sheet.sections:
+        renum = {old: new for new, old in enumerate(used)}
+        sheet.sections = [sheet.sections[i] for i in used if i < len(sheet.sections)]
+        for b in sheet.blocks:
+            b.section = renum.get(b.section, 0)
+    kept = []
+    for a, b in sheet.preface:
+        m = _TIPLOC.match(a)
+        if m is None or norm(m.group(1)) not in tiplocs:
+            kept.append((a, b))
+    sheet.preface = kept
+
+
+def station_groups(found: Sequence["Place"]) -> List[Tuple[str, List["Place"]]]:
+    """Locations grouped by the station or siding they are part of, for one sheet each (as SNGX's charts have
+    Brighton's platforms and Wall Siding on one sheet): a location joins another whose whole name starts its own
+    ('Bedford' takes 'Bedford Carriage Sidings'), or one with the same name before a word that says which
+    siding or road it is ('Hitchin Up Sidings' and 'Hitchin Down Sidings'). Returns [(sheet name, places)], each
+    group's own station (if it is one of them) first, the groups in name order."""
+    def words(p):
+        return p.name.split()
+
+    def stem(p) -> str:
+        w = words(p)
+        for i, word in enumerate(w[1:], start=1):
+            if word.casefold().strip(".()") in _SIDING_WORDS:
+                return " ".join(w[:i])
+        return p.name
+
+    names = {norm(p.name): p for p in found}
+    groups: Dict[str, List[Place]] = {}
+    title: Dict[str, str] = {}
+    for p in found:
+        w = words(p)
+        owner = next((names[norm(" ".join(w[:i]))] for i in range(1, len(w))
+                      if norm(" ".join(w[:i])) in names), None)
+        key_name = owner.name if owner is not None else stem(p)
+        key = norm(key_name)
+        groups.setdefault(key, []).append(p)
+        title.setdefault(key, key_name)
+    out = []
+    for key, members in groups.items():
+        members.sort(key=lambda p: (norm(p.name) != key, p.name))
+        out.append((title[key], members))
+    return sorted(out, key=lambda g: norm(g[0]))
 
 
 def make_sheet(name: str, tiploc: str, berthing: Berthing, fleets: Optional[Set[str]] = None,
@@ -106,6 +182,34 @@ def make_sheet(name: str, tiploc: str, berthing: Berthing, fleets: Optional[Set[
     labels = sorted({_label(c) for c in codes}, key=_sort_key) or list(dict.fromkeys(known)) or [NO_ROAD]
     return GridSheet(name, corner=("Siding", "Capacity"), preface=[(f"{TIPLOC_LINE} {tiploc}", "")],
                      blocks=[Block(lab) for lab in labels], sections=[name])
+
+
+def make_group_sheet(name: str, places: Sequence["Place"], berthing: Berthing, fleets: Optional[Set[str]] = None
+                     ) -> GridSheet:
+    """One sheet for a station and its sidings (see station_groups): a siding location each, with its banner,
+    'TIPLOC <code> - <location>' line and berths; a single location is a plain sheet (make_sheet)."""
+    if len(places) == 1:
+        p = places[0]
+        sheet = make_sheet(name, p.tiploc, berthing, fleets)
+        for blk in sheet.blocks:
+            blk.tiploc = p.tiploc
+        return sheet
+    sheet = GridSheet(name, corner=("Siding", "Capacity"))
+    for i, p in enumerate(places):
+        part = make_sheet(p.name, p.tiploc, berthing, fleets)
+        plats = all(b.label.startswith("Plat ") for b in part.blocks)
+        section = "Platforms" if norm(p.name) == norm(name) and plats else p.name
+        sheet.sections.append(section)
+        sheet.preface.append((f"{TIPLOC_LINE} {p.tiploc} \u2013 {section}", ""))
+        used = {norm(b.label) for b in sheet.blocks}
+        for blk in part.blocks:
+            blk.section, blk.tiploc = i, p.tiploc
+            blk.codes = blk.codes or ";".join(c for c in _codes(blk.label) if c)
+            if norm(blk.label) in used:                 # two sidings' 'Siding 1': told apart by their TIPLOC
+                blk.label = f"{blk.label} ({p.tiploc})"
+            used.add(norm(blk.label))
+            sheet.blocks.append(blk)
+    return sheet
 
 
 def known_berths(tiploc: str) -> List[str]:
@@ -124,11 +228,11 @@ def with_auto_berths(locations: Locations, layout: Layout) -> Locations:
     """The berth list plus the berths of the layout's sheets made from an XML (found by their TIPLOC line)."""
     out = Locations(dict(locations.sheets), locations.path, locations.warning)
     for sheet in layout.sheets:
-        tip = sheet_tiploc(sheet)
-        if tip and isinstance(sheet, GridSheet):
-            out.sheets[norm(sheet.name)] = {
-                norm(b.label): Berth(tip, tuple(c for c in b.codes.split(";") if c) or _codes(b.label))
-                for b in sheet.blocks}
+        if not isinstance(sheet, GridSheet) or not (sheet_tiplocs(sheet) or any(b.tiploc for b in sheet.blocks)):
+            continue
+        out.sheets[norm(sheet.name)] = {
+            norm(b.label): Berth(berth_tiploc(sheet, b), tuple(c for c in b.codes.split(";") if c) or _codes(b.label))
+            for b in sheet.blocks}
     return out
 
 

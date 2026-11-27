@@ -13,7 +13,7 @@ from rstools.fsutil import output_folder, unique_stem
 from . import auto, writer
 from .chart import Units, place
 from .compare import carry_colours, colour_name, diff, highlight, write_report
-from .layout import Layout, read_chart
+from .layout import GridSheet, Layout, read_chart
 from .mapping import load as load_locations
 from .stays import build
 from .xmlread import BerthingError, read_xml
@@ -116,13 +116,21 @@ def choose_sheets(layout: Layout, xmls, berthing, operator: str, table, leave_ou
     if from_xml:
         found = auto.places(berthing, names, Depots.load(names), (), fleets)
         layout.sheets = []
-        for p in sorted((p for p in found if not p.depot), key=lambda p: p.name):
-            name = auto.sheet_name(p.name, p.tiploc, [s.name for s in layout.sheets])
-            layout.sheets.append(auto.make_sheet(name, p.tiploc, berthing, fleets))
+        for station, group in auto.station_groups([p for p in found if not p.depot]):
+            name = auto.sheet_name(station, group[0].tiploc, [s.name for s in layout.sheets])
+            layout.sheets.append(auto.make_group_sheet(name, group, berthing, fleets))
     out = {auto.norm(x) for x in leave_out if x.strip()}
-    if out:
-        layout.sheets = [s for s in layout.sheets
-                         if auto.norm(s.name) not in out and auto.norm(auto.sheet_tiploc(s)) not in out]
+    if out:                         # a sheet by name; a location (TIPLOC) on its own sheet or within a station's
+        kept = []
+        for s in layout.sheets:
+            if auto.norm(s.name) in out:
+                continue
+            if isinstance(s, GridSheet) and (auto.sheet_tiplocs(s) or any(b.tiploc for b in s.blocks)):
+                auto.drop_locations(s, out)
+                if not s.blocks:
+                    continue
+            kept.append(s)
+        layout.sheets = kept
     if add:
         locations = auto.with_auto_berths(load_locations(), layout)
         on = auto.charted_tiplocs(layout, locations)

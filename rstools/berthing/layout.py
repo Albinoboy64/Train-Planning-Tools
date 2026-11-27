@@ -51,6 +51,7 @@ class Block:
     data_notes: Dict[Tuple[int, int], str] = field(default_factory=dict)    # (offset, day column) -> text
     section: int = 0                    # which siding location on the sheet (index into GridSheet.sections)
     codes: str = ""                     # platform / road codes ('3;3F'), for a berth of a saved location set
+    tiploc: str = ""                    # its TIPLOC, for a berth of a sheet made from an XML (else the sheet's)
 
 
 @dataclass
@@ -416,7 +417,8 @@ def to_dict(layout: Layout) -> dict:
                        "blocks": [{"label": b.label, "capacity": b.capacity, "height": b.height, "section": b.section,
                                    "notes": {str(k): list(v) for k, v in b.notes.items()},
                                    "data_notes": {f"{o},{i}": t for (o, i), t in b.data_notes.items()},
-                                   **({"codes": b.codes} if b.codes else {})}
+                                   **({"codes": b.codes} if b.codes else {}),
+                                   **({"tiploc": b.tiploc} if b.tiploc else {})}
                                   for b in sh.blocks]})
     return {"cover_name": layout.cover_name,
             "cover": [{"cells": {str(c): list(v) for c, v in row.cells.items()}, "merged": row.merged}
@@ -441,7 +443,8 @@ def from_dict(data: dict, path: str = "") -> Layout:
             data_notes = {(int(k.split(",")[0]), int(k.split(",")[1])): t
                           for k, t in (b.get("data_notes") or {}).items()}
             blocks.append(Block(b["label"], b.get("capacity", ""), int(b.get("height", 1)), {}, notes, data_notes,
-                                int(b.get("section", 0)), str(b.get("codes", "") or "")))
+                                int(b.get("section", 0)), str(b.get("codes", "") or ""),
+                                str(b.get("tiploc", "") or "")))
         corner = list(sh.get("corner") or ["Siding", ""]) + [""]
         out.sheets.append(GridSheet(sh["name"], sh.get("hidden", False), sh.get("tab", ""), (corner[0], corner[1]),
                                     [(x[0], x[1]) for x in sh.get("preface", [])],

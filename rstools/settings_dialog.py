@@ -280,8 +280,8 @@ class BerthingPage(ttk.Frame):
         self.make_btn.grid(row=0, column=0, padx=(0, 6))
         ttk.Button(bar, text="Back to default", command=self._reset).grid(row=0, column=1, padx=(0, 6))
         ttk.Button(bar, text="Open berth list in Excel", command=self._berth_list).grid(row=0, column=2)
-        cols = [Column("Sheet", 200), Column("Berth", 180), Column("Capacity", 90), Column("TIPLOC", 100),
-                Column("Codes", 120)]
+        cols = [Column("Sheet", 170), Column("Location", 190), Column("Berth", 160), Column("Capacity", 80),
+                Column("TIPLOC", 90), Column("Codes", 100)]
         self._source = ""
         self.editor = TableEditor(self, cols, load=self._rows, save=self._save, default=self._default,
                                   on_saved=self._saved)
@@ -366,10 +366,10 @@ class BerthingPage(ttk.Frame):
         from rstools.berthing import auto
         rows = []
         for sh in sheets:
-            tip = auto.sheet_tiploc(sh)
             for b in sh.blocks:
-                rows.append({"Sheet": sh.name, "Berth": b.label, "Capacity": b.capacity, "TIPLOC": tip,
-                             "Codes": b.codes})
+                where = sh.sections[b.section] if len(sh.sections) > 1 and 0 <= b.section < len(sh.sections) else ""
+                rows.append({"Sheet": sh.name, "Location": where, "Berth": b.label, "Capacity": b.capacity,
+                             "TIPLOC": auto.berth_tiploc(sh, b), "Codes": b.codes})
         self.editor.rows = rows
         self.editor._fill()
         self.editor._set_dirty(True)
