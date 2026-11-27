@@ -32,8 +32,8 @@
 ## Releasing (standing instruction from the owner)
 
 - Every finished change is merged into `main` and built as the app automatically, without asking: commit on the
-  `claude/**` working branch and push it. The *Build portable Windows app* workflow builds it, merges it into `main`
-  after a green build and publishes the release.
+  `claude/**` working branch and push it. The *Build portable Windows app* workflow builds every pushed branch and,
+  after a green build of any branch other than `main`, merges it into `main`, builds `main` and publishes the release.
 - A release is made once per version, so each new set of changes bumps `__version__` in `cwn_compare/__init__.py`
   (patch number for fixes and small features) and adds its entry at the top of the README's *Version history*.
 - After pushing, check the workflow run; if it fails, fix the cause and push again (never skip tests to get green).

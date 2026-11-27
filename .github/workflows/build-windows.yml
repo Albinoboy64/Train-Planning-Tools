@@ -344,8 +344,8 @@ jobs:
             TrainPlanningTools.cdx.json
             SHA256SUMS.txt
 
-  # Automatic merge into main and release. After a green build (lint, type-check, tests, exe, smoke tests) of a
-  # claude/** branch, the branch is merged into main and the new version is built and released as the portable app.
+  # Automatic merge into main and release. After a green build (lint, type-check, tests, exe, smoke tests) of any
+  # branch other than main, the branch is merged into main and the new version is built and released as the portable app.
   #   * With no setup, GitHub's own token does the merge. GitHub does not let that token change files in
   #     .github/workflows, and a push it makes does not start the build on main, so main is built and released by
   #     starting the workflow on main directly (below).
@@ -355,7 +355,7 @@ jobs:
   # The release is made once per version: bump cwn_compare/__init__.py __version__ for a new release.
   promote:
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -402,13 +402,15 @@ jobs:
           if [[ -n "$version" && -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]]; then
             tag="v$version"
           else
-            echo "v$version is already released: main is updated but no new release is made (bump __version__ for one)."
+            echo "v$version is already released: main is updated and built but no new release is made (bump __version__ for one)."
           fi
+          moved=$([[ "$target" == "$(git rev-parse origin/main)" ]] && echo false || echo true)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "moved=$moved" >> "$GITHUB_OUTPUT"
           echo "Merged into main; release tag: ${tag:-none}"
 
-      - name: Build and release main (started directly, as a push by GitHub's own token does not start it)
-        if: steps.merge.outputs.tag != '' && env.AUTO_MERGE_TOKEN == ''
+      - name: Build (and release) main (started directly, as a push by GitHub's own token does not start it)
+        if: (steps.merge.outputs.tag != '' || steps.merge.outputs.moved == 'true') && env.AUTO_MERGE_TOKEN == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run build-windows.yml --ref main -f release_tag="${{ steps.merge.outputs.tag }}"
