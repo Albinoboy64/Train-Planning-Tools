@@ -114,3 +114,15 @@ def test_audit_and_build_pins_are_separate():
     for line in build.splitlines():
         line = line.split("#")[0].strip()
         assert not line or re.match(r"^[A-Za-z0-9_.\-]+==[\w.\-+!]+$", line), line    # every build package pinned
+
+
+def test_promote_checks_the_merge_and_skips_dependabot():
+    """Any account's branch is merged into main after a green build; a merge commit is checked before it is pushed."""
+    wf = _read(".github", "workflows", "build-windows.yml")
+    job = wf[wf.index("\n  promote:"):]
+    cond = job[job.index("if: >-"):job.index("runs-on:")]
+    assert "refs/heads/main" in cond and "dependabot[bot]" in cond
+    assert "claude/" not in cond                            # every branch, from any account, not only claude/**
+    assert "ruff check . && mypy && python -m pytest -q tests" in job
+    assert job.index("check_merge") < job.index('git push origin "$target:refs/heads/main"')
+    assert "back to" in job and "for attempt in 1 2" in job

@@ -37,6 +37,11 @@
 - A release is made once per version, so each new set of changes bumps `__version__` in `cwn_compare/__init__.py`
   (patch number for fixes and small features) and adds its entry at the top of the README's *Version history*.
 - After pushing, check the workflow run; if it fails, fix the cause and push again (never skip tests to get green).
+- This holds for a branch pushed from any account (another Claude user on a separate account included): start the
+  branch from the latest `main` and bump `__version__` above `main`'s. When `main` has moved on, `promote` checks the
+  merge result (ruff, mypy, pytest) before pushing it and refuses a version lower than `main`'s.
+- GitHub's own token cannot push changes to `.github/workflows`. Unless the `AUTO_MERGE_TOKEN` secret is set, a change
+  to a workflow file is merged into `main` with a pull request (open and merge it) once its branch build is green.
 
 ## Maintenance commands
 

@@ -352,18 +352,26 @@ jobs:
             SHA256SUMS.txt
 
   # Automatic merge into main and release. After a green build (lint, type-check, tests, exe, smoke tests) of any
-  # branch other than main, the branch is merged into main and the new version is built and released as the portable app.
+  # branch other than main, pushed from any account, the branch is merged into main and the new version is built and
+  # released as the portable app. Dependabot's branches are built and tested but left for review (its runs have no
+  # write access).
+  #   * When main has moved on since the branch was made (another branch was merged first), the merge result itself is
+  #     linted, type-checked and tested before it is pushed, so main only ever gets code that passed. A branch that
+  #     would take __version__ backwards (one made from an old main) is refused.
+  #   * If main moves while this runs (a push by hand), the merge and checks are done again once on the new main.
   #   * With no setup, GitHub's own token does the merge. GitHub does not let that token change files in
   #     .github/workflows, and a push it makes does not start the build on main, so main is built and released by
-  #     starting the workflow on main directly (below).
+  #     starting the workflow on main directly (below). A branch that edits a workflow is then merged by a pull request.
   #   * To remove both limits, add a repository secret AUTO_MERGE_TOKEN (a fine-grained personal access token for this
   #     repository with Contents and Workflows read and write). Its push to main then starts the normal build and
   #     release by itself.
   # The release is made once per version: bump cwn_compare/__init__.py __version__ for a new release.
   promote:
     needs: build
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
+      && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/')
+    runs-on: windows-latest        # the same system as the tests, so the merge result is checked like the branch
     permissions:
       contents: write
       actions: write
@@ -372,46 +380,85 @@ jobs:
       cancel-in-progress: false
     env:
       AUTO_MERGE_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.AUTO_MERGE_TOKEN || github.token }}
 
-      - name: Merge the tested commit into main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14.6"
+
+      - name: Merge the tested commit into main (checking the merge result when main has moved on)
         id: merge
-        shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
           tested="$GITHUB_SHA"
-          if git merge-base --is-ancestor origin/main "$tested"; then
-            target="$tested"                                   # main is behind the branch: a fast-forward
-          else
-            git checkout -q --detach origin/main
-            if ! git merge --no-ff -m "Merge $GITHUB_REF_NAME into main (build passed)" "$tested"; then
-              git merge --abort || true
-              echo "::error::$GITHUB_REF_NAME and main changed the same lines, so it cannot be merged automatically. Merge main into the branch (resolve the conflict), push, and this runs again."
+          version_of() { git show "$1:cwn_compare/__init__.py" | python -c "import re, sys; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', sys.stdin.read()).group(1))"; }
+          installed=""
+          check_merge() {
+            if [[ -z "$installed" ]]; then
+              python -m pip install pip==26.3
+              pip install --no-deps -r packaging/build-requirements.txt
+              pip check
+              installed=1
+            fi
+            ruff check . && mypy && python -m pytest -q tests
+          }
+          for attempt in 1 2; do
+            git fetch origin main
+            main_sha=$(git rev-parse origin/main)
+            if git merge-base --is-ancestor "$tested" "$main_sha"; then
+              target="$main_sha"; merged=false                 # main already has this commit
+            elif git merge-base --is-ancestor "$main_sha" "$tested"; then
+              target="$tested"; merged=false                   # main is behind the branch: a fast-forward
+            else
+              git checkout -q --detach "$main_sha"
+              if ! git merge --no-ff -m "Merge $GITHUB_REF_NAME into main (build passed)" "$tested"; then
+                git merge --abort || true
+                echo "::error::$GITHUB_REF_NAME and main changed the same lines, so it cannot be merged automatically. Merge main into the branch (resolve the conflict), push, and this runs again."
+                exit 1
+              fi
+              target=$(git rev-parse HEAD); merged=true
+            fi
+            old=$(version_of "$main_sha"); new=$(version_of "$target")
+            if ! python -c "import sys; v=lambda s: tuple(int(x) for x in s.split('.')); sys.exit(0 if v(sys.argv[2]) >= v(sys.argv[1]) else 1)" "$old" "$new"; then
+              echo "::error::Merging $GITHUB_REF_NAME would take the version from $old back to $new (the branch was made from an older main). Merge main into the branch, bump __version__, push, and this runs again."
               exit 1
             fi
-            target=$(git rev-parse HEAD)
-          fi
-          if [[ "$target" == "$(git rev-parse origin/main)" ]]; then
-            echo "main already has this commit; nothing to merge."
-          elif ! git push origin "$target:refs/heads/main"; then
+            if [[ "$merged" == true ]] && ! check_merge; then
+              echo "::error::main has changed since $GITHUB_REF_NAME was made, and the two merged together fail the checks above. Merge main into the branch, fix what fails, push, and this runs again. main is unchanged."
+              exit 1
+            fi
+            if [[ "$target" == "$main_sha" ]]; then
+              echo "main already has this commit; nothing to merge."
+              break
+            fi
+            if git push origin "$target:refs/heads/main"; then
+              break
+            fi
+            git fetch origin main
+            if [[ "$attempt" == 1 && "$(git rev-parse origin/main)" != "$main_sha" ]]; then
+              echo "main moved while this ran: merging and checking again on the new main."
+              continue
+            fi
             echo "::error::GitHub refused the push to main. If the message above mentions workflow files, this change edits .github/workflows: merge this branch into main once by hand (a pull request), or add the AUTO_MERGE_TOKEN secret (see the notes on this job). If it mentions protected branch or required checks, allow this push in Settings > Rules / Branches."
             exit 1
-          fi
-          version=$(git show "$target:cwn_compare/__init__.py" | python3 -c "import re, sys; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', sys.stdin.read()).group(1))")
+          done
+          version=$(version_of "$target")
           tag=""
           if [[ -n "$version" && -z "$(git ls-remote --tags origin "refs/tags/v$version")" ]]; then
             tag="v$version"
           else
             echo "v$version is already released: main is updated and built but no new release is made (bump __version__ for one)."
           fi
-          moved=$([[ "$target" == "$(git rev-parse origin/main)" ]] && echo false || echo true)
+          moved=$([[ "$target" == "$main_sha" ]] && echo false || echo true)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "moved=$moved" >> "$GITHUB_OUTPUT"
           echo "Merged into main; release tag: ${tag:-none}"
