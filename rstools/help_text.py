@@ -78,7 +78,8 @@ TIPS = {
     "Highlight only (no previous values)": "Mark changes without showing the previous values struck through.",
     # ---------------------------------------------------------------- berthing charts
     "Create a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
-        "sidings, laid out like a chart you choose. A new chart has no highlights.",
+        "sidings: SNGX in the built-in layout (or like a chart you choose), TLGN laid out from the XML. A new chart "
+        "has no highlights.",
     "Add a round of changes to a berthing chart": "Remakes the chart from the updated XML. Cells that differ from the "
         "original XML are filled in the chosen colour; earlier highlights are kept.",
     "Compare two berthing charts": "Highlights in the updated chart every unit or time that differs from the original. "
@@ -93,7 +94,12 @@ TIPS = {
     "Updated XML:": "The changed XML. For an STP chart: the LTP and STP XMLs, separated by ';'.",
     "Original chart:": "The earlier berthing chart.",
     "Updated chart:": "The newer berthing chart: the differences are highlighted in a copy of it.",
-    "Issue on cover:": "Shown on the cover, e.g. Proof 2. Leave blank to keep the chart's own.",
+    "Issue on cover:": "The line under the cover's title (the timetable, e.g. December 2026 Berthing Chart): pick a "
+                       "proof or Final, or type your own. Blank: none on a new chart; a round keeps the chart's own.",
+    "Chart for:": "SNGX: the built-in layout. TLGN: a sheet for every place TLGN units berth overnight in the XML "
+                  "(not depots), TLGN units only.",
+    "Choose locations...": "Leave sheets off the chart, or add any location units berth at in the XML (found for "
+                           "you, or typed by name or TIPLOC).",
     "Edit berth locations...": "Open the list that links each berth to its XML location (TIPLOC and platform or "
                                "road) in Excel.",
     # ---------------------------------------------------------------- Stats Pack

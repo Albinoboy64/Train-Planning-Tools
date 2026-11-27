@@ -553,29 +553,41 @@ def berthing_cli(argv):
     ap.add_argument("--layout", default="", help="the chart whose sheets, berths and notes the new chart follows "
                                                  "(default: the app's built-in layout)")
     ap.add_argument("--counts", action="store_true", help="add the unit counts of each siding location")
+    ap.add_argument("--operator", default="SNGX", type=str.upper, choices=["SNGX", "TLGN"],
+                    help="with --xml: SNGX (the built-in layout, default) or TLGN (a sheet for every place TLGN "
+                         "units berth overnight, made from the XML)")
+    ap.add_argument("--leave-out", nargs="+", default=[], metavar="LOCATION",
+                    help="with --xml: sheets to leave off the chart (sheet names or TIPLOCs)")
+    ap.add_argument("--add", nargs="+", default=[], metavar="LOCATION",
+                    help="with --xml: locations to add a sheet for (names or TIPLOCs from the XML)")
     ap.add_argument("--original", nargs="+", help="the Attune XML(s) the chart was made from")
     ap.add_argument("--updated", nargs="+", help="the changed Attune XML(s)")
-    ap.add_argument("--issue", default="", help="the issue shown on the cover, e.g. 'Proof 2'")
+    ap.add_argument("--issue", default="", help="the issue shown under the cover's title, e.g. 'Proof 2' or 'Final' "
+                                                "(the title is the timetable the XML is for)")
     ap.add_argument("--colour", default="",
                     help="highlight colour: a name (" + ", ".join(PRESET_COLOURS) + ") or RRGGBB")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--name", default="", help="output file name, without .xlsx")
     a = _local_out(ap, ap.parse_args(argv))
+    chart_only = [("--operator", a.operator != "SNGX"), ("--leave-out", a.leave_out), ("--add", a.add)]
     ignored = {"--compare": [("--layout", a.layout), ("--issue", a.issue), ("--original", a.original),
-                             ("--updated", a.updated)],
+                             ("--updated", a.updated)] + chart_only,
                "--xml": [("--original", a.original), ("--updated", a.updated), ("--colour", a.colour)],
-               "--chart": [("--layout", a.layout)]}
+               "--chart": [("--layout", a.layout)] + chart_only}
     used = "--compare" if a.compare else "--xml" if a.xml else "--chart"
     extra = [flag for flag, value in ignored[used] if value]
     if extra:
         ap.error(f"{', '.join(extra)} cannot be used with {used}")
+    if a.xml and a.layout and a.operator != "SNGX":
+        ap.error(f"--layout cannot be used with --operator {a.operator} (its chart is laid out from the XML)")
     named = {k.lower(): v for k, v in PRESET_COLOURS.items()}
     colour = named.get(a.colour.lower(), a.colour.lstrip("#")) if a.colour else ""
     try:
         if colour and not (len(colour) == 6 and all(ch in "0123456789abcdefABCDEF" for ch in colour)):
             raise BerthingError(f"'{a.colour}' is not a colour: use a name ({', '.join(PRESET_COLOURS)}) or RRGGBB.")
         if a.xml:
-            res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print, counts=a.counts)
+            res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print, counts=a.counts,
+                                  operator=a.operator, leave_out=a.leave_out, add=a.add)
         elif a.chart:
             if not (a.original and a.updated):
                 raise BerthingError("--chart needs --original XML and --updated XML.")

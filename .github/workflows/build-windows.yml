@@ -227,6 +227,9 @@ jobs:
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','cap_ft','--capacity-from','Brighton','--capacity-to','"East Croydon"') 'smoke\cap_ft.xlsx' 'make a from-to capacity report'
           Smoke @('berthing','--chart','smoke\berth.xlsx','--original','smoke\berth.xml','--updated','smoke\berth.xml','--out','smoke','--name','berth_round') 'smoke\berth_round.xlsx' 'add a round to a berthing chart'
           Smoke @('workings-berthing','--workings','smoke\wk_a.xlsx','--xml','smoke\berth.xml','--out','smoke','--name','wk_xml') 'smoke\wk_xml.xlsx' 'add berthing arrangements with siding roads from an XML'
+          python -c "import sys; sys.path.insert(0,'tests'); import test_berthing as t; open('smoke/tlgn.xml', 'w').write(t.tlgn_xml())"
+          Smoke @('berthing','--xml','smoke\tlgn.xml','--operator','TLGN','--issue','Final','--out','smoke','--name','berth_tlgn') 'smoke\berth_tlgn.xlsx' 'make a TLGN berthing chart'
+          Smoke @('berthing','--xml','smoke\tlgn.xml','--leave-out','"Hove Yard"','--add','Bedford','--out','smoke','--name','berth_places') 'smoke\berth_places.xlsx' 'make a berthing chart with locations left out and added'
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--acwn','--highlight-only' -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "exe accepted --acwn with --highlight-only" }
 

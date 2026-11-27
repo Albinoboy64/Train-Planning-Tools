@@ -44,8 +44,9 @@ BERTH_MODES = {
     "berth_make": ("Create a berthing chart from an Attune XML",
                    [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"),
                     ("Layout from chart (optional):", "xlsx")],
-                   "Create berthing chart", "Creates a berthing chart from an Attune XML, in the app's built-in layout "
-                   "(or laid out like a chart you choose). Attach the STP XML too for an STP chart."),
+                   "Create berthing chart", "Creates a berthing chart from an Attune XML: SNGX in the app's built-in "
+                   "layout (or laid out like a chart you choose), TLGN with a sheet for every place its units berth. "
+                   "Choose locations to leave some out or add others. Attach the STP XML too for an STP chart."),
     "berth_round": ("Add a round of changes to a berthing chart",
                     [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml")],
                     "Add changes to chart", "Remakes a berthing chart from an updated Attune XML and highlights "
@@ -1378,25 +1379,48 @@ class App(tk.Tk):
                 btn.grid(row=i + 1, column=2, pady=(6, 0))
                 widgets.append((lab, box, btn))
             self.berth_rows[mode] = widgets
+        from rstools.berthing.auto import ISSUES
         self.berth_issue = tk.StringVar()
         self.berth_issue_lbl = ttk.Label(bf, text="Issue on cover:")
         self.berth_issue_lbl.grid(row=4, column=0, sticky="w", pady=(6, 0))
-        self.berth_issue_entry = ttk.Entry(bf, textvariable=self.berth_issue, width=18)
+        self.berth_issue_entry = ttk.Combobox(bf, textvariable=self.berth_issue, width=18, values=["", *ISSUES])
         self.berth_issue_entry.grid(row=4, column=1, sticky="w", padx=4, pady=(6, 0))
+        Tooltip(self.berth_issue_entry, "The line under the title on the cover: pick a proof or Final, or type your "
+                                        "own. Leave it blank for none. The title is the timetable the XML is for "
+                                        "(e.g. December 2026 Berthing Chart).")
         self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
         self.berth_edit_btn = ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths)
         self.berth_edit_btn.grid(row=4, column=2, pady=(6, 0))
+        self.berth_operator = tk.StringVar(value="SNGX")
+        self.berth_leave_out: Dict[str, List[str]] = {}
+        self.berth_add: Dict[str, List[str]] = {}
+        self.berth_op_lbl = ttk.Label(bf, text="Chart for:")
+        self.berth_op_lbl.grid(row=5, column=0, sticky="w", pady=(6, 0))
+        ops = self.berth_op_frame = ttk.Frame(bf)
+        ops.grid(row=5, column=1, sticky="w", padx=4, pady=(6, 0))
+        for i, (op, tip) in enumerate((("SNGX", "Southern / Gatwick Express: the app's built-in layout, or the layout "
+                                                "of a chart you choose."),
+                                       ("TLGN", "Thameslink / Great Northern: a sheet for every place TLGN units berth "
+                                                "overnight in the XML (not depots), showing TLGN units only."))):
+            rb = ttk.Radiobutton(ops, text=op, value=op, variable=self.berth_operator,
+                                 command=self._berth_operator_changed)
+            rb.grid(row=0, column=i, sticky="w", padx=(0, 12))
+            Tooltip(rb, tip)
+        self.berth_places_btn = ttk.Button(bf, text="Choose locations...", command=self._choose_locations)
+        self.berth_places_btn.grid(row=5, column=2, pady=(6, 0))
+        self.berth_places_lbl = ttk.Label(bf, text="", style="Small.TLabel")
+        self.berth_places_lbl.grid(row=6, column=1, columnspan=2, sticky="w", padx=4)
         self.berth_counts = tk.BooleanVar(value=False)
         counts_cb = self.berth_counts_cb = ttk.Checkbutton(
             bf, text="Show unit counts for each siding location", variable=self.berth_counts)
-        counts_cb.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        counts_cb.grid(row=7, column=0, columnspan=3, sticky="w", pady=(4, 0))
         Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): how many "
                            "units of each type are there at each night's FINISH and START, and how many cars, in red "
                            "where that is more than the location holds.")
         self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
                                     "Tips")
-        self.berth_hint.grid(row=6, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue]:
+        self.berth_hint.grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue, self.berth_operator]:
             var.trace_add("write", lambda *_a: self._update_name_hint())
 
     def _show_berth_rows(self, mode: str):
@@ -1408,6 +1432,42 @@ class App(tk.Tk):
             (w.grid if on else w.grid_remove)()
         for w in (self.berth_edit_btn, self.berth_counts_cb):          # chart-only options
             (w.grid_remove if mode == "work_berth" else w.grid)()
+        for w in (self.berth_op_lbl, self.berth_op_frame, self.berth_places_btn, self.berth_places_lbl):
+            (w.grid if mode == "berth_make" else w.grid_remove)()
+        self._berth_operator_changed()
+
+    def _berth_operator_changed(self):
+        """TLGN charts are laid out from the XML, so the layout-chart box is not used; the line under Choose
+        locations says what is left out and added."""
+        op = self.berth_operator.get()
+        rows = self.berth_rows.get("berth_make", [])
+        if len(rows) > 2 and self.mode.get() == "berth_make":
+            for w in rows[2]:
+                (w.grid_remove if op != "SNGX" else w.grid)()
+        out, add = self.berth_leave_out.get(op, []), self.berth_add.get(op, [])
+        parts = ([f"{len(out)} left out"] if out else []) + ([f"{len(add)} added"] if add else [])
+        self.berth_places_lbl.configure(text="Locations: " + (", ".join(parts) if parts else "the default"))
+
+    def _choose_locations(self):
+        from rstools.berthing import auto, engine
+        from rstools.berthing.locations_dialog import LocationsDialog
+        from rstools.berthing.xmlread import BerthingError
+        op = self.berth_operator.get()
+        files = self._berth_paths("berth_make")
+        xmls = [p for p in files[:2] if p and os.path.isfile(p)]
+        layout = files[2] if op == "SNGX" and files[2] and os.path.isfile(files[2]) else ""
+        try:
+            sheets = engine.layout_sheets(layout) if op == "SNGX" else []
+        except BerthingError as exc:
+            messagebox.showwarning(APP_NAME, str(exc), parent=self)
+            return
+        rows = auto.initial_choices(op, sheets, self.berth_leave_out.get(op, []), self.berth_add.get(op, []))
+        find = (lambda: engine.find_places(xmls, op, layout)) if xmls else None
+        dlg = LocationsDialog(self, op, rows, find)
+        self.wait_window(dlg)
+        if dlg.result is not None:
+            self.berth_leave_out[op], self.berth_add[op] = dlg.result
+            self._berth_operator_changed()
 
     def _browse_berth(self, mode: str, i: int):
         label, kind = BERTH_MODES[mode][1][i]
@@ -1457,6 +1517,8 @@ class App(tk.Tk):
     def _run_berthing(self, o: Options):
         mode = o.mode
         files = self._berth_paths(mode)
+        if mode == "berth_make" and o.berth_operator != "SNGX":
+            files[2] = ""                       # a TLGN chart is laid out from the XML: the layout box is not used
         labels = [lab.rstrip(":") for lab, _k in BERTH_MODES[mode][1]]
         for path, label in zip(files, labels):
             if not path and not label.endswith("(optional)"):
@@ -1491,8 +1553,11 @@ class App(tk.Tk):
                     from .workings_berthing import add_berthing
                     res = add_berthing(files[0], [p for p in files[1:2] if p], o.output_dir, o.output_name, log)
                 elif mode == "berth_make":
-                    res = engine.generate([p for p in files[:2] if p], files[2], o.output_dir, o.output_name,
-                                          o.berth_issue, log, counts=o.berth_counts, progress=prog)
+                    op = o.berth_operator
+                    res = engine.generate([p for p in files[:2] if p], files[2] if op == "SNGX" else "",
+                                          o.output_dir, o.output_name, o.berth_issue, log, counts=o.berth_counts,
+                                          progress=prog, operator=op, leave_out=o.berth_leave_out.get(op, []),
+                                          add=o.berth_add.get(op, []))
                 elif mode == "berth_round":
                     res = engine.add_round(files[0], split(files[1]), split(files[2]), o.colour, o.output_dir,
                                            o.output_name, o.berth_issue, log, counts=o.berth_counts,
@@ -1520,6 +1585,9 @@ class App(tk.Tk):
                         and isinstance(saved_files[i], str) else "")
         self.berth_issue.set(o.berth_issue)
         self.berth_counts.set(bool(o.berth_counts))
+        self.berth_operator.set(o.berth_operator)
+        self.berth_leave_out = {k: list(v) for k, v in o.berth_leave_out.items()}
+        self.berth_add = {k: list(v) for k, v in o.berth_add.items()}
         for k, var in self.book_vars.items():
             var.set(getattr(o, f"book_{k}", "") or "")
         for dt, v in self.book_day_vars.items():
@@ -1554,6 +1622,9 @@ class App(tk.Tk):
         o.berth_files = {m: self._berth_paths(m) for m in BERTH_MODES}
         o.berth_issue = self.berth_issue.get().strip()
         o.berth_counts = bool(self.berth_counts.get())
+        o.berth_operator = self.berth_operator.get()
+        o.berth_leave_out = {k: list(v) for k, v in self.berth_leave_out.items()}
+        o.berth_add = {k: list(v) for k, v in self.berth_add.items()}
         util = o.mode in ("reorder", "station")
         o.original = (self.util if util else self.orig).get().strip().strip('"')
         o.updated = "" if util else self.upd.get().strip().strip('"')
@@ -1710,7 +1781,9 @@ class App(tk.Tk):
             files = self._berth_paths(mode)
             issue = self.berth_issue.get().strip()
             if mode == "berth_make":
-                name = f"Berthing Chart {issue}" if issue else "Berthing Chart <timetable>"
+                op = self.berth_operator.get()
+                name = ("" if op == "SNGX" else op + " ") + "Berthing Chart <timetable>" + (f" {issue}" if issue
+                                                                                            else "")
             elif mode == "berth_round":
                 stem = os.path.splitext(os.path.basename(files[0]))[0] if files[0] else "chart name"
                 name = f"{stem} - {issue}" if issue else f"{stem} updated"

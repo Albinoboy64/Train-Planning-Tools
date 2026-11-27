@@ -102,11 +102,13 @@ def _formations(stays: Sequence[Stay]) -> List[List[Stay]]:
 
 
 def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units,
-          warnings: List[str]) -> Layout:
-    """A copy of the layout with every sheet filled from the stays (any units already on it are replaced)."""
+          warnings: List[str], fleets: Optional[Set[str]] = None) -> Layout:
+    """A copy of the layout with every sheet filled from the stays (any units already on it are replaced).
+    `fleets`: only units of these types (a TLGN chart); None for every type."""
     out = copy.deepcopy(layout)
     by_loc: Dict[str, List[Stay]] = defaultdict(list)
-    charted = [s for s in berthing.stays if s.fleet.upper() != "MAINT"]      # maintenance moves are not berthed
+    charted = [s for s in berthing.stays if s.fleet.upper() != "MAINT"      # maintenance moves are not berthed
+               and (fleets is None or s.fleet in fleets)]
     for s in charted:
         by_loc[s.loc].append(s)
     no_location = []
