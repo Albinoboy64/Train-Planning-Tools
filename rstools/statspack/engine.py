@@ -399,8 +399,8 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
     reports.append(Report("Notes", f"How this report was made ({span})", ["Note"],
                           [[w] for w in warnings] + [[
                               "Days: " + ", ".join(DAY_NAMES[d] for d in days) + ". Depots: locations named "
-                              "T&RSMD, TMD, EMUD, Depot, Shed or Traincare, plus the depot list (Data > Edit "
-                              "depot list). Units stabling at Lovers Walk, Stewarts Lane or Selhurst end their "
+                              "T&RSMD, TMD, EMUD, Depot, Shed or Traincare, plus the depot list (Settings > "
+                              "Depots). Units stabling at Lovers Walk, Stewarts Lane or Selhurst end their "
                               "cycle there unless the XML or TRENT print names their next working (never "
                               "inferred), as those depots form whatever is needed the next day."]]))
     return reports, warnings
@@ -481,7 +481,7 @@ def seats_group(kind: str, name: str, corridor_dir: str = "both", journey: Tuple
         return custom.with_direction(corridor_dir) if kind == "Corridor" else custom
     if kind == "Service group" and re.fullmatch(r"[0-9][A-Z]", code.upper()):
         return headcode_group(code)
-    raise StatsPackError(f"{kind} '{name}' is not known." + (" Choose one from the list (Data > Edit corridors)."
+    raise StatsPackError(f"{kind} '{name}' is not known." + (" Choose one from the list (Settings > Corridors)."
                                                              if kind == "Corridor" else
                                                              " Use a headcode group such as 1F."))
 

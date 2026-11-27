@@ -481,9 +481,11 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------ menu bar
     def _build_menu(self):
-        """Options / Help bar, drawn with themed widgets (a native Windows menu bar ignores the theme)."""
+        """Settings / Load/Save / Help bar, drawn with themed widgets (a native Windows menu bar ignores the theme)."""
         bar = MenuBar(self)
         opt = tk.Menu(bar, tearoff=False)
+        opt.add_command(label="Settings...", accelerator="Ctrl+,", command=lambda: self.open_settings())
+        opt.add_separator()
         themes = tk.Menu(opt, tearoff=False)
         for key, label in theme.MODES.items():
             themes.add_radiobutton(label=label, value=key, variable=self.theme_var, command=self._theme_chosen)
@@ -498,37 +500,27 @@ class App(tk.Tk):
         sizes.add_command(label="Back to normal", accelerator="Ctrl+0", command=lambda: self.step_text_size(0))
         opt.add_cascade(label="Text size", menu=sizes)
         opt.add_separator()
-        self.notify_var = tk.BooleanVar(value=self.opts.notify_done)
-        opt.add_checkbutton(label="Notify me when a run finishes in the background", variable=self.notify_var,
-                            command=self._notify_changed)
-        self.full_path_var = tk.BooleanVar(value=self.opts.recent_full_path)
-        opt.add_checkbutton(label="Show full paths in recent files", variable=self.full_path_var,
-                            command=self._full_path_changed)
-        bar.add("Options", opt)
-        data = tk.Menu(bar, tearoff=False)                   # the lists and rules the tasks read
-        data.add_command(label="Edit fleet data...", command=self.stats_tab.edit_fleet)
-        data.add_command(label="Edit depot list (for unit reports)...", command=self.stats_tab.edit_depots)
-        data.add_command(label="Edit corridors (for capacity reports)...", command=self.stats_tab.edit_groups)
-        data.add_command(label="Berthing chart notes...", command=self.edit_berth_notes)
-        data.add_separator()
-        data.add_command(label="Rules and reference data...", command=self.show_rules)
-        data.add_separator()
-        data.add_command(label="Open settings folder", command=lambda: _open_path(
+        for label, page in (("Fleet data...", "Fleet data"), ("Depots...", "Depots"), ("Corridors...", "Corridors"),
+                            ("Berthing locations...", "Berthing locations"), ("Berthing notes...", "Berthing notes"),
+                            ("Rules...", "Rules")):
+            opt.add_command(label=label, command=lambda p=page: self.open_settings(p))
+        opt.add_separator()
+        opt.add_command(label="Open settings folder", command=lambda: _open_path(
             os.path.dirname(Options.settings_path())))
-        bar.add("Data", data)
+        self.notify_var = tk.BooleanVar(value=self.opts.notify_done)
+        self.full_path_var = tk.BooleanVar(value=self.opts.recent_full_path)
+        self.auto_update_var = tk.BooleanVar(value=self.opts.check_updates)
+        bar.add("Settings", opt)
+        self.bind("<Control-comma>", lambda _e: self.open_settings() or "break")
         self.saved_menu = tk.Menu(bar, tearoff=False, postcommand=self._fill_saved_menu)
         self._fill_saved_menu()
-        bar.add("Save/Load", self.saved_menu)
+        bar.add("Load/Save", self.saved_menu)
         help_menu = tk.Menu(bar, tearoff=False)
         help_menu.add_command(label="User guide (README on GitHub)", accelerator="F1",
                               command=lambda: webbrowser.open(f"https://github.com/{updater.REPO}#readme"))
-        help_menu.add_command(label="Keyboard shortcuts", command=self._shortcuts)
+        help_menu.add_command(label="Shortcuts and drag and drop", command=self._shortcuts)
         help_menu.add_separator()
         help_menu.add_command(label="Check for updates...", command=self.check_for_updates)
-        self.auto_update_var = tk.BooleanVar(value=self.opts.check_updates)
-        help_menu.add_checkbutton(label="Check for updates when the app starts", variable=self.auto_update_var,
-                                  command=self._auto_update_changed)
-        help_menu.add_command(label="GitHub access token...", command=self._set_token)
         help_menu.add_separator()
         help_menu.add_command(label="Error log...", command=self._open_error_log)
         help_menu.add_command(label="Third-party software and licences", command=self._licences)
@@ -548,11 +540,14 @@ class App(tk.Tk):
                 ("F3, Shift+F3", "Live View: next or previous difference"),
                 ("Ctrl+Shift+P", "Live View in its own window, and back"), ("F11", "Live View window: full screen"),
                 ("Ctrl++, Ctrl+-, Ctrl+0", "larger, smaller or normal text"),
-                ("Alt+O, Alt+D, Alt+S, Alt+H", "the Options, Data, Save/Load and Help menus"),
+                ("Ctrl+,", "Settings"), ("Alt+S, Alt+L, Alt+H", "the Settings, Load/Save and Help menus"),
                 ("F1", "user guide"))
-        messagebox.showinfo(f"{APP_NAME} - Keyboard shortcuts",
+        messagebox.showinfo(f"{APP_NAME} - Shortcuts and drag and drop",
                             "\n".join(f"{k}:  {what}" for k, what in keys)
-                            + "\n\nFiles can also be dragged onto any tab: each goes to the right box.", parent=self)
+                            + "\n\nDrag and drop: drop files anywhere on a tab and each goes to the box it belongs "
+                              "in (the older of two CWNs becomes the original); drop one on a box to replace what it "
+                              "holds. An Attune XML dropped on Stock Tools makes a station working book, a VPT adds "
+                              "another operator's trains.", parent=self)
 
     def notify_done(self, title: str, message: str, ok: bool = True):
         """Flash the taskbar and show a corner notice when a run ends while the app is in the background."""
@@ -566,13 +561,14 @@ class App(tk.Tk):
         self.opts.notify_done = self.notify_var.get()
         self.save_app_settings()
 
+    def open_settings(self, page: str = "General", **kw):
+        """The Settings window, on `page`."""
+        from rstools.settings_dialog import open_settings
+        return open_settings(self, page, **kw)
+
     def edit_berth_notes(self):
-        """Data > Berthing chart notes: change, add or remove each location's notes for a timetable."""
-        from rstools.berthing.notes_dialog import NotesDialog
-        try:
-            NotesDialog(self)
-        except Exception as exc:                    # the built-in layout missing (BerthingError) or unreadable
-            messagebox.showwarning(APP_NAME, str(exc), parent=self)
+        """Settings > Berthing notes, for the chart type chosen."""
+        self.open_settings("Berthing notes", operator=self.berth_operator.get())
 
     def _full_path_changed(self):
         self.opts.recent_full_path = bool(self.full_path_var.get())
@@ -687,7 +683,7 @@ class App(tk.Tk):
             tab.set_state(state)
         except Exception as exc:                     # a damaged entry must not break the app
             messagebox.showerror(APP_NAME, f"The saved settings '{name}' could not be loaded ({exc}).\n\n"
-                                           "Save the settings again, or delete them from Save/Load.", parent=self)
+                                           "Save the settings again, or delete them from Load/Save.", parent=self)
             return
         missing = [p for p in tab.files_in_state(state) if not os.path.exists(p)]
         if missing:
@@ -713,18 +709,6 @@ class App(tk.Tk):
 
     def _token(self) -> str:
         return updater.unprotect(self.opts.github_token)
-
-    def _set_token(self):
-        token = simpledialog.askstring(
-            "GitHub access token",
-            "Only needed while the GitHub repository is private.\n\nCreate a fine-grained token on GitHub "
-            "(Settings > Developer settings > Personal access tokens) with read-only 'Contents' access to "
-            f"{updater.REPO}, and paste it here. It is stored encrypted for your Windows login.\n\n"
-            "Leave blank and press OK to remove a saved token.", show="*", parent=self)
-        if token is None:
-            return
-        self.opts.github_token = updater.protect(token.strip())
-        self.save_app_settings()
 
     def check_for_updates(self, release=None):
         UpdateDialog(self, __version__, self._token(), release)
@@ -753,8 +737,7 @@ class App(tk.Tk):
         self.rules_note.configure(text=text, style="Warn.TLabel" if stale else "Small.TLabel")
 
     def show_rules(self):
-        from rstools.rules_dialog import RulesDialog
-        RulesDialog(self)
+        self.open_settings("Rules")
 
     def rules_reminder(self, start: str):
         """The first time a timetable (from Dec 27) is used: remind to check the latest rules are loaded."""
@@ -764,7 +747,7 @@ class App(tk.Tk):
         except Exception:                  # only a reminder: never interrupt the run, but keep the details
             errorlog.write(traceback.format_exc())
             return
-        if text and messagebox.askyesno(f"{APP_NAME} - New timetable", text + "\n\nOpen Rules and reference data now?",
+        if text and messagebox.askyesno(f"{APP_NAME} - New timetable", text + "\n\nOpen Settings > Rules now?",
                                         parent=self):
             self.show_rules()
 
@@ -1060,7 +1043,7 @@ class App(tk.Tk):
         ttk.Label(head, text=APP_NAME, style="Title.TLabel").grid(row=0, column=1, sticky="w")
         ttk.Label(head, text=f"v{__version__}", style="Small.TLabel").grid(row=0, column=2, sticky="sw",
                                                                            padx=(8, 0), pady=(0, 3))
-        # which Network Rail rules are in use (click to see or change them in Rules and reference data)
+        # which Network Rail rules are in use (click to see or change them in Settings > Rules)
         self.rules_note = ttk.Label(head, text="", style="Small.TLabel", cursor="hand2")
         self.rules_note.grid(row=0, column=3, sticky="se", padx=(0, 12), pady=(0, 3))
         self.rules_note.bind("<Button-1>", lambda _e: self.show_rules())
@@ -1432,7 +1415,7 @@ class App(tk.Tk):
                                         "own. Leave it blank for none. The title is the timetable the XML is for "
                                         "(e.g. December 2026 Berthing Chart).")
         self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
-        self.berth_edit_btn = ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths)
+        self.berth_edit_btn = ttk.Button(bf, text="Berthing locations...", command=self._edit_berths)
         self.berth_edit_btn.grid(row=6, column=2, pady=(6, 0))
         self.berth_operator = tk.StringVar(value="SNGX")
         self.berth_leave_out: Dict[str, List[str]] = {}
@@ -1475,7 +1458,7 @@ class App(tk.Tk):
         self.berth_notes_btn = ttk.Button(bf, text="Edit notes...", command=self.edit_berth_notes)
         self.berth_notes_btn.grid(row=10, column=2, pady=(2, 0))
         Tooltip(notes_cb, "The notes about each location (e.g. 'Max 12 CET'), with any changed for the timetable "
-                          "in Data > Berthing chart notes. Untick to leave every note off the chart.")
+                          "in Settings > Berthing notes. Untick to leave every note off the chart.")
         self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
                                     "Tips")
         self.berth_hint.grid(row=11, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1500,7 +1483,7 @@ class App(tk.Tk):
         for w in (self.berth_op_lbl, self.berth_op_frame, self.berth_places_btn, self.berth_places_lbl):
             (w.grid if mode in ("berth_make", "berth_blank") else w.grid_remove)()
         for w in (self.berth_notes_cb, self.berth_notes_btn):          # charts made from XML
-            (w.grid if mode in ("berth_make", "berth_round") else w.grid_remove)()
+            (w.grid if mode in ("berth_make", "berth_round", "berth_blank") else w.grid_remove)()
         self._berth_operator_changed()
 
     def _berth_operator_changed(self):
@@ -1528,7 +1511,7 @@ class App(tk.Tk):
         xmls = [p for p in files[:at] if p and os.path.isfile(p)]
         layout = files[at] if op == "SNGX" and files[at] and os.path.isfile(files[at]) else ""
         try:
-            sheets = engine.layout_sheets(layout) if op == "SNGX" else []
+            sheets = engine.layout_sheets(layout, op)
         except BerthingError as exc:
             messagebox.showwarning(APP_NAME, str(exc), parent=self)
             return
@@ -1565,8 +1548,8 @@ class App(tk.Tk):
             var.set(os.path.normpath(p))
 
     def _edit_berths(self):
-        from rstools.berthing.mapping import ensure_user_copy
-        self.open_outputs([ensure_user_copy()], force=True)
+        """Settings > Berthing locations, for the chart type chosen."""
+        self.open_settings("Berthing locations", operator=self.berth_operator.get())
 
     def _berth_paths(self, mode: str) -> List[str]:
         return [v.get().strip().strip('"') for v in self.berth_vars[mode]]
@@ -1652,7 +1635,7 @@ class App(tk.Tk):
                     res = engine.blank(op, files[1] if op == "SNGX" else "", [p for p in files[:1] if p],
                                        o.output_dir, o.output_name, o.berth_issue, o.berth_timetable,
                                        leave_out=o.berth_leave_out.get(op, []), add=o.berth_add.get(op, []),
-                                       log=log, progress=prog)
+                                       log=log, progress=prog, show_notes=o.berth_notes)
                 elif mode == "berth_round":
                     res = engine.add_round(files[0], split(files[1]), split(files[2]), o.colour, o.output_dir,
                                            o.output_name, o.berth_issue, log, counts=o.berth_counts,

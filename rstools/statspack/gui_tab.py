@@ -24,7 +24,7 @@ from .engine import (OUTPUTS, PackOptions, PlanInputs, StatsPackError, build_pac
                      compare_plans, day_availability, load_plan, pack_name, packs_name, plans_name, seats_name,
                      seats_report, timetable, UNIT_REPORTS, unit_reports, write_pack)
 from .compare import CompareOptions
-from .fleet import FleetTable, ensure_user_copy, user_fleet_path
+from .fleet import FleetTable, user_fleet_path
 from .model import OPERATOR_DEPOTS, OPERATORS, OTHER, operator_of
 from .seats import shown
 
@@ -286,7 +286,7 @@ class StatsPackTab(ttk.Frame):
         fb.grid(row=6, column=0, sticky="w", pady=(4, 0))
         ttk.Button(fb, text="All fleets", command=lambda: self._set_fleets(True)).grid(row=0, column=0)
         ttk.Button(fb, text="None", command=lambda: self._set_fleets(False)).grid(row=0, column=1, padx=4)
-        ttk.Button(fb, text="Edit fleet data (operator, seats, units, lengths)...", command=self.edit_fleet).grid(
+        ttk.Button(fb, text="Fleet data...", command=self.edit_fleet).grid(
             row=0, column=2, padx=(12, 0))
         self.fleet_note = theme.collapse_empty(ttk.Label(sel, text="", style="Small.TLabel", wraplength=440,
                                                          justify="left"))
@@ -585,24 +585,9 @@ class StatsPackTab(ttk.Frame):
         return self.seat_dir.get() if self.seat_dir.get() in DIRECTIONS else "both"
 
     def edit_groups(self):
-        from .seats import ensure_user_groups
-        path = ensure_user_groups()
-        self._groups_file = (path, _mtime(path))
-        self.app.open_outputs([path], force=True)
-        self.fleet_note.configure(text="The corridor list is open in Excel. Save it and come back to this window: "
-                                       "the changes are read in then.")
-        if not getattr(self, "_watching_groups", False):        # read again when the window is back in front
-            self._watching_groups = True
-            self.winfo_toplevel().bind("<FocusIn>", self._groups_maybe_changed, add="+")
+        """Settings > Corridors (read again here when they are saved there)."""
+        self.app.open_settings("Corridors")
 
-    def _groups_maybe_changed(self, _e=None):
-        path, before = getattr(self, "_groups_file", ("", None))
-        if path and _mtime(path) != before:
-            self._groups_file = (path, _mtime(path))
-            self._load_groups()
-            self.fleet_note.configure(text="The corridor list was read again.")
-
-    # ------------------------------------------------------------ helpers
     def _task_picked(self, _event=None):
         mode = self.task_box.picked()
         if mode and mode != self.mode.get():
@@ -732,13 +717,10 @@ class StatsPackTab(ttk.Frame):
             self.out_dir.set(os.path.normpath(p))
 
     def edit_depots(self):
-        from .units import ensure_user_depots
-        self.app.open_outputs([ensure_user_depots()], force=True)
+        self.app.open_settings("Depots")
 
     def edit_fleet(self):
-        self.app.open_outputs([ensure_user_copy()], force=True)
-        self.fleet_note.configure(text="Save and close the fleet file in Excel; the changes are used from the "
-                                       "next run.")
+        self.app.open_settings("Fleet data")
 
     def _fmt_changed(self):
         doc = self.fmt_var.get() != "xlsx"

@@ -31,6 +31,7 @@ DEFAULTS: Dict[str, int] = {
     "PROGRESS_MAX_BYTES": 64 * MB,      # a saved Live View progress file (real ones are well under 1 MB)
     "BERTH_NOTES_MAX_BYTES": 16 * MB,   # the berthing chart notes edited in the app (real ones are a few KB)
     "BERTH_NOTE_CHARS": 1000,           # one berthing chart note (the longest in a real chart is ~200 characters)
+    "BERTH_SET_MAX_BYTES": 16 * MB,     # a berthing location set saved in the app (real ones are well under 1 MB)
 }
 FILE_NAME = "limits.json"
 

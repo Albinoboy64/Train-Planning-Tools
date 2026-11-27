@@ -520,8 +520,8 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
     else:
         stored = rules.load_set() if rules.active_set_info() else None
         if stored is None:
-            raise ValueError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Data > Rules and "
-                             "reference data.")
+            raise ValueError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Settings > "
+                             "Rules.")
         statement = stored
     log(f"Reading {os.path.basename(xml)}")
     from rstools.stationbook import _plan_of

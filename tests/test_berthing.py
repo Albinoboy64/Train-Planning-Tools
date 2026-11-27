@@ -831,3 +831,60 @@ def test_the_window_makes_a_blank_tlgn_chart(tmp_path, monkeypatch):
         assert openpyxl.load_workbook(out).sheetnames == ["Cover", "Brighton", "Notes"]
     finally:
         app.destroy()
+
+
+def test_tlgn_location_set_made_from_an_xml_and_used_for_charts(data):
+    """A TLGN location set made from an XML is saved in the settings folder and then used for TLGN charts (with a
+    capacity column), for blank TLGN charts with no XML, and for the Choose locations list; leave-out and add apply
+    on top of it; resetting it lays charts out from each XML again."""
+    from rstools.berthing import auto, sets
+    (data / "tl.xml").write_text(tlgn_xml())
+    assert not sets.has_set("TLGN") and sets.info("TLGN")["sheets"] == 0
+    sheets = engine.make_location_set([str(data / "tl.xml")], "TLGN")
+    assert [(s.name, auto.sheet_tiploc(s), [(b.label, b.codes) for b in s.blocks]) for s in sheets] == [
+        ("Bedford", "BEDFDM", [("Plat 3", "3;3F")]), ("STPX", "STPX", [("Siding (none given)", "")])]
+    rows = [dict(r) for r in sets.rows("TLGN")]
+    assert rows == []                                            # nothing saved yet
+    assert sets.save("TLGN", sheets, "tl.xml")
+    rows = sets.rows("TLGN")
+    assert {r["TIPLOC"] for r in rows} >= {"BEDFDM"} and all(set(r) == set(sets.FIELDS) for r in rows)
+    bedford = [r for r in rows if r["TIPLOC"] == "BEDFDM"]
+    bedford[0]["Capacity"] = "=12"                               # formula-like text stays text
+    edited = bedford + [{"Sheet": "Luton", "Berth": "Plat 4", "Capacity": "8", "TIPLOC": "LUTON", "Codes": "4;4F"}]
+    assert sets.save_rows("TLGN", edited)
+    info = sets.info("TLGN")
+    assert info["saved"] and info["sheets"] == 2 and info["made"]
+    assert engine.layout_sheets("", "TLGN") == ["Bedford", "Luton"]
+    r = engine.generate([str(data / "tl.xml")], "", str(data), "set", operator="TLGN", leave_out=["Luton"])
+    wb = openpyxl.load_workbook(r.chart)
+    assert wb.sheetnames == ["Cover", "Bedford", "Notes"]
+    ws = wb["Bedford"]
+    assert any(c.value == "Capacity" for row in ws.iter_rows() for c in row)
+    cap = next(c for row in ws.iter_rows() for c in row if c.value == "=12")
+    assert cap.data_type == "s"
+    b = engine.blank("TLGN", "", [], str(data), "blank", timetable="May 2027")
+    assert openpyxl.load_workbook(b.chart).sheetnames[1:3] == ["Bedford", "Luton"]
+    rows_ = auto.initial_choices("TLGN", engine.layout_sheets("", "TLGN"), ["Luton"], [])
+    assert [(c.key, c.ticked) for c in rows_] == [("Bedford", True), ("Luton", False)]
+    sets.reset("TLGN")
+    assert not sets.has_set("TLGN") and engine.layout_sheets("", "TLGN") == []
+
+
+def test_sngx_location_set_overrides_the_built_in_layout(data):
+    """An SNGX set saved from the Settings rows replaces the built-in sheets (other berths' notes kept), and its
+    TIPLOCs and codes go in the berth list; resetting goes back to the built-in layout."""
+    from rstools.berthing import mapping, sets
+    rows = sets.rows("SNGX")
+    assert rows and not sets.info("SNGX")["saved"]
+    brighton = [r for r in rows if r["Sheet"] == "Brighton"]
+    brighton[0]["Capacity"] = "10"
+    brighton.append({"Sheet": "Brighton", "Berth": "Plat 9", "Capacity": "8", "TIPLOC": "BRGHTN", "Codes": "9"})
+    assert sets.save_rows("SNGX", brighton)
+    assert engine.layout_sheets() == ["Brighton"]                # only the rows saved
+    loc = mapping.load()
+    assert loc.berth("Brighton", "Plat 9").tiploc == "BRGHTN" and loc.berth("Brighton", "Plat 9").codes == ("9",)
+    base = sets.base_layout("SNGX")
+    blk = next(b for s in base.sheets if s.name == "Brighton" for b in s.blocks)
+    assert blk.capacity == "10"
+    sets.reset("SNGX")
+    assert len(engine.layout_sheets()) > 20

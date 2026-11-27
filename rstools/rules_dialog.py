@@ -1,10 +1,9 @@
-"""Data > Rules and reference data: the Network Rail rules built into the app, the Section 4 rule sets added
-(add, remove, choose the one in use) and where to download the latest rules."""
+"""Settings > Rules: the Network Rail rules built into the app, the Section 4 rule sets added (add, remove, choose
+the one in use) and where to download the latest rules."""
 from __future__ import annotations
 
 import os
 import threading
-import tkinter as tk
 import webbrowser
 from datetime import date
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -13,7 +12,7 @@ from rstools import rules
 from rstools.branding import APP_NAME
 from rstools.theme import px
 
-TITLE = f"{APP_NAME} - Rules and reference data"
+TITLE = f"{APP_NAME} - Rules"
 
 
 def _d(text: str) -> str:
@@ -21,19 +20,16 @@ def _d(text: str) -> str:
     return f"{d:%d/%m/%Y}" if d else "-"
 
 
-class RulesDialog(tk.Toplevel):
-    def __init__(self, app):
-        super().__init__(app)
+class RulesPanel(ttk.Frame):
+    """Settings > Rules: the rules built into the app and the Section 4 rule sets added."""
+
+    def __init__(self, master, app):
+        super().__init__(master)
         self.app = app
-        self.title("Rules and reference data")
-        self.transient(app)
-        palette = getattr(app, "palette", None)
-        if palette:
-            self.configure(background=palette["bg"])
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
         pad = dict(padx=12, pady=(10, 0))
-        intro = ttk.Label(self, wraplength=px(self, 760), justify="left", text=(
+        intro = ttk.Label(self, wraplength=px(self, 600), justify="left", text=(
             "The Network Rail rules the app uses. The Section 4 check uses the rule set in use whenever no PDFs are "
             "chosen: the built-in one, unless you add newer Section 4 PDFs as a rule set (or choose another)."))
         intro.grid(row=0, column=0, sticky="w", **pad)
@@ -46,7 +42,7 @@ class RulesDialog(tk.Toplevel):
             stale = until is not None and today > until
             ttk.Label(bf, text=f"{b['name']} - {b['use']}. {b['covers']}; {_d(b['from'])} to {_d(b['to'])}."
                                + (" Out of date: a newer app version will carry the new rules." if stale else ""),
-                      wraplength=px(self, 740), justify="left").grid(row=i, column=0, sticky="w")
+                      wraplength=px(self, 580), justify="left").grid(row=i, column=0, sticky="w")
         s4 = next((s for s in rules.list_sets() if s.get("built_in")), None)
         if s4 is not None:
             until = rules.parse_date(s4.get("to", ""))
@@ -56,13 +52,13 @@ class RulesDialog(tk.Toplevel):
                                f"from {len(s4.get('files', []))} route PDFs; {_d(s4.get('from', ''))} to "
                                f"{_d(s4.get('to', ''))}." + (" Out of date: add the new Section 4 PDFs below." if stale
                                                               else ""),
-                      wraplength=px(self, 740), justify="left").grid(row=len(rules.BUILT_IN), column=0, sticky="w")
+                      wraplength=px(self, 580), justify="left").grid(row=len(rules.BUILT_IN), column=0, sticky="w")
         from rstools.berthing.layout import default_info
         lay = default_info()
         if lay is not None:
             ttk.Label(bf, text=f"Berthing chart layout - used for a new berthing chart when no chart is chosen to take "
                                f"the layout from: {lay['sheets']} sheets, from {lay['source']}.",
-                      wraplength=px(self, 740), justify="left").grid(row=len(rules.BUILT_IN) + 1, column=0, sticky="w")
+                      wraplength=px(self, 580), justify="left").grid(row=len(rules.BUILT_IN) + 1, column=0, sticky="w")
         sf = ttk.LabelFrame(self, text="Section 4 rule sets", padding=8)
         sf.grid(row=2, column=0, sticky="nsew", **pad)
         sf.columnconfigure(0, weight=1)
@@ -85,7 +81,7 @@ class RulesDialog(tk.Toplevel):
         self.use_btn.grid(row=0, column=1, padx=6)
         self.del_btn = ttk.Button(btns, text="Remove", command=self._remove)
         self.del_btn.grid(row=0, column=2)
-        self.status = ttk.Label(sf, text="", style="Small.TLabel", wraplength=px(self, 740), justify="left")
+        self.status = ttk.Label(sf, text="", style="Small.TLabel", wraplength=px(self, 580), justify="left")
         self.status.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         lf = ttk.Frame(self)
         lf.grid(row=3, column=0, sticky="ew", padx=12, pady=(10, 0))
@@ -94,9 +90,7 @@ class RulesDialog(tk.Toplevel):
         link = ttk.Label(lf, text=rules.RULES_URL, style="Link.TLabel", cursor="hand2")
         link.grid(row=1, column=0, sticky="w")
         link.bind("<Button-1>", lambda _e: webbrowser.open(rules.RULES_URL))
-        ttk.Button(self, text="Close", command=self.destroy).grid(row=4, column=0, pady=10)
         self.tree.bind("<<TreeviewSelect>>", lambda _e: self._buttons())
-        self.bind("<Escape>", lambda _e: self.destroy())
         self._fill()
 
     def _fill(self, select: str = ""):

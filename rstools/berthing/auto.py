@@ -104,8 +104,8 @@ def make_sheet(name: str, tiploc: str, berthing: Berthing, fleets: Optional[Set[
     codes = {s.plat.upper().removesuffix("F") if s.plat[:1].isdigit() else s.plat.upper()
              for s in berthing.stays if s.loc == tiploc and (fleets is None or s.fleet in fleets)}
     labels = sorted({_label(c) for c in codes}, key=_sort_key) or list(dict.fromkeys(known)) or [NO_ROAD]
-    return GridSheet(name, preface=[(f"{TIPLOC_LINE} {tiploc}", "")], blocks=[Block(lab) for lab in labels],
-                     sections=[name])
+    return GridSheet(name, corner=("Siding", "Capacity"), preface=[(f"{TIPLOC_LINE} {tiploc}", "")],
+                     blocks=[Block(lab) for lab in labels], sections=[name])
 
 
 def known_berths(tiploc: str) -> List[str]:
@@ -126,7 +126,9 @@ def with_auto_berths(locations: Locations, layout: Layout) -> Locations:
     for sheet in layout.sheets:
         tip = sheet_tiploc(sheet)
         if tip and isinstance(sheet, GridSheet):
-            out.sheets[norm(sheet.name)] = {norm(b.label): Berth(tip, _codes(b.label)) for b in sheet.blocks}
+            out.sheets[norm(sheet.name)] = {
+                norm(b.label): Berth(tip, tuple(c for c in b.codes.split(";") if c) or _codes(b.label))
+                for b in sheet.blocks}
     return out
 
 
@@ -239,10 +241,11 @@ class Choice:
 
 
 def initial_choices(operator: str, sheets: Sequence[str], leave_out: Sequence[str], add: Sequence[str]) -> List[Choice]:
-    """The list before the XML is read: the layout's sheets (SNGX), and the locations left out and added before."""
+    """The list before the XML is read: the layout's sheets (SNGX, or a saved location set), and the locations
+    left out and added before."""
     out_keys = {norm(x) for x in leave_out}
     rows: List[Choice] = []
-    if operator.upper() == "SNGX":
+    if operator.upper() == "SNGX" or sheets:
         rows = [Choice(s, s, True, norm(s) not in out_keys) for s in sheets]
     else:
         rows = [Choice(x, x, True, False) for x in leave_out]
@@ -251,12 +254,14 @@ def initial_choices(operator: str, sheets: Sequence[str], leave_out: Sequence[st
     return rows
 
 
-def merge_places(rows: List[Choice], found: Sequence[Place], operator: str) -> List[Choice]:
-    """The list with the XML's berthing locations added: for TLGN each place (not depots) is on the chart by
-    default; for SNGX the places with no sheet can be ticked to add them."""
+def merge_places(rows: List[Choice], found: Sequence[Place], operator: str, from_xml: Optional[bool] = None
+                 ) -> List[Choice]:
+    """The list with the XML's berthing locations added: when the chart's sheets are made from the XML (TLGN
+    with no saved location set) each place (not depots) is on the chart by default; otherwise the places with no
+    sheet can be ticked to add them."""
     out = list(rows)
     by_key = {norm(r.key): r for r in out}
-    tlgn = operator.upper() != "SNGX"
+    tlgn = operator.upper() != "SNGX" if from_xml is None else from_xml
     for p in found:
         if p.on_chart:
             continue

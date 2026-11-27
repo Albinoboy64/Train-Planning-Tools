@@ -881,8 +881,8 @@ def _num_key(n: str):
 
 def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: str = "xlsx",
               progress=lambda f, m: None, log=lambda m: None, vpt: str = "", others: Sequence[str] = ()):
-    """Read the XML and the Section 4 PDF(s) - or, with no PDFs, the Section 4 rule set in use (Data > Rules and
-    reference data) - check, and save the report. `vpt`: a VPT of the same timetable, for the running lines;
+    """Read the XML and the Section 4 PDF(s) - or, with no PDFs, the Section 4 rule set in use (Settings >
+    Rules) - check, and save the report. `vpt`: a VPT of the same timetable, for the running lines;
     `others`: other operators' VPTs or Attune Single Train Report (F3) prints, whose trains are checked
     too. Returns (path, result, statement, plan start)."""
     from rstools.stationbook import StationBookError, _plan_of
@@ -894,8 +894,8 @@ def run_check(xml: str, pdfs: Sequence[str], out_dir: str, name: str = "", fmt: 
         info = rules.active_set_info()
         stored = rules.load_set() if info else None
         if info is None or stored is None:
-            raise Section4Error("Choose the Section 4 PDF(s), or add a Section 4 rule set in Data > Rules and "
-                                f"reference data.\n\nThe latest rules can be downloaded from {rules.RULES_URL}")
+            raise Section4Error("Choose the Section 4 PDF(s), or add a Section 4 rule set in Settings > "
+                                f"Rules.\n\nThe latest rules can be downloaded from {rules.RULES_URL}")
         statement = stored
         log(f"Section 4 rule set in use: {info['name']} ({len(statement.possessions)} possession rows)")
     if not statement.possessions:

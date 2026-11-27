@@ -630,7 +630,7 @@ def berthing_cli(argv):
                          "their units are added in grey, matched by place where the file has no next-day workings")
     ap.add_argument("--no-notes", action="store_true",
                     help="leave the location notes off the chart (by default they are shown, with any changed for "
-                         "the XML's timetable in the app's Data > Berthing chart notes)")
+                         "the XML's timetable in the app's Settings > Berthing notes)")
     ap.add_argument("--original", nargs="+", help="the Attune XML(s) the chart was made from")
     ap.add_argument("--updated", nargs="+", help="the changed Attune XML(s)")
     ap.add_argument("--issue", default="", help="the issue shown under the cover's title, e.g. 'Proof 2' or 'Final' "
@@ -644,7 +644,7 @@ def berthing_cli(argv):
     if a.blank:
         extra = [flag for flag, value in [("--chart", a.chart), ("--compare", a.compare), ("--original", a.original),
                                           ("--updated", a.updated), ("--colour", a.colour), ("--others", a.others),
-                                          ("--counts", a.counts), ("--no-notes", a.no_notes)] if value]
+                                          ("--counts", a.counts)] if value]
         if a.xml:
             extra += [flag for flag, value in blank_only if value]
         if extra:
@@ -656,7 +656,7 @@ def berthing_cli(argv):
             ap.error("--from and --to go together")
         try:
             res = engine.blank(a.operator, a.layout, a.xml or [], a.out, a.name, a.issue, a.timetable, a.date_from,
-                               a.date_to, a.leave_out, a.add, log=print)
+                               a.date_to, a.leave_out, a.add, log=print, show_notes=not a.no_notes)
         except BerthingError as exc:
             print("ERROR:", exc)
             sys.exit(1)

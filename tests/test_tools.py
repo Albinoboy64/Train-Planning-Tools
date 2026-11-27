@@ -90,7 +90,7 @@ def test_help_text_lookup():
     assert "never overwritten" in lookup("Output name:") and "10-15" in lookup("Platforms (optional):")
     assert "48 hours" in lookup("Fuel check (171s)") and lookup("Other depots")
     # no pop-ups on the menu bar, and none that only repeat the control's own words
-    for redundant in ("Options", "Save/Load", "Help", "Browse...", "Clear", "Swap the two files", "Create stats pack",
+    for redundant in ("Options", "Load/Save", "Help", "Browse...", "Clear", "Swap the two files", "Create stats pack",
                       "Open report", "All days", "Weekdays", "Mon", "MO", "377/4", "SNGX (BI, SU, SL)",
                       "Original Attune XML:", "Changed rows only"):
         assert lookup(redundant) is None, redundant
@@ -1370,7 +1370,7 @@ def test_rules_dialog_lists_sets_and_protects_the_built_in_one(tmp_path, monkeyp
     except tk.TclError:
         return                                          # no display
     try:
-        dlg = rules_dialog.RulesDialog(app)
+        dlg = rules_dialog.RulesPanel(app, app)
         app.update()
         names = list(dlg.tree.get_children())
         assert rules.BUILT_IN_S4 in names
@@ -1559,3 +1559,69 @@ def test_file_box_arrow_lists_whole_recent_paths():
         assert not s.shown
     finally:
         root.destroy()
+
+
+def test_table_editor_rows_are_checked_and_kept_as_text(tmp_path):
+    """Number columns must hold numbers; every value is cleaned of control characters and a formula-like value
+    stays text in the CSV (the readers read every cell as text)."""
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools.table_editor import Column, problems, read_csv, to_csv, write_csv
+    cols = [Column("Class Name"), Column("Vehicles per Unit", number=True)]
+    assert problems(cols, [{"Class Name": "377/1", "Vehicles per Unit": "4"}, {"Vehicles per Unit": ""}]) == []
+    assert problems(cols, [{"Class Name": "x", "Vehicles per Unit": "four"}]) == [
+        "Row 1, Vehicles per Unit: 'four' is not a number."]
+    text = to_csv(cols, [{"Class Name": "=CMD|'/c calc'!A1\x07", "Vehicles per Unit": "4"}, {}])
+    assert text.splitlines() == ["Class Name,Vehicles per Unit", "=CMD|'/c calc'!A1,4"]
+    p = str(tmp_path / "fleet.csv")
+    assert write_csv(p, cols, [{"Class Name": "700/0", "Vehicles per Unit": "8"}])
+    assert read_csv(p) == [{"Class Name": "700/0", "Vehicles per Unit": "8"}]
+
+
+def test_file_limits_page_saves_only_changed_positive_limits(tmp_path, monkeypatch):
+    import json
+    import pytest
+    pytest.importorskip("tkinter")
+    from rstools import limits
+    from rstools.settings_dialog import parse_limit, save_limits
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    assert parse_limit("XML_MAX_BYTES", "8192") == 8 * 1024 ** 3 and parse_limit("PDF_MAX_PAGES", "500") == 500
+    assert parse_limit("PDF_MAX_PAGES", "-1") is None and parse_limit("PDF_MAX_PAGES", "lots") is None
+    values = dict(limits.DEFAULTS, PDF_MAX_PAGES=500)
+    assert save_limits(values)
+    from rstools.branding import settings_dir
+    path = os.path.join(settings_dir(), limits.FILE_NAME)
+    assert json.load(open(path)) == {"PDF_MAX_PAGES": 500}
+    assert save_limits(dict(limits.DEFAULTS)) and not os.path.exists(path)
+    limits.reload()
+
+
+def test_settings_window_opens_every_page(tmp_path, monkeypatch):
+    """Every page of the Settings window opens (fleet, depots and corridors as tables) and closes."""
+    import pytest
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    from cwn_compare import gui
+    from rstools import settings_dialog
+    try:
+        app = gui.App()
+    except tk.TclError:
+        return
+    try:
+        app.withdraw()
+        win = app.open_settings()
+        for page in settings_dialog.PAGES:
+            win.show(page)
+            app.update()
+            assert win.current == page
+        ed = win.pages["Fleet data"].editor
+        assert ed.rows and "Class Name" in [c.name for c in ed.columns]
+        assert win.pages["Berthing locations"].editor.rows                     # the built-in SNGX berths
+        win.show("Berthing locations", operator="TLGN")
+        assert win.pages["Berthing locations"].editor.rows == []               # TLGN: no set yet
+        assert settings_dialog.open_settings(app, "Rules") is win
+        win.close()
+    finally:
+        app.destroy()

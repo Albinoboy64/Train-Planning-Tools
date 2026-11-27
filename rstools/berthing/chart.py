@@ -166,7 +166,7 @@ def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units
                         f"empty (e.g. {', '.join(no_location[:5])}). Edit berth locations to add them.")
     if units.unknown:
         warnings.append("No car count in the fleet data for " + ", ".join(sorted(units.unknown)) + "; only the class "
-                        "is shown. Edit fleet data to add it.")
+                        "is shown. Add it in Settings > Fleet data.")
     return out
 
 

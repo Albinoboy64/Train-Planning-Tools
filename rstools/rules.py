@@ -113,7 +113,7 @@ def new_timetable_reminder(start: str) -> Optional[str]:
     active = active_set_info()
     lines = [f"This is the first time a {tt} timetable has been used.",
              "",
-             "Check the latest Network Rail rules are loaded (Data > Rules and reference data):"]
+             "Check the latest Network Rail rules are loaded (Settings > Rules):"]
     lines.append(f"  - Section 4 rule set in use: {active['name']}" if active else
                  "  - Section 4: no rule set added yet")
     for b in BUILT_IN:
@@ -331,8 +331,8 @@ def coverage_warning(statement, start: str, end: str) -> Optional[str]:
     lo, hi = min(p.start for p in periods), max(p.end for p in periods)
     if a > hi or (b and b < lo) or a < lo:
         return (f"The Section 4 rules cover {lo:%d/%m/%Y} to {hi:%d/%m/%Y}, but the timetable starts {a:%d/%m/%Y}: "
-                f"they may be out of date. Download the latest from {RULES_URL} and add them in Data > Rules "
-                "and reference data.")
+                f"they may be out of date. Download the latest from {RULES_URL} and add them in Settings > "
+                "Rules.")
     return None
 
 

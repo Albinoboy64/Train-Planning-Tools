@@ -130,7 +130,9 @@ class LocationsDialog(tk.Toplevel):
                 messagebox.showwarning(APP_NAME, out["error"], parent=self)
                 return
             found = out.get("found") or []
-            self.rows = auto.merge_places(self.rows, found, self.operator)
+            from . import sets
+            from_xml = self.operator.upper() != "SNGX" and not sets.has_set(self.operator)
+            self.rows = auto.merge_places(self.rows, found, self.operator, from_xml)
             self.status.configure(text=f"{len(found)} berthing location{'s' if len(found) != 1 else ''} found.")
             self._draw()
             if self.operator == "SNGX":                 # the new ones are at the end of the list

@@ -44,7 +44,7 @@ TIPS = {
         "possessions.",
     "Section 4 PDF(s):": "The Section 4 PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Leave "
                          "blank to use the rule set in use: the built-in 2027 EAS v4 rules, or a newer set added "
-                         "in Data > Rules and reference data.",
+                         "in Settings > Rules.",
     "Create a station working book from an Attune XML (TRACS-RS layout)": "One sheet each for SX, SO and Su. Needs an "
         "Attune XML with every day's unit diagrams.",
     "Station:": "The station, as named in the XML. Type to see matching stations.",
@@ -119,12 +119,20 @@ TIPS = {
     "CWN or platform workings:": "The CWN or platform workings to add the other operators' trains to (a copy is "
                                  "saved).",
     "Show location notes on the chart": "The notes about each location (e.g. 'Max 12 CET'), with any changed for "
-                                        "the XML's timetable in Data > Berthing chart notes. Untick to leave every "
+                                        "the XML's timetable in Settings > Berthing notes. Untick to leave every "
                                         "note off.",
-    "Edit notes...": "Change, add or remove the notes of each location for the current and next five timetables.",
-    "Edit berth locations...": "Open the list that links each berth to its XML location (TIPLOC and platform or "
-                               "road) in Excel.",
-    # ---------------------------------------------------------------- Stats Pack
+    "Edit notes...": "Settings > Berthing notes: change, add or remove the notes of each location for the current "
+                     "and next five timetables.",
+    "Make from XML...": "Find every place the chart's units berth overnight in an Attune XML (not depots), with a "
+                        "berth for each platform or road used; check the rows, add capacities, then Save.",
+    "Back to default": "Forget your saved locations: SNGX goes back to the app's built-in list, TLGN to taking its "
+                       "locations from each XML.",
+    "Open berth list in Excel": "The list that links each SNGX berth to its TIPLOC and platform or road codes, for "
+                                "big changes.",
+    "Open in Excel": "Open this list in Excel for big changes; the rows are read again when you come back.",
+    "Back to built-in": "Put back the app's built-in rows (press Save to keep them).",
+    "Berthing locations...": "Settings > Berthing locations: the sheets and berths each chart starts from (SNGX, "
+                             "or TLGN's set made from an XML), their capacities, TIPLOCs and platform codes.",
     "Create a stats pack": "Build the rolling stock stats pack for the chosen days from an Attune XML and its "
                            "TRENT diagram print.",
     "Compare two plans (two sets of XML + TRENT print)": "Build stats packs for two plans and show every "
@@ -168,9 +176,8 @@ TIPS = {
                               "before and after.",
     "Flag mileage increases over": "Highlight in red any train, unit or formation mileage that rises by more "
                                    "than this many miles.",
-    "Edit fleet data (operator, seats, units, lengths)...": "Open your fleet table in Excel to correct operators, "
-                                                           "seats, vehicles per unit, fleet sizes and unit "
-                                                           "lengths.",
+    "Fleet data...": "Settings > Fleet data: each unit type's operator, seats, vehicles per unit, fleet size and "
+                     "unit length.",
     # ---------------------------------------------------------------- Timing Tools
     "Check the GTR timetable against the Network Rail timetable": "Check the GTR timetable against the Network Rail "
                                                          "timetable (the reference). Output: the Consolidated "

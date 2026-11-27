@@ -13,7 +13,7 @@ from rstools.fsutil import output_folder, unique_stem
 from . import auto, writer
 from .chart import Units, place
 from .compare import carry_colours, colour_name, diff, highlight, write_report
-from .layout import Layout, load_default, read_chart
+from .layout import Layout, read_chart
 from .mapping import load as load_locations
 from .stays import build
 from .xmlread import BerthingError, read_xml
@@ -99,8 +99,10 @@ def _operator_of(layout: Layout) -> str:
 
 
 def choose_sheets(layout: Layout, xmls, berthing, operator: str, table, leave_out: Sequence[str] = (),
-                  add: Sequence[str] = (), names: Optional[dict] = None, blank: bool = False) -> List[str]:
-    """The layout's sheets for the chart: for TLGN, one for every place TLGN units berth overnight (not depots);
+                  add: Sequence[str] = (), names: Optional[dict] = None, blank: bool = False,
+                  from_xml: Optional[bool] = None) -> List[str]:
+    """The layout's sheets for the chart: made from the XML (`from_xml`; by default for TLGN when it has no saved
+    location set), one for every place the operator's units berth overnight (not depots);
     less the sheets left out (by name or TIPLOC), plus a sheet for each location added (by name or TIPLOC).
     names: the location names to find an added location in (default: the XMLs'). blank: a blank chart (no
     warning that a sheet has no units). Returns warnings."""
@@ -108,7 +110,10 @@ def choose_sheets(layout: Layout, xmls, berthing, operator: str, table, leave_ou
     names = _names(xmls) if names is None else names
     fleets = auto.operator_fleets(operator, table)
     warnings: List[str] = []
-    if operator.upper() != "SNGX":
+    if from_xml is None:
+        from . import sets
+        from_xml = operator.upper() != "SNGX" and not sets.has_set(operator)
+    if from_xml:
         found = auto.places(berthing, names, Depots.load(names), (), fleets)
         layout.sheets = []
         for p in sorted((p for p in found if not p.depot), key=lambda p: p.name):
@@ -150,8 +155,9 @@ def find_places(xml_paths: Sequence[str], operator: str = "SNGX", layout_path: s
     names = _names(xmls)
     table = _table()
     on: set = set()
-    if operator.upper() == "SNGX":
-        layout = read_chart(layout_path, load_locations()) if layout_path else load_default()
+    from . import sets
+    if operator.upper() == "SNGX" or sets.has_set(operator):
+        layout = read_chart(layout_path, load_locations()) if layout_path else sets.base_layout(operator)
         on = auto.charted_tiplocs(layout, auto.with_auto_berths(load_locations(), layout))
     return auto.places(berthing, names, Depots.load(names), on, auto.operator_fleets(operator, table))
 
@@ -186,8 +192,10 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
         log(f"Reading the layout of {os.path.basename(layout_path)}")
         layout = read_chart(layout_path, load_locations())
     else:
-        layout = load_default()
-        log(f"Using {layout.path}" if operator == "SNGX" else f"Making the {operator} sheets from the XML")
+        from . import sets
+        layout = sets.base_layout(operator)
+        log(f"Using {layout.path}" if operator == "SNGX" or sets.has_set(operator)
+            else f"Making the {operator} sheets from the XML")
     _clear_units(layout)
     progress(0.1, "Reading the timetable...")
     read = _stays(xml_paths, log)
@@ -203,13 +211,14 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
     extra = _others(others, log)
     _x, filled, warnings = _fill(layout, xml_paths, log, auto.operator_fleets(operator, table), read, extra)
     warnings = picked + warnings
-    _location_notes(filled, xmls, show_notes, log)
+    _location_notes(filled, xmls, show_notes, log, operator)
     progress(0.6, "Writing the chart...")
     stp = len(xml_paths) > 1
     prefix = "" if operator == "SNGX" else operator + " "
     default = f"{prefix}Berthing Chart {_timetable(xmls) or naming.today()}" + (f" {issue}" if issue else "")
     path = _out(out_dir, name, default + (" STP" if stp and "stp" not in default.lower() else ""))
-    where = layout_path or (layout.path if operator == "SNGX" else f"the {operator} locations in the XML")
+    where = layout_path or (layout.path if not layout.path.startswith("the built-in") or operator == "SNGX"
+                            else f"the {operator} locations in the XML")
     _save(lambda: writer.write(filled, path, writer.cover_rewriter("", first.start, first.end),
                                _legend(stp, operator, bool(others)), _notes(xml_paths, where, warnings, others),
                                counts), path)
@@ -221,13 +230,14 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
 def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str] = (), out_dir: str = "",
           name: str = "", issue: str = "", timetable: str = "", start: str = "", end: str = "",
           leave_out: Sequence[str] = (), add: Sequence[str] = (), log: Log = lambda m: None,
-          progress: Callable[[float, str], None] = lambda f, m: None) -> Result:
+          progress: Callable[[float, str], None] = lambda f, m: None, show_notes: bool = True) -> Result:
     """A blank berthing chart: the sheets, berths, capacities and notes with no units, to fill in by hand.
-    SNGX: the built-in layout (or the layout of `layout_path`). TLGN: a sheet for every place TLGN units berth
-    overnight in the XML(s) given (not depots); with no XML, only the locations added. leave_out / add as for
-    generate(); an added location is found in the XML(s), else in the app's location list, and its berths come
-    from the XML, else from the berth list. The cover's title is the timetable (from the XML, else `timetable`)
-    and its dates those of the XML (else start / end, ISO dates, or none)."""
+    SNGX: the built-in layout or your saved location set (or the layout of `layout_path`). TLGN: your saved
+    location set; with none, a sheet for every place TLGN units berth overnight in the XML(s) given (not depots),
+    or with no XML only the locations added. The location notes are shown unless `show_notes` is False.
+    leave_out / add as for generate(); an added location is found in the XML(s), else in the app's location
+    list, and its berths come from the XML, else from the berth list. The cover's title is the timetable (from
+    the XML, else `timetable`) and its dates those of the XML (else start / end, ISO dates, or none)."""
     operator = (operator or "SNGX").upper()
     if operator not in auto.OPERATORS:
         raise BerthingError(f"'{operator}' is not a chart type: use " + " or ".join(auto.OPERATORS) + ".")
@@ -246,7 +256,8 @@ def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str
         log(f"Reading the layout of {os.path.basename(layout_path)}")
         layout = read_chart(layout_path, load_locations())
     else:
-        layout = load_default()
+        from . import sets
+        layout = sets.base_layout(operator)
     _clear_units(layout)
     progress(0.1, "Reading the locations...")
     if xml_paths:
@@ -264,13 +275,15 @@ def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str
     warnings = choose_sheets(layout, xmls, berthing, operator, table, leave_out, add, names, blank=True)
     if not layout.sheets:
         raise BerthingError("No locations are on the chart." + (
-            " A TLGN chart without an XML has only the locations you add: add at least one (by name or TIPLOC), or "
-            "choose an XML to take TLGN's berthing locations from." if operator != "SNGX" and not xmls
+            " A TLGN chart without an XML or a saved location set has only the locations you add: add at least one "
+            "(by name or TIPLOC), choose an XML to take TLGN's berthing locations from, or make TLGN's location set in "
+            "Settings > Berthing locations." if operator != "SNGX" and not xmls
             else " Choose at least one location."))
     if xmls:
         start, end = xmls[-1].start, xmls[-1].end
         timetable = auto.timetable_name(start) or timetable
     layout.cover = auto.set_cover(layout.cover, timetable.strip(), issue, clear_issue=True)
+    _location_notes(layout, xmls, show_notes, log, operator, timetable)
     rewrite = writer.cover_rewriter("", start, end)
     dated = bool(start and end)
 
@@ -318,7 +331,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     changes, marked = diff(before, after)
     highlight(after, marked, colour.upper())
     carry_colours(chart, after, skip=[STP_FILL])
-    _location_notes(after, xmls, show_notes, log)
+    _location_notes(after, xmls, show_notes, log, operator)
     stem = os.path.splitext(os.path.basename(chart_path))[0]
     path = _out(out_dir, name, f"{stem} - {issue}" if issue else f"{stem} updated")
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
@@ -392,16 +405,17 @@ def _count(layout: Layout) -> int:
     return n
 
 
-def _location_notes(layout: Layout, xmls, show: bool, log: Log):
-    """The notes edited in the app for the XML's timetable on the chart's berths, or every note off."""
+def _location_notes(layout: Layout, xmls, show: bool, log: Log, operator: str = "SNGX", timetable: str = ""):
+    """The notes edited in the app for the XML's timetable (or a blank chart's `timetable`, e.g. 'May 2027') on
+    the chart's berths, or every note off."""
     from . import notes
     if not show:
         notes.strip(layout)
         log("Location notes left off the chart.")
         return
     starts = [x.start for x in xmls if x.start]
-    tt = notes.timetable_of_start(starts[-1]) if starts else ""
-    n = notes.apply(layout, tt) if tt else 0
+    tt = notes.timetable_of_start(starts[-1]) if starts else notes.timetable_of_name(timetable)
+    n = notes.apply(layout, tt, operator=operator) if tt else 0
     if n:
         log(f"{n} location note(s) from the app's {notes.timetable_label(tt)} notes.")
 
@@ -430,7 +444,33 @@ def _notes(xmls: Sequence[str], layout_path: str, warnings: Sequence[str], other
 
 
 
-def layout_sheets(layout_path: str = "") -> List[str]:
-    """The location sheets of the chart's layout (the built-in one when no chart is given)."""
-    layout = read_chart(layout_path, load_locations()) if layout_path else load_default()
+def make_location_set(xml_paths: Sequence[str], operator: str = "TLGN", leave_out: Sequence[str] = (),
+                      add: Sequence[str] = (), log: Log = lambda m: None) -> list:
+    """The sheets of a location set made from XML(s): one for every place the operator's units berth overnight
+    (not depots), a berth for each platform or road used there with its codes, less `leave_out`, plus `add`.
+    Saved with sets.save (Settings > Berthing locations > Make from XML...)."""
+    from .layout import GridSheet, load_default
+    _check_paths(list(xml_paths), "Attune XML")
+    xmls, berthing = _stays(xml_paths, log)
+    layout = load_default()
+    warnings = choose_sheets(layout, xmls, berthing, operator, _table(), leave_out, add, from_xml=True, blank=True)
+    for w in warnings:
+        log("WARNING: " + w)
+    for sheet in layout.sheets:
+        if isinstance(sheet, GridSheet):
+            for blk in sheet.blocks:
+                blk.codes = blk.codes or ";".join(c for c in auto._codes(blk.label) if c)
+    if not layout.sheets:
+        raise BerthingError(f"No {operator} units berth overnight in the XML (away from depots), so no locations "
+                            "were found.")
+    return layout.sheets
+
+
+def layout_sheets(layout_path: str = "", operator: str = "SNGX") -> List[str]:
+    """The location sheets of the chart's layout: a chart's, else the operator's location set (the built-in
+    layout for SNGX); none for TLGN with no saved set (its sheets come from the XML)."""
+    from . import sets
+    if not layout_path and operator.upper() != "SNGX" and not sets.has_set(operator):
+        return []
+    layout = read_chart(layout_path, load_locations()) if layout_path else sets.base_layout(operator)
     return [s.name for s in layout.sheets]

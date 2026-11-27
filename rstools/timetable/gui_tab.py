@@ -469,10 +469,10 @@ class TimetableTab(ttk.Frame):
                                                        if info else "")
         elif info:
             text = (f"Leave the PDF box blank to use the Section 4 rule set in use: {info['name']} "
-                    f"({info['possessions']} possession rows). Change it in Data > Rules and reference data.")
+                    f"({info['possessions']} possession rows). Change it in Settings > Rules.")
         else:
             text = ("No Section 4 rule set has been added: choose the PDFs, or add them once as a rule set in "
-                    "Data > Rules and reference data.")
+                    "Settings > Rules.")
         self.s4_set.configure(text=text)
 
     def _cmp_mode(self) -> str:
@@ -714,7 +714,7 @@ class TimetableTab(ttk.Frame):
         from rstools import rules
         if not pdfs and not rules.active_set_info():
             return messagebox.showwarning(TITLE, "Choose the Section 4 PDF(s), or add a Section 4 rule set in "
-                                                 "Data > Rules and reference data.\n\nThe latest rules can be "
+                                                 "Settings > Rules.\n\nThe latest rules can be "
                                                  f"downloaded from Network Rail:\n{rules.RULES_URL}", parent=self)
         for p in [xml] + pdfs:
             if not os.path.isfile(p):

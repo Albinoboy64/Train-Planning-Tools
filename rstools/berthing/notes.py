@@ -1,7 +1,7 @@
 """Location notes on berthing charts, edited in the app for each timetable.
 
 The built-in layout carries each berth's notes (e.g. 'Max 12 CET', 'Attachments are not permitted'). In the
-app (Data > Berthing chart notes...) a berth's notes can be changed, added or removed for a timetable - the
+app (Settings > Berthing notes) a berth's notes can be changed, added or removed for a timetable - the
 current one and the next five (May 26, Dec 26, ...) - and every chart made for that timetable shows them. A
 berth with no entry for the timetable keeps the layout's own notes.
 
@@ -38,9 +38,11 @@ def _clean(text: str) -> str:
     return text[:int(limits.get("BERTH_NOTE_CHARS"))]
 
 
-def key(sheet: str, label: str) -> str:
-    """'Brighton|Sdg 3': a berth, as notes are saved."""
-    return f"{' '.join(sheet.split())}|{' '.join(label.split())}"
+def key(sheet: str, label: str, operator: str = "SNGX") -> str:
+    """'Brighton|Sdg 3': a berth, as notes are saved ('TLGN:Bedford|Plat 1' for another operator's location set,
+    so the same sheet name never mixes two operators' notes)."""
+    prefix = "" if operator.upper() == "SNGX" else f"{operator.upper()}:"
+    return f"{prefix}{' '.join(sheet.split())}|{' '.join(label.split())}"
 
 
 def _norm(k: str) -> str:
@@ -62,6 +64,13 @@ def upcoming_timetables(today: Optional[datetime.date] = None, n: int = 6) -> Li
         season, year = out[-1][:3], int(out[-1][3:])
         out.append(f"DEC{year:02d}" if season == "MAY" else f"MAY{(year + 1) % 100:02d}")
     return out
+
+
+def timetable_of_name(text: str) -> str:
+    """'May 2027' / 'December 2026' / 'Dec 26' (a blank chart's timetable) -> 'MAY27' / 'DEC26' ('' otherwise)."""
+    import re
+    m = re.fullmatch(r"\s*(may|dec(?:ember)?)\s+(?:20)?(\d\d)\s*", text or "", re.I)
+    return f"{m.group(1)[:3].upper()}{m.group(2)}" if m else ""
 
 
 def timetable_of_start(start: str) -> str:
@@ -119,9 +128,10 @@ def entry_of(blk: Block) -> dict:
     return entry(label_note, lines)
 
 
-def berths(layout: Layout) -> List[Tuple[str, GridSheet, Block]]:
+def berths(layout: Layout, operator: str = "SNGX") -> List[Tuple[str, GridSheet, Block]]:
     """(key, sheet, berth) of every berth in the layout, in chart order."""
-    return [(key(sh.name, b.label), sh, b) for sh in layout.sheets if isinstance(sh, GridSheet) for b in sh.blocks]
+    return [(key(sh.name, b.label, operator), sh, b) for sh in layout.sheets if isinstance(sh, GridSheet)
+            for b in sh.blocks]
 
 
 def _set(blk: Block, e: dict):
@@ -137,14 +147,15 @@ def _set(blk: Block, e: dict):
         blk.notes[i] = (a.strip(), b.strip())
 
 
-def apply(layout: Layout, timetable: str, data: Optional[Dict[str, Dict[str, dict]]] = None) -> int:
+def apply(layout: Layout, timetable: str, data: Optional[Dict[str, Dict[str, dict]]] = None,
+          operator: str = "SNGX") -> int:
     """Put the notes saved for `timetable` on the layout's berths. Returns how many berths were changed."""
     saved = (load() if data is None else data).get(timetable) or {}
     if not saved:
         return 0
     wanted = {_norm(k): e for k, e in saved.items()}
     n = 0
-    for k, _sh, blk in berths(layout):
+    for k, _sh, blk in berths(layout, operator):
         e = wanted.get(_norm(k))
         if e is not None:
             _set(blk, e)
