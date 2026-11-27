@@ -29,6 +29,15 @@
 - **Live View parity:** expose any new comparison mode in `rstools/live/adapters.py` and `rstools/live/gui_tab.py`, using the same underlying matching engine as the reports.
 - **Portable data:** keep user-editable files, settings, rule sets, and `error.log` inside `TrainPlanningTools-data` beside the executable (via `rstools.branding.settings_dir()`), falling back to an app-local or platform-appropriate location when needed.
 
+## Releasing (standing instruction from the owner)
+
+- Every finished change is merged into `main` and built as the app automatically, without asking: commit on the
+  `claude/**` working branch and push it. The *Build portable Windows app* workflow builds it, merges it into `main`
+  after a green build and publishes the release.
+- A release is made once per version, so each new set of changes bumps `__version__` in `cwn_compare/__init__.py`
+  (patch number for fixes and small features) and adds its entry at the top of the README's *Version history*.
+- After pushing, check the workflow run; if it fails, fix the cause and push again (never skip tests to get green).
+
 ## Maintenance commands
 
 - Rebuild built-in Section 4 rules (writes `rstools/timetable/section4_builtin.json.gz` and `rstools/timetable/section4_builtin.info.json`):

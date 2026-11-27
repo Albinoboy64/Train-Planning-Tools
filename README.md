@@ -448,8 +448,10 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
-**3.37.1** - other operators' trains (Attune XML, VPT or CIF), TLGN berthing charts, choosing a chart's locations, the timetable on the cover; platform workings with dated day tabs; recent files with their whole paths
+**3.37.2** - other operators' trains (Attune XML, VPT or Network Rail CIF)
 * **Other operators' trains** from their Attune XML, a VPT or a **Network Rail CIF** (new reader, as TPS exports): on **berthing charts** (in grey; matched by place, and shown by headcode, where the file has no next-day workings or unit types), in the **berthing arrangements of platform workings** (the operator code in place of the unit type), and in a new task, **Add other operators' trains to a CWN or platform workings** (rows in time order in grey italics, the operator code as the stock, the existing rows unchanged). Each has an *Include other operators' trains* switch. Station books take CIF files too. Command line: `berthing --others`, `workings-berthing --others`, `other-trains`.
+
+**3.37.1** - TLGN berthing charts, choosing a chart's locations, the timetable on the cover; platform workings with dated day tabs; recent files with their whole paths
 * **TLGN berthing charts**: *Chart for: TLGN* makes a chart with a sheet for every place Thameslink / Great Northern units berth overnight in the XML (depots left out), showing TLGN units only, with a TLGN cover. Command line: `--operator TLGN`.
 * **Choose locations...** for berthing charts: leave sheets off the chart, or add any location in the XML (found for you, or typed by name or TIPLOC), each with a sheet laid out from the XML. Command line: `--leave-out` and `--add`.
 * **Berthing chart cover**: the title is now the timetable the XML is for (*December 2026 Berthing Chart*), and *Issue on cover* is a drop-down of *Proof 1* ... *Proof 6* and *Final* that you can also type in. A new chart no longer copies the built-in layout's *Proof 2* when no issue is chosen. The default file name has the timetable and the issue (*Berthing Chart Dec 26 Proof 1*).
