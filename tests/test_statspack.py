@@ -931,6 +931,9 @@ def test_wash_and_cet_tabs_period_inferred_reasons_and_the_three_day_rule():
 # --------------------------------------------------------------------------- #
 # next-day numbers, standing diagrams, CET and fuel rules, possible slots
 # --------------------------------------------------------------------------- #
+_PLAN_FILES: list = []
+
+
 def _plan_of(rows_by_diagram, folder):
     """Diagrams as (days, number, fleet, start, end): each starts at `start` at 07.00 on a passenger train and
     ends there (stabling at `end`)."""
@@ -940,7 +943,8 @@ def _plan_of(rows_by_diagram, folder):
         if end:
             rows.append(act(end, "4", "08+00", "STABLD"))
         lines += diagram("SX", num, days, fleet, rows, 30.0, 0.0)
-    p = os.path.join(folder, "n.docx")
+    _PLAN_FILES.append(0)                      # a new file name each time: a TRENT print is cached by name, time, size
+    p = os.path.join(folder, f"n{len(_PLAN_FILES)}.docx")
     write_docx(p, lines)
     return load_plan(PlanInputs("", p), xml_optional=True)
 
@@ -997,6 +1001,7 @@ def test_a_unit_that_berths_all_day_forms_the_diagram_that_leaves_after_it():
             + diagram("SX", 11, "TO", "377/4", [stand("BRGHSID")], 0.0, 0.0)
             + diagram("SX", 12, "WO", "377/4", [move("BRGHTN", "", "1", "", "07.00", "1B12SX", "12(1)", 30.0, 30.0)],
                       30.0, 0.0))
+        p = os.path.join(d, "s2.docx")                  # not the same name: a TRENT print is cached by name, time, size
         write_docx(p, lines2)
         plan = load_plan(PlanInputs("", p), xml_optional=True)
         units, _pd, _w = follow_units(plan.trent, None, [0, 1, 2])
