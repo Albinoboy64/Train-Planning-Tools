@@ -51,6 +51,7 @@ class Options:
     berth_files: Dict[str, List[str]] = field(default_factory=dict)   # berthing chart mode -> its file boxes
     berth_issue: str = ""            # berthing chart: the issue shown on the cover, e.g. 'Proof 2'
     berth_counts: bool = False       # berthing chart: unit counts under each siding location
+    use_others: bool = True          # include the other operators' files given (berthing charts, workings)
     berth_operator: str = "SNGX"     # berthing chart: SNGX (built-in layout) or TLGN (laid out from the XML)
     berth_leave_out: Dict[str, List[str]] = field(default_factory=dict)  # operator -> sheets left off the chart
     berth_add: Dict[str, List[str]] = field(default_factory=dict)        # operator -> locations added to it

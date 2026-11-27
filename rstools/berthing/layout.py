@@ -20,7 +20,8 @@ DEPOT_DAYS = ["PREV FRI", "SATURDAY", "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY"
 # the night each pair of columns shows (finish day, 0 = Monday): Fri, Sat, Sun, Mon, Tue, Wed, Thu, Fri
 NIGHTS = [4, 5, 6, 0, 1, 2, 3, 4]
 
-_UNIT = re.compile(r"^\s*L?\s*\(?\s*(?:\d{1,2}\s*\d{3}(?:/\d)?|MAINT)\b", re.I)    # '4 387', '(4 377)', '12700'
+# '4 387', '(4 377)', '12700', and another operator's train shown by its headcode ('2T80 23+50')
+_UNIT = re.compile(r"^\s*L?\s*\(?\s*(?:\d{1,2}\s*\d{3}(?:/\d)?|MAINT|\d[A-Z]\d{2}(?=\s))\b", re.I)
 _COUNT_ROW = re.compile(r"^\*.*\*$")
 _MARKER = re.compile(r"^(start|finish)\s*\d*$", re.I)
 COUNTS_HEAD = "Unit counts"             # the heading of a siding location's counts in a chart made by the app

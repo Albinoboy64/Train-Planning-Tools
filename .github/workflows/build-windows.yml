@@ -230,6 +230,10 @@ jobs:
           python -c "import sys; sys.path.insert(0,'tests'); import test_berthing as t; open('smoke/tlgn.xml', 'w').write(t.tlgn_xml())"
           Smoke @('berthing','--xml','smoke\tlgn.xml','--operator','TLGN','--issue','Final','--out','smoke','--name','berth_tlgn') 'smoke\berth_tlgn.xlsx' 'make a TLGN berthing chart'
           Smoke @('berthing','--xml','smoke\tlgn.xml','--leave-out','"Hove Yard"','--add','Bedford','--out','smoke','--name','berth_places') 'smoke\berth_places.xlsx' 'make a berthing chart with locations left out and added'
+          python -c "import sys; sys.path.insert(0,'tests'); import others_fixture as f; f.southeastern_cif('smoke/se.cif')"
+          Smoke @('other-trains','--file','smoke\wk_a.xlsx','--others','smoke\se.cif','--out','smoke','--name','wk_others') 'smoke\wk_others.xlsx' 'add other operators trains to platform workings'
+          Smoke @('workings-berthing','--workings','smoke\wk_a.xlsx','--others','smoke\se.cif','--out','smoke','--name','wk_berth_others') 'smoke\wk_berth_others.xlsx' 'add berthing arrangements with other operators'
+          Smoke @('berthing','--xml','smoke\berth.xml','--others','smoke\se.cif','--out','smoke','--name','berth_others') 'smoke\berth_others.xlsx' 'make a berthing chart with other operators'
           $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--acwn','--highlight-only' -Wait -PassThru
           if ($p.ExitCode -eq 0) { throw "exe accepted --acwn with --highlight-only" }
 

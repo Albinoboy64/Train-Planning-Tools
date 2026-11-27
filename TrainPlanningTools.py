@@ -560,6 +560,9 @@ def berthing_cli(argv):
                     help="with --xml: sheets to leave off the chart (sheet names or TIPLOCs)")
     ap.add_argument("--add", nargs="+", default=[], metavar="LOCATION",
                     help="with --xml: locations to add a sheet for (names or TIPLOCs from the XML)")
+    ap.add_argument("--others", nargs="+", default=[], metavar="FILE",
+                    help="with --xml or --chart: other operators' files (Attune XML, VPT or Network Rail CIF); "
+                         "their units are added in grey, matched by place where the file has no next-day workings")
     ap.add_argument("--original", nargs="+", help="the Attune XML(s) the chart was made from")
     ap.add_argument("--updated", nargs="+", help="the changed Attune XML(s)")
     ap.add_argument("--issue", default="", help="the issue shown under the cover's title, e.g. 'Proof 2' or 'Final' "
@@ -571,7 +574,7 @@ def berthing_cli(argv):
     a = _local_out(ap, ap.parse_args(argv))
     chart_only = [("--operator", a.operator != "SNGX"), ("--leave-out", a.leave_out), ("--add", a.add)]
     ignored = {"--compare": [("--layout", a.layout), ("--issue", a.issue), ("--original", a.original),
-                             ("--updated", a.updated)] + chart_only,
+                             ("--updated", a.updated), ("--others", a.others)] + chart_only,
                "--xml": [("--original", a.original), ("--updated", a.updated), ("--colour", a.colour)],
                "--chart": [("--layout", a.layout)] + chart_only}
     used = "--compare" if a.compare else "--xml" if a.xml else "--chart"
@@ -587,12 +590,12 @@ def berthing_cli(argv):
             raise BerthingError(f"'{a.colour}' is not a colour: use a name ({', '.join(PRESET_COLOURS)}) or RRGGBB.")
         if a.xml:
             res = engine.generate(a.xml, a.layout, a.out, a.name, a.issue, log=print, counts=a.counts,
-                                  operator=a.operator, leave_out=a.leave_out, add=a.add)
+                                  operator=a.operator, leave_out=a.leave_out, add=a.add, others=a.others)
         elif a.chart:
             if not (a.original and a.updated):
                 raise BerthingError("--chart needs --original XML and --updated XML.")
             res = engine.add_round(a.chart, a.original, a.updated, colour or "92D050", a.out, a.name, a.issue,
-                                   log=print, counts=a.counts)
+                                   log=print, counts=a.counts, others=a.others)
         else:
             res = engine.compare_charts(a.compare[0], a.compare[1], colour or "FFFF00", a.out, a.name, log=print,
                                         counts=a.counts)
@@ -615,18 +618,47 @@ def workings_berthing_cli(argv):
     ap.add_argument("--workings", required=True, help="the platform workings (.xlsx)")
     ap.add_argument("--xml", nargs="*", default=[], help="optional Attune XML(s): gives the siding road each "
                                                          "unit stands on")
+    ap.add_argument("--others", nargs="+", default=[], metavar="FILE",
+                    help="other operators' files (Attune XML, VPT or Network Rail CIF): their units berthed at the "
+                         "platforms are added to the arrangements (the workings' own rows are not changed)")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--name", default="", help="output file name, without .xlsx")
     a = _local_out(ap, ap.parse_args(argv))
-    for path in [a.workings, *a.xml]:
+    for path in [a.workings, *a.xml, *a.others]:
         if not os.path.isfile(path):
             ap.error(f"this file could not be found: {path}")
     try:
-        res = add_berthing(a.workings, a.xml, a.out, a.name, log=print)
+        res = add_berthing(a.workings, a.xml, a.out, a.name, log=print, others=a.others)
     except WorkingsError as exc:
         print("ERROR:", exc)
         sys.exit(1)
     print(res.summary)                          # add_berthing has logged where it saved
+
+
+def other_trains_cli(argv):
+    from cwn_compare.other_trains import OtherTrainsError, add_other_trains
+    ap = argparse.ArgumentParser(prog="TrainPlanningTools other-trains",
+                                 description="Save a copy of a CWN or platform workings with other operators' trains "
+                                             "added in time order (grey italics, the operator code as the stock). "
+                                             "The existing rows are not changed.")
+    ap.add_argument("--file", required=True, help="the CWN or platform workings (.xlsx)")
+    ap.add_argument("--others", nargs="+", required=True, metavar="FILE",
+                    help="other operators' files: Attune XML, VPT or Network Rail CIF")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
+    ap.add_argument("--name", default="", help="output file name, without .xlsx")
+    a = _local_out(ap, ap.parse_args(argv))
+    for path in [a.file, *a.others]:
+        if not os.path.isfile(path):
+            ap.error(f"this file could not be found: {path}")
+    try:
+        res = add_other_trains(a.file, a.others, a.out, a.name, log=print)
+    except OtherTrainsError as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
+    print(res.summary)
+    for w in res.warnings:
+        print("WARNING:", w)
+    print("Saved:", res.chart)
 
 
 def selftest_cli(argv):
@@ -674,7 +706,7 @@ def selftest_cli(argv):
 
 
 COMMANDS = ("stationbook", "reorder", "statspack", "timetable", "section4", "berthing", "workings-berthing",
-            "selftest")
+            "other-trains", "selftest")
 
 
 def main(argv):
@@ -682,7 +714,8 @@ def main(argv):
     first = argv[0].lower() if argv else ""
     runners = {"statspack": statspack_cli, "stationbook": stationbook_cli, "reorder": reorder_cli,
                "timetable": timetable_cli, "section4": section4_cli, "berthing": berthing_cli,
-               "workings-berthing": workings_berthing_cli, "selftest": selftest_cli}
+               "workings-berthing": workings_berthing_cli, "other-trains": other_trains_cli,
+               "selftest": selftest_cli}
     if first in runners:
         runners[first](argv[1:])
     elif argv and not argv[0].startswith("-"):

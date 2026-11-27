@@ -18,6 +18,7 @@ GX_387 = "FF0000"               # Gatwick Express 387/2: red text
 SN_387 = "00B050"               # Southern 387/3: green text
 FLEET_COLOURS = {"387/2": GX_387, "387/3": SN_387}
 STP_FILL = "E4DFEC"             # STP trains: bold on lavender (not one of the round colours)
+OTHER_COLOUR = "7F7F7F"         # other operators' units: grey text
 NIGHT_ORDER = [4, 5, 6, 0, 1, 2, 3]       # the chart starts with Friday night
 
 # spelling slips copied forward in the old charts
@@ -108,7 +109,7 @@ def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units
     out = copy.deepcopy(layout)
     by_loc: Dict[str, List[Stay]] = defaultdict(list)
     charted = [s for s in berthing.stays if s.fleet.upper() != "MAINT"      # maintenance moves are not berthed
-               and (fleets is None or s.fleet in fleets)]
+               and (fleets is None or s.fleet in fleets or s.other)]
     for s in charted:
         by_loc[s.loc].append(s)
     no_location = []
@@ -195,8 +196,16 @@ def _write_stay(blk: Block, p: Placed, units: Units, placed: List[Placed]):
     s = p.stay
     row = blk.units.setdefault(p.row, [None] * 16)
     blk.height = max(blk.height, p.row + 1)
-    colour = units.of(s.fleet).colour
-    suffix = units.of(s.fleet).suffix
+    if s.other:
+        colour, suffix = OTHER_COLOUR, ""
+    else:
+        colour, suffix = units.of(s.fleet).colour, units.of(s.fleet).suffix
+
+    def unit(end: Optional[End], bracket: bool) -> str:
+        """The unit type, or for another operator's train with none known, its headcode."""
+        if s.by_headcode:
+            return ((end or s.arrive).train or s.unit)[:4]
+        return units.label(s.fleet, bracket)
     coupled_in = len(s.arrive.coupled) > 1
     # the time goes on the first row of a coupled group (the group's other units show the unit only)
     first_in = not coupled_in or not any(q.stay.arrive.group == s.arrive.group and q.block == p.block
@@ -211,19 +220,19 @@ def _write_stay(blk: Block, p: Placed, units: Units, placed: List[Placed]):
         for pair in _pairs(n):
             fin, sta = 2 * pair, 2 * pair + 1
             if n == s.first_night:
-                text = units.label(s.fleet, coupled_in) + (f" {clock(s.arrive.time, s.arrive.ecs)}{suffix}"
-                                                           if first_in else "")
+                text = unit(s.arrive, coupled_in) + (f" {clock(s.arrive.time, s.arrive.ecs)}{suffix}"
+                                                     if first_in else "")
                 row[fin] = Cell(text, colour, s.arrive.stp, STP_FILL if s.arrive.stp else "")
             else:
-                row[fin] = Cell(units.label(s.fleet, coupled_in) + (" Berth" if first_in else ""), colour)
+                row[fin] = Cell(unit(s.arrive, coupled_in) + (" Berth" if first_in else ""), colour)
             if n == nights[-1]:
                 # Friday night is shown twice (pairs 0 and 7): a stay that began before Saturday and leaves after
                 # Friday night is shown leaving once, in the second Friday pair, not also in the week-opening one
                 if d is not None and not (n == 4 and s.first_night != 4 and pair == 0):
-                    text = units.label(s.fleet, coupled_out) + (f" {_end_text(d)}{suffix}" if first_out else "")
+                    text = unit(d, coupled_out) + (f" {_end_text(d)}{suffix}" if first_out else "")
                     row[sta] = Cell(text, colour, d.stp, STP_FILL if d.stp else "")
             else:
-                row[sta] = Cell(units.label(s.fleet, coupled_in) + (" Berth" if first_in else ""), colour)
+                row[sta] = Cell(unit(s.arrive, coupled_in) + (" Berth" if first_in else ""), colour)
 
 
 def _depot_columns() -> List[Tuple[str, int]]:

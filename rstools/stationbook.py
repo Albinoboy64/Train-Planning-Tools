@@ -137,6 +137,13 @@ def read_plan(path: str) -> Plan:
     if path.lower().endswith(".vpt"):
         from rstools.timetable.vpt import read_plan as read_vpt_plan
         return read_vpt_plan(path)
+    from rstools.timetable.cif import CifError, is_cif
+    if path.lower().endswith((".cif", ".mca", ".txt")) or is_cif(path):
+        from rstools.timetable.cif import read_plan as read_cif_plan
+        try:
+            return read_cif_plan(path)
+        except CifError as exc:
+            raise StationBookError(str(exc))
     from rstools import attune_xml as AX
     locations: Dict[str, str] = {}
     trains: Dict[str, List[Train]] = defaultdict(list)
@@ -722,7 +729,7 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
             try:
                 others.append(_plan_of(p))
             except Exception as exc:                  # a VPT that cannot be read (PrintError)
-                if p.lower().endswith(".vpt"):
+                if p.lower().endswith((".vpt", ".cif", ".mca")):
                     raise StationBookError(str(exc))
                 raise
         plan = merge_plans(plan, others)
@@ -751,9 +758,9 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
         log(f"{dt}: {len(rows)} row(s)")
         total += len(rows)
         sheets.append((f"{label} {dt}", rows))
-    vpts = [os.path.basename(p) for p in merge_xml if p.lower().endswith(".vpt")]
+    vpts = [os.path.basename(p) for p in merge_xml if p.lower().endswith((".vpt", ".cif", ".mca"))]
     if vpts:
-        warnings.append("Trains from " + ", ".join(vpts) + " come from a VPT, which has no unit diagrams: their "
+        warnings.append("Trains from " + ", ".join(vpts) + " come from a VPT or CIF, which has no unit diagrams: their "
                         "stock is blank, and working times are shown where there are no public times.")
     if missing_days:
         warnings.append("The XML has no unit diagrams for " + ", ".join(DAY_NAMES[d] for d in sorted(missing_days))

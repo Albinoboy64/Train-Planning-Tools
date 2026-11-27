@@ -23,6 +23,10 @@ version_info.txt
 
 # Attune VPT / PIF exports (real timetable data)
 *.vpt
+*.cif
+*.CIF
+*.mca
+*.MCA
 *.pif
 
 # coverage and release-build outputs

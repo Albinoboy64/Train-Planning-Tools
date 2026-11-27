@@ -100,6 +100,16 @@ TIPS = {
                   "(not depots), TLGN units only.",
     "Choose locations...": "Leave sheets off the chart, or add any location units berth at in the XML (found for "
                            "you, or typed by name or TIPLOC).",
+    "Add other operators' trains to a CWN or platform workings": "Other operators' trains (from their Attune XML, a "
+        "VPT or a Network Rail CIF) added in time order in grey italics, the operator code as the stock. Existing rows "
+        "are not changed.",
+    "Other operators (optional):": "Other operators' files: Attune XML, VPT or Network Rail CIF (use Browse to add "
+                                   "several). Without next-day workings or unit types, units are matched by place "
+                                   "and shown by headcode (chart) or operator code (workings).",
+    "Other operators' files:": "Attune XML, VPT or Network Rail CIF files of the other operators (use Browse to add "
+                               "several).",
+    "CWN or platform workings:": "The CWN or platform workings to add the other operators' trains to (a copy is "
+                                 "saved).",
     "Edit berth locations...": "Open the list that links each berth to its XML location (TIPLOC and platform or "
                                "road) in Excel.",
     # ---------------------------------------------------------------- Stats Pack

@@ -43,19 +43,26 @@ HAS_OLD = {k: has_old for k, _label, has_old, _desc in CATEGORIES}
 BERTH_MODES = {
     "berth_make": ("Create a berthing chart from an Attune XML",
                    [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"),
-                    ("Layout from chart (optional):", "xlsx")],
+                    ("Layout from chart (optional):", "xlsx"), ("Other operators (optional):", "other")],
                    "Create berthing chart", "Creates a berthing chart from an Attune XML: SNGX in the app's built-in "
                    "layout (or laid out like a chart you choose), TLGN with a sheet for every place its units berth. "
                    "Choose locations to leave some out or add others. Attach the STP XML too for an STP chart."),
     "berth_round": ("Add a round of changes to a berthing chart",
-                    [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml")],
+                    [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml"),
+                     ("Other operators (optional):", "other")],
                     "Add changes to chart", "Remakes a berthing chart from an updated Attune XML and highlights "
                     "what changed since the original XML."),
     "work_berth": ("Add berthing arrangements to platform workings",
-                   [("Platform workings:", "xlsx"), ("Attune XML for siding roads (optional):", "xml")],
+                   [("Platform workings:", "xlsx"), ("Attune XML for siding roads (optional):", "xml"),
+                    ("Other operators (optional):", "other")],
                    "Add berthing arrangements", "Saves a copy of platform workings (Victoria, London Bridge or "
                    "Brighton) with each day's berthing arrangements made from the trains: what stands at each "
                    "platform and siding at the end of the day, and the train it works next."),
+    "add_others": ("Add other operators' trains to a CWN or platform workings",
+                   [("CWN or platform workings:", "xlsx"), ("Other operators' files:", "other")],
+                   "Add other operators' trains", "Saves a copy of a CWN or platform workings with other operators' "
+                   "trains (from their Attune XML, a VPT or a Network Rail CIF) added in time order, in grey italics, "
+                   "with the operator code as the stock. The existing rows are not changed."),
     "berth_compare": ("Compare two berthing charts", [("Original chart:", "xlsx"), ("Updated chart:", "xlsx")],
                       "Compare charts", "Compares two berthing charts and highlights the differences in the updated "
                       "one."),
@@ -68,6 +75,7 @@ STOCK_GROUPS = [
                                     ("batch", "Compare two folders of CWNs or workings (batch)"),
                                     ("cumulative", "Add a new round to an earlier comparison"),
                                     ("work_berth", BERTH_MODES["work_berth"][0]),
+                                    ("add_others", BERTH_MODES["add_others"][0]),
                                     ("reorder", "Put each train's day variants in order (one CWN)")]),
     ("Berthing charts", [(mode, BERTH_MODES[mode][0]) for mode in ("berth_make", "berth_round", "berth_compare")]),
     ("Station books", [("station", "Create a station working book from an Attune XML (TRACS-RS layout)")]),
@@ -1379,25 +1387,31 @@ class App(tk.Tk):
                 btn.grid(row=i + 1, column=2, pady=(6, 0))
                 widgets.append((lab, box, btn))
             self.berth_rows[mode] = widgets
+        self.use_others = tk.BooleanVar(value=True)
+        self.use_others_cb = ttk.Checkbutton(bf, text="Include other operators' trains", variable=self.use_others)
+        self.use_others_cb.grid(row=5, column=1, columnspan=2, sticky="w", padx=4, pady=(2, 0))
+        Tooltip(self.use_others_cb, "Untick to leave the other operators' files out of this run (they stay in the box "
+                                    "for next time). Their units are shown in grey; where a file has no unit types "
+                                    "the headcode (berthing chart) or operator code (workings) stands in for it.")
         from rstools.berthing.auto import ISSUES
         self.berth_issue = tk.StringVar()
         self.berth_issue_lbl = ttk.Label(bf, text="Issue on cover:")
-        self.berth_issue_lbl.grid(row=4, column=0, sticky="w", pady=(6, 0))
+        self.berth_issue_lbl.grid(row=6, column=0, sticky="w", pady=(6, 0))
         self.berth_issue_entry = ttk.Combobox(bf, textvariable=self.berth_issue, width=18, values=["", *ISSUES])
-        self.berth_issue_entry.grid(row=4, column=1, sticky="w", padx=4, pady=(6, 0))
+        self.berth_issue_entry.grid(row=6, column=1, sticky="w", padx=4, pady=(6, 0))
         Tooltip(self.berth_issue_entry, "The line under the title on the cover: pick a proof or Final, or type your "
                                         "own. Leave it blank for none. The title is the timetable the XML is for "
                                         "(e.g. December 2026 Berthing Chart).")
         self.berth_issue_entry.bind("<FocusIn>", lambda _e: self._pick_section("berth"), add="+")
         self.berth_edit_btn = ttk.Button(bf, text="Edit berth locations...", command=self._edit_berths)
-        self.berth_edit_btn.grid(row=4, column=2, pady=(6, 0))
+        self.berth_edit_btn.grid(row=6, column=2, pady=(6, 0))
         self.berth_operator = tk.StringVar(value="SNGX")
         self.berth_leave_out: Dict[str, List[str]] = {}
         self.berth_add: Dict[str, List[str]] = {}
         self.berth_op_lbl = ttk.Label(bf, text="Chart for:")
-        self.berth_op_lbl.grid(row=5, column=0, sticky="w", pady=(6, 0))
+        self.berth_op_lbl.grid(row=7, column=0, sticky="w", pady=(6, 0))
         ops = self.berth_op_frame = ttk.Frame(bf)
-        ops.grid(row=5, column=1, sticky="w", padx=4, pady=(6, 0))
+        ops.grid(row=7, column=1, sticky="w", padx=4, pady=(6, 0))
         for i, (op, tip) in enumerate((("SNGX", "Southern / Gatwick Express: the app's built-in layout, or the layout "
                                                 "of a chart you choose."),
                                        ("TLGN", "Thameslink / Great Northern: a sheet for every place TLGN units berth "
@@ -1407,19 +1421,19 @@ class App(tk.Tk):
             rb.grid(row=0, column=i, sticky="w", padx=(0, 12))
             Tooltip(rb, tip)
         self.berth_places_btn = ttk.Button(bf, text="Choose locations...", command=self._choose_locations)
-        self.berth_places_btn.grid(row=5, column=2, pady=(6, 0))
+        self.berth_places_btn.grid(row=7, column=2, pady=(6, 0))
         self.berth_places_lbl = ttk.Label(bf, text="", style="Small.TLabel")
-        self.berth_places_lbl.grid(row=6, column=1, columnspan=2, sticky="w", padx=4)
+        self.berth_places_lbl.grid(row=8, column=1, columnspan=2, sticky="w", padx=4)
         self.berth_counts = tk.BooleanVar(value=False)
         counts_cb = self.berth_counts_cb = ttk.Checkbutton(
             bf, text="Show unit counts for each siding location", variable=self.berth_counts)
-        counts_cb.grid(row=7, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        counts_cb.grid(row=9, column=0, columnspan=3, sticky="w", pady=(4, 0))
         Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): how many "
                            "units of each type are there at each night's FINISH and START, and how many cars, in red "
                            "where that is more than the location holds.")
         self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
                                     "Tips")
-        self.berth_hint.grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self.berth_hint.grid(row=10, column=0, columnspan=3, sticky="w", pady=(4, 0))
         for var in [v for vs in self.berth_vars.values() for v in vs] + [self.berth_issue, self.berth_operator]:
             var.trace_add("write", lambda *_a: self._update_name_hint())
 
@@ -1431,7 +1445,9 @@ class App(tk.Tk):
         for w in (self.berth_issue_lbl, self.berth_issue_entry):
             (w.grid if on else w.grid_remove)()
         for w in (self.berth_edit_btn, self.berth_counts_cb):          # chart-only options
-            (w.grid_remove if mode == "work_berth" else w.grid)()
+            (w.grid_remove if mode in ("work_berth", "add_others") else w.grid)()
+        (self.use_others_cb.grid if mode in ("berth_make", "berth_round", "work_berth")
+         else self.use_others_cb.grid_remove)()
         for w in (self.berth_op_lbl, self.berth_op_frame, self.berth_places_btn, self.berth_places_lbl):
             (w.grid if mode == "berth_make" else w.grid_remove)()
         self._berth_operator_changed()
@@ -1474,6 +1490,16 @@ class App(tk.Tk):
         var = self.berth_vars[mode][i]
         init = os.path.dirname(var.get().split(";")[0].strip()) if var.get() else None
         title = "Choose the " + label.rstrip(":").replace(" (optional)", "")
+        if kind == "other":                       # several files: each one chosen is added to the box
+            got = filedialog.askopenfilenames(title="Choose other operators' files", initialdir=init, filetypes=[
+                ("Attune XML, VPT or CIF", "*.xml *.vpt *.cif *.mca *.txt"), ("All files", "*.*")])
+            have = [p.strip() for p in var.get().split(";") if p.strip()]
+            for p in got:
+                p = os.path.normpath(p)
+                if p not in have:
+                    have.append(p)
+            var.set("; ".join(have))
+            return
         if kind == "xml":
             p = filedialog.askopenfilename(title=title, initialdir=init,
                                            filetypes=[("Attune diagram XML", "*.xml"), ("All files", "*.*")])
@@ -1494,17 +1520,17 @@ class App(tk.Tk):
         """XMLs and charts dropped on the berthing box go to the boxes that take them (a box dropped on is
         replaced; otherwise an empty box of that type, else the last one)."""
         from rstools.dropping import Slot, route_drop
-        xmls = [p for p in paths if p.lower().endswith(".xml")]
+        xmls = [p for p in paths if p.lower().endswith((".xml", ".vpt", ".cif", ".mca"))]
         charts = [p for p in paths if p.lower().endswith((".xlsx", ".xlsm"))]
         if not xmls and not charts:
-            messagebox.showwarning(APP_NAME, "Drop Attune XMLs (.xml), berthing charts or platform workings (.xlsx).",
-                                   parent=self)
+            messagebox.showwarning(APP_NAME, "Drop Attune XMLs (.xml), other operators' VPT or CIF files, berthing "
+                                             "charts or platform workings (.xlsx).", parent=self)
             return
         mode = self.mode.get()
         if mode not in BERTH_MODES:
             mode = ("berth_round" if charts and len(xmls) >= 2 else "berth_make" if xmls else "berth_compare")
             self._set_mode(mode)
-        exts = {"xml": (".xml",), "xlsx": (".xlsx", ".xlsm")}
+        exts = {"xml": (".xml",), "xlsx": (".xlsx", ".xlsm"), "other": (".xml", ".vpt", ".cif", ".mca")}
 
         def takes(e: tuple) -> Callable[[str], bool]:
             return lambda p: p.lower().endswith(e)
@@ -1539,6 +1565,7 @@ class App(tk.Tk):
         self.opts = saved
         self._start()
         self.status.configure(text="Working on the platform workings..." if mode == "work_berth"
+                              else "Adding other operators' trains..." if mode == "add_others"
                               else "Working on the berthing chart...")
         split = lambda text: [p.strip() for p in text.split(";") if p.strip()]
         log = lambda m: self.q.put(("log", m))
@@ -1547,26 +1574,32 @@ class App(tk.Tk):
         def work():
             from rstools.berthing import engine
             from rstools.berthing.xmlread import BerthingError
+            from .other_trains import OtherTrainsError
             from .workings_berthing import WorkingsError
             try:
+                mine = (lambda i: split(files[i]) if o.use_others and i < len(files) else [])
                 if mode == "work_berth":
                     from .workings_berthing import add_berthing
-                    res = add_berthing(files[0], [p for p in files[1:2] if p], o.output_dir, o.output_name, log)
+                    res = add_berthing(files[0], [p for p in files[1:2] if p], o.output_dir, o.output_name, log,
+                                       others=mine(2))
+                elif mode == "add_others":
+                    from .other_trains import add_other_trains
+                    res = add_other_trains(files[0], split(files[1]), o.output_dir, o.output_name, log)
                 elif mode == "berth_make":
                     op = o.berth_operator
                     res = engine.generate([p for p in files[:2] if p], files[2] if op == "SNGX" else "",
                                           o.output_dir, o.output_name, o.berth_issue, log, counts=o.berth_counts,
                                           progress=prog, operator=op, leave_out=o.berth_leave_out.get(op, []),
-                                          add=o.berth_add.get(op, []))
+                                          add=o.berth_add.get(op, []), others=mine(3))
                 elif mode == "berth_round":
                     res = engine.add_round(files[0], split(files[1]), split(files[2]), o.colour, o.output_dir,
                                            o.output_name, o.berth_issue, log, counts=o.berth_counts,
-                                           progress=prog)
+                                           progress=prog, others=mine(3))
                 else:
                     res = engine.compare_charts(files[0], files[1], o.colour, o.output_dir, o.output_name, log,
                                                 counts=o.berth_counts, progress=prog)
                 self.q.put(("berth_done", res))
-            except (BerthingError, WorkingsError) as exc:
+            except (BerthingError, WorkingsError, OtherTrainsError) as exc:
                 self.q.put(("error", str(exc)))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
@@ -1585,6 +1618,7 @@ class App(tk.Tk):
                         and isinstance(saved_files[i], str) else "")
         self.berth_issue.set(o.berth_issue)
         self.berth_counts.set(bool(o.berth_counts))
+        self.use_others.set(bool(o.use_others))
         self.berth_operator.set(o.berth_operator)
         self.berth_leave_out = {k: list(v) for k, v in o.berth_leave_out.items()}
         self.berth_add = {k: list(v) for k, v in o.berth_add.items()}
@@ -1622,6 +1656,7 @@ class App(tk.Tk):
         o.berth_files = {m: self._berth_paths(m) for m in BERTH_MODES}
         o.berth_issue = self.berth_issue.get().strip()
         o.berth_counts = bool(self.berth_counts.get())
+        o.use_others = bool(self.use_others.get())
         o.berth_operator = self.berth_operator.get()
         o.berth_leave_out = {k: list(v) for k, v in self.berth_leave_out.items()}
         o.berth_add = {k: list(v) for k, v in self.berth_add.items()}
@@ -1695,10 +1730,11 @@ class App(tk.Tk):
         sb.grid_remove()
 
     def _add_book_merge(self):
-        """Add other operators' Attune XMLs or VPTs to merge into the station book."""
-        paths = filedialog.askopenfilenames(title="Other operators' Attune XML or VPT",
-                                            filetypes=[("Attune XML or VPT", "*.xml *.vpt"), ("Attune XML", "*.xml"),
-                                                       ("Attune VPT export", "*.vpt"), ("All files", "*.*")])
+        """Add other operators' Attune XMLs, VPTs or CIFs to merge into the station book."""
+        paths = filedialog.askopenfilenames(title="Other operators' Attune XML, VPT or CIF",
+                                            filetypes=[("Attune XML, VPT or CIF", "*.xml *.vpt *.cif *.mca"),
+                                                       ("Attune XML", "*.xml"), ("Attune VPT export", "*.vpt"),
+                                                       ("Network Rail CIF", "*.cif *.mca"), ("All files", "*.*")])
         if not paths:
             return
         current = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
@@ -1790,6 +1826,9 @@ class App(tk.Tk):
             elif mode == "work_berth":
                 stem = os.path.splitext(os.path.basename(files[0]))[0] if files[0] else "workings name"
                 name = f"{stem} (berthing added)"
+            elif mode == "add_others":
+                stem = os.path.splitext(os.path.basename(files[0]))[0] if files[0] else "CWN name"
+                name = f"{stem} (other operators added)"
             else:
                 name = default_name(files[0], files[1])
             self.name_hint.configure(text=f"Leave the name blank for '{name}'. Leave the folder blank to save to "
@@ -1925,8 +1964,9 @@ class App(tk.Tk):
         self.util_hint.configure(text="Tip: drag and drop a CWN (day variants in order) or an Attune XML (station "
                                       "working book) onto this box.")
         self.berth_hint.configure(text="Tip: drag and drop Attune XMLs and berthing charts (or platform workings) "
-                                       "onto this box. For a chart, leave 'Layout from chart' blank to use the "
-                                       "app's built-in layout.")
+                                       "onto this box; other operators' VPT or CIF files go to 'Other operators'. "
+                                       "For a chart, leave 'Layout from chart' blank to use the app's built-in "
+                                       "layout.")
 
     def _load_dnd(self) -> str:
         """Load tkdnd (no admin rights needed); '' if drag and drop is unavailable."""
@@ -2425,7 +2465,8 @@ class App(tk.Tk):
                 "reorder": "Putting variants in order", "station": "Station working book",
                 "berth_make": "Berthing chart", "berth_round": "Berthing chart round",
                 "berth_compare": "Berthing chart comparison",
-                "work_berth": "Berthing arrangements"}.get(self.mode.get(), "Stock Tools")
+                "work_berth": "Berthing arrangements",
+                "add_others": "Adding other operators' trains"}.get(self.mode.get(), "Stock Tools")
 
     def _append_log(self, msg, tag=None):
         if tag is None:

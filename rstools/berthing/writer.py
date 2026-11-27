@@ -500,3 +500,4 @@ LEGEND = ["Text colour: 387/2 Gatwick Express red, 387/3 Southern green.",
           "RP: forms the rear portion of another train, attached to by a unit that moves onto it that day.",
           "Berth: the unit stays berthed all that day."]
 STP_LEGEND = "STP trains are shown in bold on a lavender fill."
+OTHERS_LEGEND = "Other operators' units are shown in grey, by headcode where their unit type is not known."

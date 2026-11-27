@@ -56,9 +56,15 @@ def _stays(paths: Sequence[str], log: Log):
     return xmls, build(xmls, mark_stp=len(xmls) > 1)
 
 
-def _fill(layout: Layout, paths: Sequence[str], log: Log, fleets=None, read=None):
+def _fill(layout: Layout, paths: Sequence[str], log: Log, fleets=None, read=None, extra=None):
+    """The layout filled from the XML(s); `extra`: other operators' (stays, warnings, names) added to it."""
+    import dataclasses
     xmls, berthing = read if read is not None else _stays(paths, log)
     warnings = list(berthing.warnings)
+    if extra is not None and extra[0]:
+        berthing = dataclasses.replace(berthing, stays=list(berthing.stays) + list(extra[0]))
+    if extra is not None:
+        warnings += extra[1]
     locations = load_locations()
     if locations.warning:
         warnings.append(locations.warning)
@@ -66,9 +72,17 @@ def _fill(layout: Layout, paths: Sequence[str], log: Log, fleets=None, read=None
     return xmls, filled, warnings
 
 
-def _legend(stp: bool, operator: str = "SNGX") -> List[str]:
+def _legend(stp: bool, operator: str = "SNGX", others: bool = False) -> List[str]:
     lines = writer.LEGEND if operator.upper() == "SNGX" else writer.LEGEND[1:]     # 387/2 and 387/3 colours: SNGX
-    return lines + ([writer.STP_LEGEND] if stp else [])
+    return lines + ([writer.STP_LEGEND] if stp else []) + ([writer.OTHERS_LEGEND] if others else [])
+
+
+def _others(paths: Sequence[str], log: Log):
+    """Other operators' stays, or None when no files are given."""
+    if not paths:
+        return None
+    from .others import other_stays
+    return other_stays(list(paths), log)
 
 
 def _names(xmls) -> dict:
@@ -147,13 +161,14 @@ def _save(fn, path: str):
 def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "", name: str = "", issue: str = "",
              log: Log = lambda m: None, counts: bool = False,
              progress: Callable[[float, str], None] = lambda f, m: None, operator: str = "SNGX",
-             leave_out: Sequence[str] = (), add: Sequence[str] = ()) -> Result:
+             leave_out: Sequence[str] = (), add: Sequence[str] = (), others: Sequence[str] = ()) -> Result:
     """A new chart from an LTP XML (or an LTP and an STP XML: STP trains in bold on lavender), laid out like
     `layout_path` - or like the app's built-in layout when none is given. No change colours: the chart starts
     clean. `counts` adds the unit counts of each siding location.
     operator: SNGX (the built-in layout) or TLGN (a sheet for every place TLGN units berth overnight, made from
     the XML, and only TLGN units). leave_out / add: sheets left out of the layout, and locations added to it
-    (by name or TIPLOC). The cover's title is the timetable the XML is for and its issue line `issue`."""
+    (by name or TIPLOC). The cover's title is the timetable the XML is for and its issue line `issue`.
+    others: other operators' files (Attune XML, VPT or CIF) whose units are added in grey (rstools.berthing.others)."""
     operator = (operator or "SNGX").upper()
     if operator not in auto.OPERATORS:
         raise BerthingError(f"'{operator}' is not a chart type: use " + " or ".join(auto.OPERATORS) + ".")
@@ -179,7 +194,8 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
         raise BerthingError("No locations are left on the chart. Choose at least one location.")
     first = xmls[-1]
     layout.cover = auto.set_cover(layout.cover, auto.timetable_name(first.start), issue, clear_issue=True)
-    _x, filled, warnings = _fill(layout, xml_paths, log, auto.operator_fleets(operator, table), read)
+    extra = _others(others, log)
+    _x, filled, warnings = _fill(layout, xml_paths, log, auto.operator_fleets(operator, table), read, extra)
     warnings = picked + warnings
     progress(0.6, "Writing the chart...")
     stp = len(xml_paths) > 1
@@ -188,7 +204,8 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
     path = _out(out_dir, name, default + (" STP" if stp and "stp" not in default.lower() else ""))
     where = layout_path or (layout.path if operator == "SNGX" else f"the {operator} locations in the XML")
     _save(lambda: writer.write(filled, path, writer.cover_rewriter("", first.start, first.end),
-                               _legend(stp, operator), _notes(xml_paths, where, warnings), counts), path)
+                               _legend(stp, operator, bool(others)), _notes(xml_paths, where, warnings, others),
+                               counts), path)
     n = _count(filled)
     return Result(path, "", f"{n} unit stay(s) placed on {len(filled.sheets)} sheet(s)." +
                   (" STP trains are in bold on lavender." if stp else ""), warnings)
@@ -196,7 +213,7 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
 
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",
               name: str = "", issue: str = "", log: Log = lambda m: None, counts: bool = False,
-              progress: Callable[[float, str], None] = lambda f, m: None) -> Result:
+              progress: Callable[[float, str], None] = lambda f, m: None, others: Sequence[str] = ()) -> Result:
     """The chart remade from the updated XML(s), with every cell that differs from the original XML(s)
     filled in `colour`, and the chart's earlier highlights kept where nothing changed. Plus a change report."""
     _check_paths([chart_path], "berthing chart to add the changes to")
@@ -209,10 +226,11 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     fleets = auto.operator_fleets(operator, _table())
     log("Original timetable:")
     progress(0.15, "Reading the original timetable...")
-    _x0, before, _w0 = _fill(chart, original, log, fleets)
+    extra = _others(others, log)            # the same on both sides: only the chart's own trains are compared
+    _x0, before, _w0 = _fill(chart, original, log, fleets, extra=extra)
     log("Updated timetable:")
     progress(0.4, "Reading the updated timetable...")
-    xmls, after, warnings = _fill(chart, updated, log, fleets)
+    xmls, after, warnings = _fill(chart, updated, log, fleets, extra=extra)
     progress(0.65, "Finding the changes...")
     changes, marked = diff(before, after)
     highlight(after, marked, colour.upper())
@@ -226,8 +244,8 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     rewrite = writer.cover_rewriter("", first.start, first.end)
     cover = lambda t: _updates_line(rewrite(t), shade)
     progress(0.75, "Writing the chart...")
-    _save(lambda: writer.write(after, path, cover, _legend(len(updated) > 1, operator),
-                               _notes(list(updated), chart_path, warnings), counts), path)
+    _save(lambda: writer.write(after, path, cover, _legend(len(updated) > 1, operator, bool(others)),
+                               _notes(list(updated), chart_path, warnings, others), counts), path)
     about = [("Chart", os.path.basename(path)), ("Original XML", ", ".join(map(os.path.basename, original))),
              ("Updated XML", ", ".join(map(os.path.basename, updated))), ("Highlight colour", shade),
              ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
@@ -301,10 +319,12 @@ def _timetable(xmls) -> str:
     return f"{naming.MONTHS[d.month - 1].title()} {d:%y}"
 
 
-def _notes(xmls: Sequence[str], layout_path: str, warnings: Sequence[str]) -> List[str]:
-    where = layout_path if layout_path.startswith("the built-in") else os.path.basename(layout_path)
+def _notes(xmls: Sequence[str], layout_path: str, warnings: Sequence[str], others: Sequence[str] = ()) -> List[str]:
+    where = layout_path if layout_path.startswith("the ") else os.path.basename(layout_path)
     lines = [f"Made {datetime.datetime.now():%d/%m/%Y %H:%M} from " + ", ".join(map(os.path.basename, xmls))
              + f", in the layout of {where}."]
+    if others:
+        lines.append("Other operators' trains from " + ", ".join(map(os.path.basename, others)) + ".")
     if len(xmls) > 1:
         lines.append("LTP and STP: each day's STP diagrams replace the LTP ones; STP trains are in bold on lavender.")
     lines += list(warnings) or ["Nothing needs checking."]
