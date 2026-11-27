@@ -840,7 +840,8 @@ def build_workbook(result: CheckResult, statement: Statement, xml: str):
     add_sheet(wb, "Clashes", _CLASH_HEAD, rows, _CLASH_WIDTHS, fills=fills, center=[3, 10, 11, 13, 15, 16])
     ex = [clash_row(c) for c in sorted(result.exempt, key=_clash_order)]
     add_sheet(wb, "Exempt", _CLASH_HEAD, ex, _CLASH_WIDTHS, center=[3, 10, 11, 13, 15, 16])
-    add_sheet(wb, "Trains Not Checked", ["Train", "Why it was not checked"], [list(x) for x in result.skipped], [12, 80])
+    add_sheet(wb, "Trains Not Checked", ["Train", "Why it was not checked"], [list(x) for x in result.skipped],
+              [12, 80])
     sec_rows = [[k, v] for k, v in sorted(by_section.items(), key=lambda kv: (-kv[1], kv[0]))]
     add_sheet(wb, "By Section", ["Section", "Clashes"], sec_rows, [60, 10], center=[2])
     nf = [[k, len(v), "; ".join(v[:6]) + (" ..." if len(v) > 6 else "")] for k, v in
