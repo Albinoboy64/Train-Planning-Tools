@@ -465,6 +465,11 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.38.7** - Release build checks
+* **Each release is built from the exact commit merged into main**, and a release tag must match the version and be new.
+* **Smoke tests of the built exe** (on GitHub and in `build_windows.bat`) now check every run's exit code, stop a run after 5 minutes instead of waiting for ever, and also cover a plan comparison, merged day variants, a blank berthing chart from an XML, the Section 4 check with its built-in rules, PDF and Word outputs, and four station books made at once. Every build job has a time limit, and jobs get write access only where they publish.
+* The release notes say *Help > Check for updates* (not *Options*) and list berthing charts, platform workings and other operators' trains; the zip includes the licence.
+
 **3.38.6** - Audit fixes: safer outputs, a working Stop, steadier Live View
 * **Safer outputs**: text copied from another operator's file can no longer become a live Excel formula in the *other operators added* or workings berthing outputs (every workbook now stores formula-looking text as text). An output is never written over, even when two pairs in a batch comparison would get the same name (they are now named apart). Rule sets are saved so that a failed save keeps the old set. XML files in UTF-16 or UTF-32 without a byte order mark get the same safety check as any other.
 * **Stop works everywhere**: Stop (or Esc) now ends a batch comparison or a run of several station books straight away; the pairs or books already finished are kept and listed. Closing the app during a run stops it and its helper processes, and asks about unsaved tables in Settings first; installing an update closes the app the same way, so Live View progress is kept.

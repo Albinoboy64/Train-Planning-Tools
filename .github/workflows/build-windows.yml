@@ -10,17 +10,24 @@ on:
         description: "Publish a release with this tag (e.g. v1.01). Leave blank to just build."
         required: false
         default: ""
+      sha:
+        description: "Build this commit (set by promote: the commit it merged into main). Leave blank for the branch's latest."
+        required: false
+        default: ""
 
 permissions:
-  contents: write
+  contents: read             # jobs that publish or merge ask for more themselves (build, promote)
 
 jobs:
   # Checks first, as separate jobs (each shows on its own): lint, type-check, tests with coverage and the dependency
   # audit. The exe is built, smoke-tested and released only when all four pass.
   lint:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || '' }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14.6"
@@ -30,9 +37,12 @@ jobs:
         run: ruff check .
 
   typecheck:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || '' }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14.6"
@@ -46,9 +56,12 @@ jobs:
         run: mypy
 
   test:
+    timeout-minutes: 40
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || '' }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14.6"
@@ -70,9 +83,12 @@ jobs:
           if-no-files-found: ignore
 
   audit:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || '' }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14.6"
@@ -83,6 +99,7 @@ jobs:
 
   build:
     needs: [lint, typecheck, test, audit]
+    timeout-minutes: 90
     runs-on: windows-latest
     # Builds of main run one after another (a waiting older build is replaced by the newest), so two releases of
     # one version can never publish at the same time: the newest build always publishes last.
@@ -100,6 +117,8 @@ jobs:
       HAS_SIGNING_CERT: ${{ secrets.SIGNING_CERT_PFX_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || '' }}
 
       - uses: actions/setup-python@v7
         with:
@@ -143,88 +162,98 @@ jobs:
       - name: Smoke test the exe (command-line mode)
         shell: pwsh
         run: |
+          # every run of the exe: at most 5 minutes (a crash in a windowed exe can wait on a dialog for ever), and a
+          # non-zero exit code fails the step (-MayFail: the caller checks the exit code itself)
+          function Run-Exe([string[]]$argList, [switch]$MayFail) {
+            $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList $argList -PassThru
+            $null = $p.Handle                    # keeps the exit code readable once it has ended
+            if (!$p.WaitForExit(300000)) { $p.Kill(); throw "exe timed out after 5 minutes: $($argList -join ' ')" }
+            $p.WaitForExit()
+            if (!$MayFail -and $p.ExitCode -ne 0) { throw "exe exited with $($p.ExitCode): $($argList -join ' ')" }
+            return $p
+          }
           python -c "import sys; sys.path.insert(0,'tests'); import test_compare as t, os; d=os.path.abspath('smoke'); os.makedirs(d, exist_ok=True); t.make(os.path.join(d,'a.xlsx'), t.BTN_ORIG, t.VIC_ORIG); b,v=t._upd_rows(); t.make(os.path.join(d,'b.xlsx'), b, v)"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--out','smoke','--name','smoke' -Wait -PassThru
+          $p = Run-Exe @('--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--out','smoke','--name','smoke')
           if (!(Test-Path smoke\smoke.xlsx)) { throw "exe did not produce output" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_statspack as t; t.write_xml('smoke/sp.xml'); t.write_docx('smoke/sp.docx', t.plan_lines())"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp' -Wait -PassThru
+          $p = Run-Exe @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp')
           if (!(Test-Path smoke\sp.xlsx)) { throw "exe did not produce a stats pack" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp','--format','pdf' -Wait -PassThru
+          $p = Run-Exe @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp','--format','pdf')
           if (!(Test-Path smoke\sp.pdf)) { throw "exe did not produce a PDF stats pack" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units','--unit-reports','washes,cets,depots,captive,fuel','--unit-period','days','--format','docx' -Wait -PassThru
+          $p = Run-Exe @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units','--unit-reports','washes,cets,depots,captive,fuel','--unit-period','days','--format','docx')
           if (!(Test-Path smoke\units.docx)) { throw "exe did not produce a Word unit report" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','seats','--capacity-corridor','"Brighton Main Line (East Croydon - Brighton)"','--corridor-direction','reverse','--between','06:00-09:00','--at','"East Croydon"','--direction','both' -Wait -PassThru
+          $p = Run-Exe @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','seats','--capacity-corridor','"Brighton Main Line (East Croydon - Brighton)"','--corridor-direction','reverse','--between','06:00-09:00','--at','"East Croydon"','--direction','both')
           if (!(Test-Path smoke\seats.xlsx)) { throw "exe did not produce a capacity report" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--old-xml','smoke\sp.xml','--old-trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_cmp','--unit-reports','washes,depots' -Wait -PassThru
+          $p = Run-Exe @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--old-xml','smoke\sp.xml','--old-trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_cmp','--unit-reports','washes,depots')
           if (!(Test-Path smoke\units_cmp.xlsx)) { throw "exe did not produce a unit report comparison" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_week','--unit-reports','washes,cets,fuel','--possible','over' -Wait -PassThru
+          $p = Run-Exe @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','units_week','--unit-reports','washes,cets,fuel','--possible','over')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\units_week.xlsx)) { throw "exe did not produce a whole-week unit report with the possible-slot option" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_xml('smoke/swb.xml')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\swb.xml','--station','Alpha','--out','smoke','--name','swb' -Wait -PassThru
+          $p = Run-Exe @('stationbook','--xml','smoke\swb.xml','--station','Alpha','--out','smoke','--name','swb')
           if (!(Test-Path smoke\swb.xlsx)) { throw "exe did not produce a station working book" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_timetable as t; t._books(os.path.abspath('smoke'))"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--gtr','smoke\gtr.xlsx','--nr','smoke\nr.xlsx','--out','smoke' -Wait -PassThru
+          $p = Run-Exe @('timetable','--gtr','smoke\gtr.xlsx','--nr','smoke\nr.xlsx','--out','smoke')
           if (!(Test-Path "smoke\K_D26 Consolidated TT Comparison.xlsx")) { throw "exe did not produce a timetable comparison" }
           python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=['Location','Arr','Dep']; write_pdf('smoke/p1.pdf', 'P', [S('Train 1A00  UID C12340  SX', h, [['Brighton','','0500'],['London Bridge','0553','']])]); write_docx('smoke/p2.docx', 'P', [S('Train 1A00  UID C12340  SX', h, [['Brighton','','0502'],['London Bridge','0555','']])])"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--out','smoke','--name','prints' -Wait -PassThru
+          $p = Run-Exe @('timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--out','smoke','--name','prints')
           if (!(Test-Path smoke\prints.xlsx)) { throw "exe did not produce a train print comparison" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--base-prints','smoke\attune.pdf','--check','smoke\tt_check.xlsx','--out','smoke','--name','print_tt' -Wait -PassThru
+          $p = Run-Exe @('timetable','--base-prints','smoke\attune.pdf','--check','smoke\tt_check.xlsx','--out','smoke','--name','print_tt')
           if (!(Test-Path smoke\print_tt.xlsx)) { throw "exe did not produce a print-against-timetable comparison" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--passenger-only','--out','smoke','--name','prints_pax' -Wait -PassThru
+          $p = Run-Exe @('timetable','--prints','smoke\p1.pdf','--vs','smoke\p2.docx','--passenger-only','--out','smoke','--name','prints_pax')
           if (!(Test-Path smoke\prints_pax.xlsx)) { throw "exe did not produce a passenger-times-only print comparison" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_timetable as t; t.write_vpt('smoke/v1.vpt',[t.vpt_1h05()]); t.write_vpt('smoke/v2.vpt',[t.vpt_1h05(HYWRDSH_plat='5')])"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--prints','smoke\v1.vpt','--vs','smoke\v2.vpt','--out','smoke','--name','vpt_cmp' -Wait -PassThru
+          $p = Run-Exe @('timetable','--prints','smoke\v1.vpt','--vs','smoke\v2.vpt','--out','smoke','--name','vpt_cmp')
           if (!(Test-Path smoke\vpt_cmp.xlsx)) { throw "exe did not compare two VPT exports" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_timetable as t; t.write_rule_docs(os.path.abspath('smoke')); t.write_s4_xml('smoke/s4plan.xml')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--highlight-pdfs','--out','smoke','--name','s4cmp' -Wait -PassThru
+          $p = Run-Exe @('timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--highlight-pdfs','--out','smoke','--name','s4cmp')
           if (!(Test-Path smoke\s4cmp.xlsx)) { throw "exe did not compare two sets of Section 4 documents" }
           if (!(Test-Path 'smoke\s4_new - highlighted.pdf')) { throw "exe did not save the highlighted Section 4 PDFs" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--tpr','smoke\tpr_old.pdf','--vs-tpr','smoke\tpr_new.pdf','--out','smoke','--name','tprcmp' -Wait -PassThru
+          $p = Run-Exe @('timetable','--tpr','smoke\tpr_old.pdf','--vs-tpr','smoke\tpr_new.pdf','--out','smoke','--name','tprcmp')
           if (!(Test-Path smoke\tprcmp.xlsx)) { throw "exe did not compare two sets of TPR documents" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--out','smoke','--name','s4check' -Wait -PassThru
+          $p = Run-Exe @('timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--out','smoke','--name','s4check')
           if (!(Test-Path smoke\s4check.xlsx)) { throw "exe did not run the Section 4 check" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--vpt','smoke\v1.vpt','--other-vpt','smoke\v2.vpt','--out','smoke','--name','s4check_vpt' -Wait -PassThru
+          $p = Run-Exe @('timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--vpt','smoke\v1.vpt','--other-vpt','smoke\v2.vpt','--out','smoke','--name','s4check_vpt')
           if (!(Test-Path smoke\s4check_vpt.xlsx)) { throw "exe did not run the Section 4 check with VPTs" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'section4','--xml','smoke\s4plan.xml','--pdf','smoke\s4_old.pdf','--vpt','smoke\v1.vpt','--out','smoke','--name','s4sub' -Wait -PassThru
+          $p = Run-Exe @('section4','--xml','smoke\s4plan.xml','--pdf','smoke\s4_old.pdf','--vpt','smoke\v1.vpt','--out','smoke','--name','s4sub')
           if (!(Test-Path smoke\s4sub.xlsx)) { throw "exe did not run the section4 subcommand" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_stationbook as t; t.write_late_xml('smoke/late.xml'); t.write_late_xml('smoke/other.xml', operator='XC')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\late.xml','--station','Alpha','--merge-xml','smoke\other.xml','--out','smoke','--name','swb_merged' -Wait -PassThru
+          $p = Run-Exe @('stationbook','--xml','smoke\late.xml','--station','Alpha','--merge-xml','smoke\other.xml','--out','smoke','--name','swb_merged')
           if (!(Test-Path smoke\swb_merged.xlsx)) { throw "exe did not make a station book with another operator merged in" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'stationbook','--xml','smoke\swb.xml','--station','Alpha','--book-operator','SNGX','--merge','smoke\attune.pdf','--other-operators','SN','--out','smoke','--name','swb_sngx' -Wait -PassThru
+          $p = Run-Exe @('stationbook','--xml','smoke\swb.xml','--station','Alpha','--book-operator','SNGX','--merge','smoke\attune.pdf','--other-operators','SN','--out','smoke','--name','swb_sngx')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\swb_sngx.xlsx)) { throw "exe did not make an SNGX station book with an F3 print merged in" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--other','smoke\attune.pdf','--out','smoke','--name','s4check_f3' -Wait -PassThru
+          $p = Run-Exe @('timetable','--s4-check','smoke\s4plan.xml','--s4','smoke\s4_old.pdf','--other','smoke\attune.pdf','--out','smoke','--name','s4check_f3')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\s4check_f3.xlsx)) { throw "exe did not run the Section 4 check with an F3 print for another operator" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'selftest','smoke\attune.pdf' -Wait -PassThru -NoNewWindow
+          $p = Run-Exe @('selftest','smoke\attune.pdf')
           if ($p.ExitCode -ne 0) { throw "the exe could not read an Attune print with PDFium, find its built-in Section 4 rules or berthing layout, or open a window with drag and drop" }
           python -c "import sys, os; sys.path.insert(0,'tests'); import test_compare as t; [os.makedirs(f'smoke/{d}', exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make(f'smoke/bo/{n} Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make(f'smoke/bu/{n} Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original-folder','smoke\bo','--updated','smoke\bu','--out','smoke\bout' -Wait -PassThru
+          $p = Run-Exe @('--original-folder','smoke\bo','--updated','smoke\bu','--out','smoke\bout')
           if ((Get-ChildItem smoke\bout -Filter *Proof*.xlsx | Where-Object { $_.Name -notlike '*Change Report*' }).Count -ne 2) { throw "exe batch comparison did not produce two CWNs" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'reorder','smoke\multi.xlsx','--out','smoke','--name','reordered' -Wait -PassThru
+          $p = Run-Exe @('reorder','smoke\multi.xlsx','--out','smoke','--name','reordered')
           if (!(Test-Path smoke\reordered.xlsx)) { throw "exe did not put day variants in order" }
           python -c "import sys; sys.path.insert(0,'tests'); import test_berthing as t; tr, dg = t.base_plan(); open('smoke/berth.xml', 'w').write(t.xml(tr, dg)); t.make_chart('smoke/berth_layout.xlsx')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--xml','smoke\berth.xml','--layout','smoke\berth_layout.xlsx','--issue','Smoke','--out','smoke','--name','berth' -Wait -PassThru
+          $p = Run-Exe @('berthing','--xml','smoke\berth.xml','--layout','smoke\berth_layout.xlsx','--issue','Smoke','--out','smoke','--name','berth')
           if (!(Test-Path smoke\berth.xlsx)) { throw "exe did not make a berthing chart" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--xml','smoke\berth.xml','--counts','--issue','Smoke','--out','smoke','--name','berth_default' -Wait -PassThru
+          $p = Run-Exe @('berthing','--xml','smoke\berth.xml','--counts','--issue','Smoke','--out','smoke','--name','berth_default')
           if (!(Test-Path smoke\berth_default.xlsx)) { throw "exe did not make a berthing chart in its built-in layout" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--xml','smoke\berth.xml','--no-notes','--out','smoke','--name','berth_nonotes' -Wait -PassThru
+          $p = Run-Exe @('berthing','--xml','smoke\berth.xml','--no-notes','--out','smoke','--name','berth_nonotes')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_nonotes.xlsx)) { throw "exe did not make a berthing chart without notes" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp' -Wait -PassThru
+          $p = Run-Exe @('berthing','--compare','smoke\berth_layout.xlsx','smoke\berth.xlsx','--out','smoke','--name','berth_cmp')
           if (!(Test-Path "smoke\berth_cmp - Change Report.xlsx")) { throw "exe did not compare two berthing charts" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--leave-out','Barnham','--issue','Smoke','--out','smoke','--name','berth_blank' -Wait -PassThru
+          $p = Run-Exe @('berthing','--blank','--leave-out','Barnham','--issue','Smoke','--out','smoke','--name','berth_blank')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_blank.xlsx)) { throw "exe did not make a blank SNGX berthing chart" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'berthing','--blank','--operator','TLGN','--add','Brighton','--timetable','"May 2027"','--out','smoke','--name','berth_blank_tlgn' -Wait -PassThru
+          $p = Run-Exe @('berthing','--blank','--operator','TLGN','--add','Brighton','--timetable','"May 2027"','--out','smoke','--name','berth_blank_tlgn')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\berth_blank_tlgn.xlsx)) { throw "exe did not make a blank TLGN berthing chart" }
           python -c "import sys; sys.path.insert(0,'tests'); import workings_fixture as w; w.make_smoke('smoke')"
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList 'workings-berthing','--workings','smoke\wk_a.xlsx','--out','smoke','--name','wk_berth' -Wait -PassThru
+          $p = Run-Exe @('workings-berthing','--workings','smoke\wk_a.xlsx','--out','smoke','--name','wk_berth')
           if ($p.ExitCode -ne 0 -or !(Test-Path smoke\wk_berth.xlsx)) { throw "exe did not add berthing arrangements to platform workings" }
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\wk_a.xlsx','--updated','smoke\wk_b.xlsx','--out','smoke','--name','wk_cmp' -Wait -PassThru
+          $p = Run-Exe @('--original','smoke\wk_a.xlsx','--updated','smoke\wk_b.xlsx','--out','smoke','--name','wk_cmp')
           if (!(Test-Path "smoke\wk_cmp - Change Report.xlsx")) { throw "exe did not compare two platform workings" }
           # more modes (3.36): each must exit cleanly and save its output
           function Smoke($argList, $out, $what) {
             if (Test-Path $out) { Remove-Item $out }
-            $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList $argList -Wait -PassThru
+            $p = Run-Exe $argList -MayFail
             if ($p.ExitCode -ne 0 -or !(Test-Path $out)) { throw "exe did not $what (exit $($p.ExitCode))" }
           }
           python -c "open('smoke/l1.csv','w').write('Headcode,UID,Days,Origin,Origin Dep,Destination,Class\n1A00,C10000,SX,Brighton,0600,Bedford,377\n1A01,C10001,SX,Brighton,0610,Bedford,377\n'); open('smoke/l2.csv','w',encoding='cp1252').write('Headcode,UID,Days,Origin,Origin Dep,Destination,Class\n1A00,C10000,SX,Brighton,0603,Bedford \u00a3,377\n')"
@@ -247,7 +276,18 @@ jobs:
           Smoke @('other-trains','--file','smoke\wk_a.xlsx','--others','smoke\se.cif','--out','smoke','--name','wk_others') 'smoke\wk_others.xlsx' 'add other operators trains to platform workings'
           Smoke @('workings-berthing','--workings','smoke\wk_a.xlsx','--others','smoke\se.cif','--out','smoke','--name','wk_berth_others') 'smoke\wk_berth_others.xlsx' 'add berthing arrangements with other operators'
           Smoke @('berthing','--xml','smoke\berth.xml','--others','smoke\se.cif','--out','smoke','--name','berth_others') 'smoke\berth_others.xlsx' 'make a berthing chart with other operators'
-          $p = Start-Process -FilePath dist\TrainPlanningTools.exe -ArgumentList '--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--acwn','--highlight-only' -Wait -PassThru
+          # more modes (3.38.6): plan comparison, merged variants, blank chart from an XML, built-in Section 4
+          # rules, PDF / Word outputs, and several station books at once (the helper processes of the frozen exe)
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--old-xml','smoke\sp.xml','--old-trent','smoke\sp.docx','--days','MO,TO','--out','smoke','--name','sp_cmp') 'smoke\sp_cmp.xlsx' 'compare two plans'
+          Smoke @('reorder','smoke\multi.xlsx','--merge','--out','smoke','--name','reordered_merged') 'smoke\reordered_merged.xlsx' 'merge day variants'
+          Smoke @('berthing','--blank','--xml','smoke\berth.xml','--out','smoke','--name','berth_blank_xml') 'smoke\berth_blank_xml.xlsx' 'make a blank berthing chart from an XML'
+          Smoke @('section4','--xml','smoke\s4plan.xml','--out','smoke','--name','s4builtin') 'smoke\s4builtin.xlsx' 'run the Section 4 check with its built-in rules'
+          Smoke @('section4','--xml','smoke\s4plan.xml','--pdf','smoke\s4_old.pdf','--format','pdf','--out','smoke','--name','s4pdf') 'smoke\s4pdf.pdf' 'save the Section 4 check as a PDF'
+          Smoke @('timetable','--s4','smoke\s4_old.pdf','--vs-s4','smoke\s4_new.pdf','--format','docx','--out','smoke','--name','s4cmp_docx') 'smoke\s4cmp_docx.docx' 'save a Section 4 comparison as Word'
+          New-Item -ItemType Directory -Force -Path smoke\books | Out-Null
+          $p = Run-Exe @('stationbook','--xml','smoke\swb.xml','--station','"Alpha; Beta; Gamma; Alpha [1-2]"','--out','smoke\books')
+          if ((Get-ChildItem smoke\books -Filter *.xlsx).Count -ne 4) { throw "exe did not make four station books at once" }
+          $p = Run-Exe @('--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--acwn','--highlight-only') -MayFail
           if ($p.ExitCode -eq 0) { throw "exe accepted --acwn with --highlight-only" }
 
       - name: Package
@@ -256,6 +296,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path package | Out-Null
           Copy-Item dist\TrainPlanningTools.exe package\
           Copy-Item README.md package\README.md
+          Copy-Item LICENSE package\LICENSE.txt
           Compress-Archive -Path package\* -DestinationPath TrainPlanningTools-portable.zip -Force
 
       - name: SBOM (CycloneDX) and checksums
@@ -301,6 +342,15 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             tag="$GITHUB_REF_NAME"
           elif [[ -n "$INPUT_TAG" ]]; then
+            version=$(python -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('cwn_compare/__init__.py').read()).group(1))")
+            if [[ "$INPUT_TAG" != "v$version" ]]; then
+              echo "::error::Release tag $INPUT_TAG does not match the version being built ($version)."
+              exit 1
+            fi
+            if [[ -n "$(git ls-remote --tags origin "refs/tags/$INPUT_TAG")" ]]; then
+              echo "::error::$INPUT_TAG is already released; bump __version__ for a new release."
+              exit 1
+            fi
             tag="$INPUT_TAG"
           elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
             # a push to main releases its version once: skipped when that version's tag already exists
@@ -325,14 +375,14 @@ jobs:
           version = os.environ["TAG"].lstrip("vV")
           m = re.search(r"^\*\*" + re.escape(version) + r"\*\*[^\n]*\n(.*?)(?=^\*\*\d|^## )", text, re.S | re.M)
           changes = m.group(1).strip() if m else "See the README for the version history."
-          intro = ("Portable Windows app for GTR train planning: Stock Tools (compare Carriage Working Notices, "
-                   "put day variants in order and make TRACS-RS style station working books), Stats Pack (rolling "
-                   "stock stats packs, unit and capacity reports from an Attune XML and the TRENT unit diagram "
-                   "print), Timing Tools (GTR against Network Rail timetables, train prints and Attune train "
-                   "lists, and the Section 4 possession check) and a Live View to browse any comparison train by "
-                   "train. No installation or "
+          intro = ("Portable Windows app for GTR train planning: Stock Tools (compare Carriage Working Notices and "
+                   "platform workings, put day variants in order, make TRACS-RS style station working books and "
+                   "berthing charts, and add other operators' trains), Stats Pack (rolling stock stats packs, unit "
+                   "and capacity reports from an Attune XML and the TRENT unit diagram print), Timing Tools (GTR "
+                   "against Network Rail timetables, train prints and Attune train lists, and the Section 4 "
+                   "possession check) and a Live View to browse any comparison train by train. No installation or "
                    "admin rights needed.\n\nDownload **TrainPlanningTools.exe** (or the zip, which also "
-                   "contains the README) and double-click it. Already have 3.11.1 or later? Use Options > Check "
+                   "contains the README) and double-click it. Already have 3.11.1 or later? Use Help > Check "
                    "for updates. Copies of 3.11.0 or earlier cannot update themselves to this repository: "
                    "download the exe once by hand and replace the old one (settings are kept).")
           import hashlib
@@ -349,7 +399,7 @@ jobs:
         with:
           tag_name: ${{ steps.rel.outputs.tag }}
           name: Train Planning Tools ${{ steps.rel.outputs.tag }}
-          target_commitish: ${{ github.sha }}
+          target_commitish: ${{ inputs.sha || github.sha }}
           body_path: release_notes.md
           files: |
             dist/TrainPlanningTools.exe
@@ -377,6 +427,7 @@ jobs:
     if: >-
       github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
       && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/heads/dependabot/')
+    timeout-minutes: 60
     runs-on: windows-latest        # the same system as the tests, so the merge result is checked like the branch
     permissions:
       contents: write
@@ -467,10 +518,14 @@ jobs:
           moved=$([[ "$target" == "$main_sha" ]] && echo false || echo true)
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "moved=$moved" >> "$GITHUB_OUTPUT"
+          echo "sha=$target" >> "$GITHUB_OUTPUT"
           echo "Merged into main; release tag: ${tag:-none}"
 
       - name: Build (and release) main (started directly, as a push by GitHub's own token does not start it)
+        # the exact commit merged is built and released, even if main moves on before the run starts
         if: (steps.merge.outputs.tag != '' || steps.merge.outputs.moved == 'true') && env.AUTO_MERGE_TOKEN == ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run build-windows.yml --ref main -f release_tag="${{ steps.merge.outputs.tag }}"
+          TAG: ${{ steps.merge.outputs.tag }}
+          SHA: ${{ steps.merge.outputs.sha }}
+        run: gh workflow run build-windows.yml --ref main -f release_tag="$TAG" -f sha="$SHA"
