@@ -437,6 +437,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.37.1** - platform workings with dated day tabs
+* **Day tabs named with their date** (*MO 14-12-26*, *SuO 13-12-26*, as in the daily platform workings) are read as day tabs: *Add berthing arrangements to platform workings* no longer stops with "No platform workings day tabs were found", and two weeks' workings are compared Monday against Monday, Tuesday against Tuesday, rather than every tab being reported as removed and new.
+
 **3.37.0** - the window checked through: clearer wording, the same layout on every tab, quicker to use
 * **Same layout on every tab**: Run, a progress bar and Stop on one row with the status underneath (the Live View's Stop button was hidden under its progress bar), **Tab** moves through the boxes in the order they are shown, and day boxes have *All / Weekdays / Weekend / None* on every tab.
 * **Clearer wording**: every task in the task lists starts with what it does (*Compare...*, *Check...*, *Create...*) and its run button says the same; counts read properly (*1 train*, *2 trains*); messages say what to do next; message boxes open over the app window; tab names in the change report of platform workings are shown without their trailing space.

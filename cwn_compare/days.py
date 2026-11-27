@@ -57,9 +57,16 @@ def _codes(model: CWNModel) -> List[str]:
 SHEET_DAYS = {"MO": 0, "TO": 1, "WO": 2, "THO": 3, "FO": 4, "SO": 5, "SUO": 6}
 
 
+def tab_day(key: str) -> Optional[int]:
+    """The day of a platform workings tab from its name: 'MO', 'SuO', or the code followed by a date or
+    other words ('MO 14-12-26', 'SuO_13.12.26'); else None."""
+    first = re.split(r"[\s_\-.#(]+", (key or "").strip().upper(), maxsplit=1)[0]
+    return SHEET_DAYS.get(first)
+
+
 def sheet_day(sm: SheetModel) -> Optional[int]:
     """The day of a platform workings tab, else None."""
-    return SHEET_DAYS.get(sm.key) if "cars" in sm.cols else None
+    return tab_day(sm.key) if "cars" in sm.cols else None
 
 
 def coverage(model: CWNModel, path: str = "") -> Tuple[Set[int], bool]:

@@ -367,3 +367,45 @@ def test_the_command_line_says_saved_once(tmp_path, capsys):
     src = wf.make(str(tmp_path / "w.xlsx"), "brighton")
     cli.main(["workings-berthing", "--workings", src, "--out", str(tmp_path), "--name", "done"])
     assert capsys.readouterr().out.count("Saved:") == 1
+
+
+_DATES = {"SuO": 13, "MO": 14, "TO": 15, "WO": 16, "ThO": 17, "FO": 18, "SO": 19}
+
+
+def dated(path, week=0):
+    """The workings with each day tab named with its date ('MO 14-12-26'), as TRENT exports them."""
+    book = openpyxl.load_workbook(path)
+    for ws in book.worksheets:
+        code = ws.title.strip()
+        if code in _DATES:
+            ws.title = f"{code} {_DATES[code] + 7 * week}-12-26"
+    book.save(path)
+    return path
+
+
+def test_day_tabs_named_with_their_dates_get_berthing_arrangements(tmp_path):
+    src = dated(wf.make(str(tmp_path / "w.xlsx"), "victoria"))
+    res = wb.add_berthing(src, (), str(tmp_path))
+    out = openpyxl.load_workbook(res.chart)
+    got = {}
+    for row in out["MO 14-12-26"].iter_rows(values_only=True):
+        cells = [str(v) for v in row if v not in (None, "")]
+        if len(cells) == 2:
+            got[cells[0]] = cells[1]
+    assert got["Platform 14"] == "8 387 for 05 05 TO"
+    assert "7 day tab" in res.summary
+
+
+def test_dated_day_tabs_of_different_weeks_are_compared_day_by_day(tmp_path):
+    def edit(tab, rows):
+        if tab == "MO":
+            for r in rows:
+                if r.get("id") == "1L04":
+                    r["time"] = "05.52"
+    old = dated(wf.make(str(tmp_path / "old.xlsx"), "london bridge"), 0)
+    new = dated(wf.make(str(tmp_path / "new.xlsx"), "london bridge", edit=edit), 1)
+    opts = Options(original=old, updated=new, output_dir=str(tmp_path), output_name="cmp", colour="FFFF00",
+                   mode="compare")
+    got = changes(engine.run(opts, log=lambda _m: None))
+    assert got[("1L04", "Time")] == ("05.50", "05.52")
+    assert len(got) == 1                                               # no tab reported as removed or new

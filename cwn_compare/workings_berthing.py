@@ -28,7 +28,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from rstools import naming
 from rstools.fsutil import clean_cell, output_folder, unique_stem
 
-from .days import SHEET_DAYS
+from .days import tab_day
 from .model import Block, CWNModel, SheetModel, parse_workbook, time_minutes
 from rstools.days import DAY_CODES, DAY_NAMES
 
@@ -261,10 +261,20 @@ def _stamp(day_from: int, nxt: int, minutes: int) -> int:
     return ((nxt - day_from) % 7) * 2880 + minutes
 
 
+def day_tabs(model: CWNModel) -> Dict[int, SheetModel]:
+    """{day: tab} of the workings' day tabs, named 'MO' ... 'SuO' with or without a date after the code."""
+    tabs: Dict[int, SheetModel] = {}
+    for k, sm in model.sheets.items():
+        d = tab_day(k)
+        if d is not None:
+            tabs.setdefault(d, sm)
+    return tabs
+
+
 def build_sections(model: CWNModel, lay: Layout, roads: Optional[Dict[Tuple[int, int, str, int, int], int]] = None,
                    log: Log = lambda _m: None) -> Dict[int, List[Tuple[str, str]]]:
     """{day: [(label, text), ...]} for each day tab of the workings (the lines of its section, in order)."""
-    tabs: Dict[int, SheetModel] = {SHEET_DAYS[k]: sm for k, sm in model.sheets.items() if k in SHEET_DAYS}
+    tabs = day_tabs(model)
     if not tabs:
         raise WorkingsError("No day tabs (MO, TO, WO, ThO, FO, SO, SuO) were found in these platform workings.")
     platform_by_day, departs = {}, {}
@@ -537,7 +547,7 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
         model = parse_workbook(wb)
     except Exception as exc:                   # an unexpected layout: a message, not a traceback
         raise WorkingsError(f"{os.path.basename(path)} could not be read as platform workings ({exc}).")
-    tabs = {k: sm for k, sm in model.sheets.items() if k in SHEET_DAYS}
+    tabs = day_tabs(model)
     if not tabs:
         raise WorkingsError("No platform workings day tabs (MO, TO, WO, ThO, FO, SO, SuO) were found in "
                             f"{os.path.basename(path)}.")
@@ -550,8 +560,7 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
         log(f"NOTE: {lay.name} has no sidings in its section, so the XML is not needed")
     sections = build_sections(model, lay, roads, log)
     diffs = 0
-    for key, sm in tabs.items():
-        day = SHEET_DAYS[key]
+    for day, sm in tabs.items():
         diffs += _write(wb[sm.title], sm, lay, day, sections[day], log)
     folder = output_folder(out_dir)
     stem = naming.clip(name or f"{os.path.splitext(os.path.basename(path))[0]} (berthing added)")
