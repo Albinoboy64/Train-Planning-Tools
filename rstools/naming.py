@@ -91,8 +91,18 @@ _PLAIN_FIRST = {"original", "updated", "earlier", "timetable", "train"}
 def file_label(label: str) -> str:
     """A file box's label as words for a message: 'Original Attune XML:' -> 'original Attune XML',
     'GTR timetable:' -> 'GTR timetable' (names such as Attune, TRENT, CWN and GTR keep their capitals)."""
-    text = label.rstrip(":").replace(" - reference", "").strip()
+    text = label.rstrip(":").replace(" - reference", "").replace("(s)", "").strip()
+    text = re.sub(r"\s*\([^)]*\)", "", text).strip()           # '(optional)', '(blank: ...)' and the like
     first, _sep, rest = text.partition(" ")
     if first.casefold() in _PLAIN_FIRST:
         first = first.lower()
     return f"{first} {rest}".strip()
+
+
+def plural(n: int, word: str, many: str = "") -> str:
+    """'1 train', '2 trains', '0 trains'; `many` for an irregular plural ('1 clash', '3 clashes')."""
+    if n == 1:
+        return f"1 {word}"
+    if not many:
+        many = word + ("es" if word.endswith(("s", "sh", "ch", "x")) else "s")
+    return f"{n:,} {many}"

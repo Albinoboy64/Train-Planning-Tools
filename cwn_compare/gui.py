@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import os
 import queue
 import subprocess
@@ -17,10 +16,12 @@ from typing import Callable, Dict, List
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
 from rstools import errorlog, theme, updater
+from rstools.naming import plural
 from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
 from rstools.update_dialog import UpdateDialog
-from rstools.widgets import Progress, QueuePump, ScrollPage, TaskBox, Tooltip, local_folder_box
+from rstools.widgets import (FAILED, READY, STOPPED, Progress, QueuePump, ScrollPage, TaskBox, Tooltip, day_buttons,
+                             debounce, local_folder_box, log_box)
 
 from . import __version__
 from .compare import CATEGORIES
@@ -40,10 +41,10 @@ ASSETS = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(o
 HAS_OLD = {k: has_old for k, _label, has_old, _desc in CATEGORIES}
 # berthing charts: mode -> (radio button, [(file box label, kind)], run button, intro)
 BERTH_MODES = {
-    "berth_make": ("Make a berthing chart from an Attune XML",
+    "berth_make": ("Create a berthing chart from an Attune XML",
                    [("Attune XML (LTP):", "xml"), ("STP XML (optional):", "xml"),
                     ("Layout from chart (optional):", "xlsx")],
-                   "Make berthing chart", "Makes a berthing chart from an Attune XML, in the app's built-in layout "
+                   "Create berthing chart", "Creates a berthing chart from an Attune XML, in the app's built-in layout "
                    "(or laid out like a chart you choose). Attach the STP XML too for an STP chart."),
     "berth_round": ("Add a round of changes to a berthing chart",
                     [("Berthing chart:", "xlsx"), ("Original XML:", "xml"), ("Updated XML:", "xml")],
@@ -52,10 +53,10 @@ BERTH_MODES = {
     "work_berth": ("Add berthing arrangements to platform workings",
                    [("Platform workings:", "xlsx"), ("Attune XML for siding roads (optional):", "xml")],
                    "Add berthing arrangements", "Saves a copy of platform workings (Victoria, London Bridge or "
-                   "Brighton) with each day's Berthing Arrangements made from the trains: what stands at each "
+                   "Brighton) with each day's berthing arrangements made from the trains: what stands at each "
                    "platform and siding at the end of the day, and the train it works next."),
-    "berth_compare": ("Compare two berthing charts", [("Older chart:", "xlsx"), ("Newer chart:", "xlsx")],
-                      "Compare charts", "Compares two berthing charts and highlights the differences in the newer "
+    "berth_compare": ("Compare two berthing charts", [("Original chart:", "xlsx"), ("Updated chart:", "xlsx")],
+                      "Compare charts", "Compares two berthing charts and highlights the differences in the updated "
                       "one."),
 }
 
@@ -68,8 +69,20 @@ STOCK_GROUPS = [
                                     ("work_berth", BERTH_MODES["work_berth"][0]),
                                     ("reorder", "Put each train's day variants in order (one CWN)")]),
     ("Berthing charts", [(mode, BERTH_MODES[mode][0]) for mode in ("berth_make", "berth_round", "berth_compare")]),
-    ("Station books", [("station", "Station Working Book (TRACS-RS layout, from an Attune XML)")]),
+    ("Station books", [("station", "Create a station working book from an Attune XML (TRACS-RS layout)")]),
 ]
+INTROS = {                  # what each task of the tab does, shown at the top
+    "compare": "Compares an original and an updated CWN (or platform workings): saves a copy of the updated file "
+               "with every change highlighted and noted, and a change report.",
+    "batch": "Compares every CWN in one folder with its partner in another, paired by name: a highlighted copy "
+             "and a change report for each pair.",
+    "cumulative": "Adds a new round of changes to a comparison CWN made earlier by this app: earlier highlights "
+                  "are kept and the new changes are shown in another colour.",
+    "reorder": "Saves a copy of a multi-day CWN with each train's day variants in order. The CWN itself is not "
+               "changed.",
+    "station": "Creates a station working book in the TRACS-RS layout from an Attune XML: one sheet each for SX, "
+               "SO and Su.",
+}
 CATEGORY_GROUPS = [["CANCELLED", "NEW"],                                  # whole trains
                    ["DAYS", "LOCATION", "PLATFORM", "TIME"],             # timing and route
                    ["BERTHING", "FORMATION", "STOCK"],                   # stock and workings
@@ -84,7 +97,8 @@ def _open_path(path: str):
     """Open an output (or a folder) as if double-clicked. Only folders and document files: never a program
     or script, whatever a path ends up holding."""
     if not (os.path.isdir(path) or os.path.splitext(path)[1].lower() in OPENABLE):
-        messagebox.showerror(APP_NAME, f"Only folders and documents are opened from the app:\n{path}")
+        messagebox.showerror(APP_NAME, "This kind of file is not opened from the app (only folders, workbooks, "
+                                       f"PDF, Word and text files):\n{path}")
         return
     try:
         if sys.platform.startswith("win"):
@@ -158,7 +172,7 @@ class App(tk.Tk):
         self.dpi = theme.window_dpi(self)                     # this display's scaling (96 = 100%)
         self.dpi_scale = self.dpi / theme.BASE_DPI
         self.tk.call("tk", "scaling", self.dpi / 72.0)        # fonts are in points: sized for this display
-        self.title(f"{APP_NAME}  v{__version__}")
+        self.title(f"{APP_NAME} v{__version__}")
         self._set_icon()
         self.opts = Options.load()
         from rstools.cancel import StopQueue
@@ -201,13 +215,19 @@ class App(tk.Tk):
             self.bind(key, lambda _e: self.live_window.toggle() or "break")
         for i in range(4):                                   # Ctrl+1 / 2 / 3 / 4: switch tab
             self.bind(f"<Control-Key-{i + 1}>", lambda _e, i=i: self.notebook.select(i) or "break")
+        self.bind("<Control-Tab>", lambda _e: self._next_tab(1))       # anywhere in the window, not only on the tabs
+        for key in ("<Control-Shift-Tab>", "<Control-ISO_Left_Tab>"):
+            self.bind(key, lambda _e: self._next_tab(-1))
         for keys, step in ((("<Control-plus>", "<Control-equal>", "<Control-KP_Add>"), 1),
                            (("<Control-minus>", "<Control-KP_Subtract>"), -1), (("<Control-Key-0>",), 0)):
             for key in keys:                                 # Ctrl + / - / 0: text size
                 self.bind(key, lambda _e, s=step: self.step_text_size(s) or "break")
         self.bind("<F1>", lambda _e: webbrowser.open(f"https://github.com/{updater.REPO}#readme"))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.apply_theme(self.opts.theme)
+        self.opts.theme = self.opts.theme if self.opts.theme in theme.MODES else "system"
+        theme.recolour(self, self.palette)          # the styles were set before the widgets were built
+        self.theme_var.set(self.opts.theme)
+        self.live_tab.retheme(self.palette)
         self.pump.add(self.q, self._poll, lambda: self.running)
         # Windows' light / dark setting: checked when the window is switched back to, and once a minute
         self._theme_id = self.after(60000, self._follow_windows_theme)
@@ -413,7 +433,7 @@ class App(tk.Tk):
 
     def _size_columns(self, scale: float):
         """Two-column tabs keep room for their text at the chosen text size."""
-        for frame, widths in ((self.outer, (500, 480)), (self.stats_tab, (520, 470)), (self.tt_tab, (520, 470))):
+        for frame, widths in ((self.outer, (510, 475)), (self.stats_tab, (510, 475)), (self.tt_tab, (510, 475))):
             for col, width in enumerate(widths):
                 frame.columnconfigure(col, minsize=round(width * scale))
         stack: List[tk.Misc] = [self]
@@ -456,46 +476,60 @@ class App(tk.Tk):
         sizes.add_separator()
         sizes.add_command(label="Larger", accelerator="Ctrl++", command=lambda: self.step_text_size(1))
         sizes.add_command(label="Smaller", accelerator="Ctrl+-", command=lambda: self.step_text_size(-1))
-        sizes.add_command(label="Normal size", accelerator="Ctrl+0", command=lambda: self.step_text_size(0))
+        sizes.add_command(label="Back to normal", accelerator="Ctrl+0", command=lambda: self.step_text_size(0))
         opt.add_cascade(label="Text size", menu=sizes)
-        opt.add_separator()
-        opt.add_command(label="Check for updates...", command=self.check_for_updates)
-        self.auto_update_var = tk.BooleanVar(value=self.opts.check_updates)
-        opt.add_checkbutton(label="Check for updates when the app starts", variable=self.auto_update_var,
-                            command=self._auto_update_changed)
-        opt.add_command(label="GitHub access token...", command=self._set_token)
         opt.add_separator()
         self.notify_var = tk.BooleanVar(value=self.opts.notify_done)
         opt.add_checkbutton(label="Notify me when a run finishes in the background", variable=self.notify_var,
                             command=self._notify_changed)
-        opt.add_separator()
-        opt.add_command(label="Edit fleet data...", command=self.stats_tab.edit_fleet)
-        opt.add_command(label="Edit depot list (for unit reports)...", command=self.stats_tab.edit_depots)
-        opt.add_command(label="Edit corridors (for capacity reports)...",
-                        command=self.stats_tab.edit_groups)
-        opt.add_command(label="Rules and reference data...", command=self.show_rules)
-        opt.add_command(label="Open settings folder", command=lambda: _open_path(
-            os.path.dirname(Options.settings_path())))
         bar.add("Options", opt)
+        data = tk.Menu(bar, tearoff=False)                   # the lists and rules the tasks read
+        data.add_command(label="Edit fleet data...", command=self.stats_tab.edit_fleet)
+        data.add_command(label="Edit depot list (for unit reports)...", command=self.stats_tab.edit_depots)
+        data.add_command(label="Edit corridors (for capacity reports)...", command=self.stats_tab.edit_groups)
+        data.add_separator()
+        data.add_command(label="Rules and reference data...", command=self.show_rules)
+        data.add_separator()
+        data.add_command(label="Open settings folder", command=lambda: _open_path(
+            os.path.dirname(Options.settings_path())))
+        bar.add("Data", data)
         self.saved_menu = tk.Menu(bar, tearoff=False, postcommand=self._fill_saved_menu)
         self._fill_saved_menu()
         bar.add("Save/Load", self.saved_menu)
         help_menu = tk.Menu(bar, tearoff=False)
         help_menu.add_command(label="User guide (README on GitHub)", accelerator="F1",
                               command=lambda: webbrowser.open(f"https://github.com/{updater.REPO}#readme"))
-        help_menu.add_command(label="Keyboard shortcuts", command=lambda: messagebox.showinfo(
-            "Keyboard shortcuts",
-            "F5 or Ctrl+Enter\tRun the current tab\nCtrl+1 / 2 / 3 / 4\tStock Tools / Stats Pack / "
-            "Timing Tools / Live View\nF3 / Shift+F3\tLive View: next / previous difference\n"
-            "Ctrl+Shift+P\tLive View in its own window / back\nF11\t\tLive View window: full screen\n"
-            "Ctrl++ / Ctrl+- / Ctrl+0\tLarger / smaller / normal text\nAlt+O / Alt+S / Alt+H\tOptions / Save/Load / "
-            "Help menu\nF1\t\tUser guide\n\nFiles can also be dragged onto any tab: each goes to the right box.",
-            parent=self))
+        help_menu.add_command(label="Keyboard shortcuts", command=self._shortcuts)
+        help_menu.add_separator()
+        help_menu.add_command(label="Check for updates...", command=self.check_for_updates)
+        self.auto_update_var = tk.BooleanVar(value=self.opts.check_updates)
+        help_menu.add_checkbutton(label="Check for updates when the app starts", variable=self.auto_update_var,
+                                  command=self._auto_update_changed)
+        help_menu.add_command(label="GitHub access token...", command=self._set_token)
+        help_menu.add_separator()
         help_menu.add_command(label="Error log...", command=self._open_error_log)
         help_menu.add_command(label="Third-party software and licences", command=self._licences)
         help_menu.add_command(label=f"About {APP_NAME}", command=self._about)
         bar.add("Help", help_menu)
         bar.pack(fill="x", before=self._head)
+
+    def _next_tab(self, step: int):
+        self.notebook.select((self.notebook.index("current") + step) % len(self.notebook.tabs()))
+        return "break"
+
+    def _shortcuts(self):
+        keys = (("F5 or Ctrl+Enter", "run the current tab"), ("Esc", "stop the run"),
+                ("Ctrl+1, 2, 3, 4", "Stock Tools, Stats Pack, Timing Tools, Live View"),
+                ("Ctrl+Tab, Ctrl+Shift+Tab", "next or previous tab"),
+                ("Ctrl+F", "Live View: find a train"), ("Space", "Live View: confirm or unconfirm the train"),
+                ("F3, Shift+F3", "Live View: next or previous difference"),
+                ("Ctrl+Shift+P", "Live View in its own window, and back"), ("F11", "Live View window: full screen"),
+                ("Ctrl++, Ctrl+-, Ctrl+0", "larger, smaller or normal text"),
+                ("Alt+O, Alt+D, Alt+S, Alt+H", "the Options, Data, Save/Load and Help menus"),
+                ("F1", "user guide"))
+        messagebox.showinfo(f"{APP_NAME} - Keyboard shortcuts",
+                            "\n".join(f"{k}:  {what}" for k, what in keys)
+                            + "\n\nFiles can also be dragged onto any tab: each goes to the right box.", parent=self)
 
     def notify_done(self, title: str, message: str, ok: bool = True):
         """Flash the taskbar and show a corner notice when a run ends while the app is in the background."""
@@ -528,30 +562,33 @@ class App(tk.Tk):
         m.delete(0, "end")
         idx = self.notebook.index("current")
         m.add_command(label=f"Save {TAB_NAMES[idx]} settings as...", command=self._save_settings_as)
-        here = self._saved(idx)
+        here = self._saved(idx)                  # this tab's settings in the menu itself, the other tabs' below
         if here:
             m.add_separator()
-            m.add_command(label=f"Load {TAB_NAMES[idx]} settings:", state="disabled")
             for key, name in here:
-                m.add_command(label="    " + name, command=lambda k=key: self._load_saved(k, run=False))
+                m.add_cascade(label=name, menu=self._saved_item_menu(m, key))
         m.add_separator()
         for tab, tab_name in enumerate(TAB_NAMES):
+            if tab == idx:
+                continue
             items = self._saved(tab)
             sub = tk.Menu(m, tearoff=False)
             for key, name in items:
-                one = tk.Menu(sub, tearoff=False)
-                one.add_command(label="Load", command=lambda k=key: self._load_saved(k, run=False))
-                one.add_command(label="Load and run", command=lambda k=key: self._load_saved(k, run=True))
-                one.add_command(label="Replace with the current settings",
-                                command=lambda k=key: self._save_settings_as(replace=k))
-                one.add_command(label="Rename...", command=lambda k=key: self._rename_saved(k))
-                one.add_separator()
-                one.add_command(label="Delete", command=lambda k=key: self._delete_saved(k))
-                sub.add_cascade(label=name, menu=one)
+                sub.add_cascade(label=name, menu=self._saved_item_menu(sub, key))
             if not items:
                 sub.add_command(label="(none saved yet)", state="disabled")
             m.add_cascade(label=f"{tab_name} ({len(items)})", menu=sub)
         theme.apply_menu(m, self.palette)
+
+    def _saved_item_menu(self, parent, key) -> tk.Menu:
+        one = tk.Menu(parent, tearoff=False)
+        one.add_command(label="Load", command=lambda: self._load_saved(key, run=False))
+        one.add_command(label="Load and run", command=lambda: self._load_saved(key, run=True))
+        one.add_command(label="Replace with the current settings", command=lambda: self._save_settings_as(replace=key))
+        one.add_command(label="Rename...", command=lambda: self._rename_saved(key))
+        one.add_separator()
+        one.add_command(label="Delete", command=lambda: self._delete_saved(key))
+        return one
 
     def _ask_name(self, title: str, prompt: str, initial: str = "") -> str:
         name = simpledialog.askstring(title, prompt, initialvalue=initial, parent=self)
@@ -570,7 +607,7 @@ class App(tk.Tk):
             self.opts.saved.pop(replace, None)
         else:
             name = self._ask_name(f"Save {TAB_NAMES[idx]} settings", f"Name for these {TAB_NAMES[idx]} settings "
-                                  "(the files and options are saved, so they can be loaded or run again in one click):")
+                                  "(its files and options, to load or run again later):")
             if not name:
                 return
             clash = next((k for k, n in self._saved(idx) if n.casefold() == name.casefold()), None)
@@ -607,18 +644,20 @@ class App(tk.Tk):
             return
         tab = self._tabs()[idx]
         if getattr(tab, "running", False):
-            messagebox.showwarning(APP_NAME, f"The {TAB_NAMES[idx]} tab is busy - wait for its run to finish.")
+            messagebox.showwarning(APP_NAME, f"The {TAB_NAMES[idx]} tab is busy - wait for its run to finish.",
+                                   parent=self)
             return
         self.notebook.select(idx)
         try:
             tab.set_state(state)
         except Exception as exc:                     # a damaged entry must not break the app
-            messagebox.showerror(APP_NAME, f"The saved settings '{name}' could not be loaded ({exc}).")
+            messagebox.showerror(APP_NAME, f"The saved settings '{name}' could not be loaded ({exc}).\n\n"
+                                           "Save the settings again, or delete them from Save/Load.", parent=self)
             return
         missing = [p for p in tab.files_in_state(state) if not os.path.exists(p)]
         if missing:
             messagebox.showwarning(APP_NAME, f"Some files of '{name}' are no longer there, so the settings were "
-                                              "loaded but not run:\n\n" + "\n".join(missing[:8]))
+                                              "loaded but not run:\n\n" + "\n".join(missing[:8]), parent=self)
             return
         if run:
             if idx == 0 and state.get("days") and state.get("mode") not in ("batch", "reorder"):
@@ -666,7 +705,7 @@ class App(tk.Tk):
                 return                              # offline / no access: stay quiet at start-up
             if updater.is_newer(rel.version, __version__):
                 self.q.put(("update", rel))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     def refresh_rules_note(self):
@@ -690,14 +729,14 @@ class App(tk.Tk):
         except Exception:                  # only a reminder: never interrupt the run, but keep the details
             errorlog.write(traceback.format_exc())
             return
-        if text and messagebox.askyesno(f"{APP_NAME} - new timetable", text + "\n\nOpen Rules and reference data now?",
+        if text and messagebox.askyesno(f"{APP_NAME} - New timetable", text + "\n\nOpen Rules and reference data now?",
                                         parent=self):
             self.show_rules()
 
     def _about(self):
         messagebox.showinfo(f"About {APP_NAME}",
                             f"{APP_NAME} v{__version__}\n\nStock Tools, Stats Pack, Timing Tools and Live View for GTR "
-                            f"Train Planning.\n\nhttps://github.com/{updater.REPO}")
+                            f"Train Planning.\n\nhttps://github.com/{updater.REPO}", parent=self)
 
     def _open_error_log(self):
         """The log of unexpected errors, to send with a support request: previewed with file paths, user and
@@ -802,8 +841,19 @@ class App(tk.Tk):
         if again:
             self._theme_id = self.after(60000, self._follow_windows_theme)
 
-    def recent(self, kind: str) -> list:
-        return [p for p in self.opts.recent.get(kind, []) if os.path.exists(p)]
+    def recent(self, kind: str, exts: tuple = ()) -> list:
+        """The recently used files of this kind that still exist (of these types, if given). Whether a file
+        exists is remembered for half a minute, so typing in a box never waits on a slow or offline drive."""
+        now = time.monotonic()
+        seen = self.__dict__.setdefault("_exists", {})
+        out = []
+        for p in self.opts.recent.get(kind, []):
+            hit = seen.get(p)
+            if hit is None or now - hit[1] > 30:
+                hit = seen[p] = (os.path.exists(p), now)
+            if hit[0] and (not exts or p.lower().endswith(exts)):
+                out.append(p)
+        return out
 
     def add_recent(self, kind: str, *paths: str):
         lst = [p for p in self.opts.recent.get(kind, []) if p not in paths]
@@ -831,12 +881,12 @@ class App(tk.Tk):
         for p in (paths if len(paths) <= 3 else [os.path.dirname(paths[0])]):
             _open_path(p)
 
-    def file_box(self, master, var: tk.StringVar, kind: str) -> ttk.Combobox:
+    def file_box(self, master, var: tk.StringVar, kind: str, exts=None) -> ttk.Combobox:
         """A file box (no drop-down arrow) that lists the recently used files of this kind when it is clicked
-        while empty, or as a path is typed."""
+        while empty, or as a path is typed. `exts()`, if given, gives the file types the box takes now."""
         from rstools.autocomplete import Suggest
         box = ttk.Combobox(master, textvariable=var, style="Suggest.TCombobox")
-        Suggest(box, lambda: self.recent(kind))
+        Suggest(box, lambda: self.recent(kind, tuple(exts()) if exts else ()))
         return box
 
     # ------------------------------------------------------------ window
@@ -905,13 +955,13 @@ class App(tk.Tk):
     def _status_done(self, title: str, message: str, ok: bool, at: float):
         when, paths = self._outputs_at
         paths = paths if ok and abs(when - at) < 5 else []         # the outputs of this run, not an earlier one
-        line = f"{time.strftime('%H:%M')}  {title}" + (f" - {message}" if message else "")
+        line = f"{time.strftime('%H:%M')} {title}" + (f" - {message}" if message else "")
         self._set_status(line, "" if ok else "Warn.TLabel", paths)
 
     def _on_close(self):
         busy = self.running or self.stats_tab.running or self.tt_tab.running or self.live_tab.running
         if busy and not messagebox.askyesno(
-                APP_NAME, "A run is still in progress and its output will not be saved.\n\nClose anyway?"):
+                APP_NAME, "A run is still in progress and its output will not be saved.\n\nClose anyway?", parent=self):
             return
         for save in (self.live_window._save_place, self.save_app_settings):   # one failing never skips the other
             try:
@@ -925,13 +975,12 @@ class App(tk.Tk):
                     self.after_cancel(job)
                 except tk.TclError:
                     pass
-        self.stats_tab.stop()
-        self.tt_tab.stop()
-        self.live_tab.stop()
+        self.live_tab.stop()                    # saves its confirmations
         self.destroy()
 
     def report_callback_exception(self, exc, val, tb):
-        messagebox.showerror(APP_NAME, errorlog.describe(val, "".join(traceback.format_exception(exc, val, tb))))
+        messagebox.showerror(APP_NAME, errorlog.describe(val, "".join(traceback.format_exception(exc, val, tb))),
+                             parent=self)
 
     def _set_icon(self):
         """The window / taskbar / Alt+Tab icon. The .ico (several sizes) is used on Windows; the PNGs are
@@ -987,24 +1036,24 @@ class App(tk.Tk):
         cwn_page, stats_page = ScrollPage(self.notebook), ScrollPage(self.notebook)
         outer = self.outer = cwn_page.body
         outer.configure(padding=(12, 8, 12, 10))
-        self.notebook.add(cwn_page, text="  Stock Tools  ")
+        self.notebook.add(cwn_page, text="Stock Tools")
         from rstools.statspack.gui_tab import StatsPackTab
         self.stats_tab = StatsPackTab(stats_page.body, self)
         self.stats_tab.pack(fill="both", expand=True)
         self.stats_page = stats_page
-        self.notebook.add(stats_page, text="  Stats Pack  ")
+        self.notebook.add(stats_page, text="Stats Pack")
         from rstools.timetable.gui_tab import TimetableTab
         tt_page = self.tt_page = ScrollPage(self.notebook)
         self.tt_tab = TimetableTab(tt_page.body, self)
         self.tt_tab.pack(fill="both", expand=True)
-        self.notebook.add(tt_page, text="  Timing Tools  ")
+        self.notebook.add(tt_page, text="Timing Tools")
         from rstools.live.gui_tab import LiveTab
         live_page = self.live_page = ScrollPage(self.notebook)
         self.live_tab = LiveTab(live_page.body, self)
         self.live_tab.pack(fill="both", expand=True)
         from rstools.live.popout import LiveWindow
         self.live_window = self.live_tab.window = LiveWindow(self, self.live_tab.out_holder, self.live_tab)
-        self.notebook.add(live_page, text="  Live View  ")
+        self.notebook.add(live_page, text="Live View")
         from rstools import icons
         for page, name in ((cwn_page, "stock"), (stats_page, "stats"), (tt_page, "timing"), (live_page, "live")):
             self.notebook.tab(page, image=(icons.image(self, name, "muted"), "selected", icons.image(self, name)),
@@ -1014,7 +1063,7 @@ class App(tk.Tk):
         outer.columnconfigure(1, weight=1)
         outer.rowconfigure(2, weight=1)
 
-        self.intro = theme.tip(ttk.Label(outer, text="", style="Small.TLabel"))
+        self.intro = theme.tip(ttk.Label(outer, text="", style="Small.TLabel", wraplength=1000, justify="left"))
         self.intro.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 8))
 
         left = ttk.Frame(outer)
@@ -1055,7 +1104,7 @@ class App(tk.Tk):
         self.upd_entry.grid(row=2, column=1, sticky="ew", padx=4, pady=(6, 0))
         self.upd_browse = ttk.Button(mf, text="Browse...", command=lambda: self._browse(self.upd, False))
         self.upd_browse.grid(row=2, column=2, pady=(6, 0))
-        self.swap_btn = ttk.Button(mf, text="Swap original / updated", command=self._swap)
+        self.swap_btn = ttk.Button(mf, text="Swap original and updated", command=self._swap)
         self.swap_btn.grid(row=3, column=1, sticky="w", padx=4, pady=(6, 0))
         self.dnd_hint = theme.tip(ttk.Label(mf, text="", style="Small.TLabel", wraplength=430, justify="left"), "Tips")
         self.dnd_hint.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1150,8 +1199,10 @@ class App(tk.Tk):
             cb = ttk.Checkbutton(dayf, text=lab, variable=self.day_vars[i], state="disabled")
             cb.grid(row=0, column=i + 1, padx=(0, 4))
             self.day_cbs.append(cb)
-        self.all_days_btn = ttk.Button(dayf, text="All", width=5, state="disabled", command=self._all_days)
-        self.all_days_btn.grid(row=0, column=len(DAY_LABELS) + 1, padx=(4, 0))
+        self.day_btns = day_buttons(dayf, self._pick_days, row=1, column=1, columnspan=len(DAY_LABELS) + 1,
+                                    sticky="w", pady=(2, 0))
+        for b in self.day_btns:
+            b.state(["disabled"])
         self.day_note = theme.collapse_empty(ttk.Label(of, text="", style="Small.TLabel", wraplength=440,
                                                        justify="left"))
         self.day_note.grid(row=9, column=0, columnspan=3, sticky="w")
@@ -1160,7 +1211,7 @@ class App(tk.Tk):
         orf.grid(row=0, column=0, rowspan=5, columnspan=3, sticky="nw")
         ttk.Label(orf, text="Order of each train's day variants:").grid(row=0, column=0, sticky="w")
         self.variant_order = tk.StringVar(value="day")
-        ttk.Radiobutton(orf, text="By first day run - MO first, then TO, WO, ThO, FO (then SO, SuO)",
+        ttk.Radiobutton(orf, text="By first day run - MO first, then TO, WO, ThO, FO (then SO, Su)",
                         variable=self.variant_order, value="day").grid(row=1, column=0, sticky="w", padx=(12, 0))
         ttk.Radiobutton(orf, text="By departure time - earliest first, then by day",
                         variable=self.variant_order, value="time").grid(row=2, column=0, sticky="w", padx=(12, 0))
@@ -1168,13 +1219,10 @@ class App(tk.Tk):
         merge_cb = ttk.Checkbutton(orf, text="Merge variants that are the same apart from their days",
                                    variable=self.merge_var)
         merge_cb.grid(row=3, column=0, sticky="w", pady=(4, 0))
-        Tooltip(merge_cb, "Tab by tab: two or more variants of a train with the same times, units, workings "
-                          "and notes on that tab become one, with the days of both (e.g. MO and FO become MFO; "
-                          "variants covering every day of the CWN become one with no days code). A train that "
-                          "differs only in its AM / PM berths (where the unit starts and ends its day) still "
-                          "merges: the berth for most days is shown with a \u25be, and clicking the cell lists each "
-                          "day's. The rows of the variants merged away are removed; the log says why any variants "
-                          "were kept apart. A comparison CWN made by this app can be put in order too.")
+        Tooltip(merge_cb, "Variants of a train with the same times, units, workings and notes on a tab become "
+                          "one with both days (MO and FO become MFO). Different AM / PM berths still merge: the "
+                          "cell shows the most common with a \u25be, click it for each day's. The log says why any "
+                          "variants were kept apart.")
         self.merge_diag_var = tk.BooleanVar(value=False)
         self.merge_berth_var = tk.BooleanVar(value=False)
         self.merge_bdiag_var = tk.BooleanVar(value=False)
@@ -1187,7 +1235,7 @@ class App(tk.Tk):
                  "Variants that berth for the same train next day (e.g. 'Berth HE317 05.17TO' on MO, '...05.17WO' "
                  "on TO) merge, and the berth line's day code covers them all ('Berth HE317 05.17TWThFO'). A berth "
                  "for a different next working (another time or train) is kept separate."),
-                (self.merge_bdiag_var, "... also when that next working's diagram number differs",
+                (self.merge_bdiag_var, "Also when that next working's diagram number differs",
                  "Berthing for the same next working but on a different diagram (HE317 one day, HE318 another): "
                  "the berth line shows the diagram for most days with a \u25be; click it for each day's.")), start=4):
             cb = ttk.Checkbutton(orf, text=text, variable=var)
@@ -1198,6 +1246,7 @@ class App(tk.Tk):
                   style="Small.TLabel", wraplength=440, justify="left").grid(row=7, column=0, sticky="w",
                                                                               pady=(4, 0))
         self.order_frame.grid_remove()
+        self.order_frame.lower()                # shown at the top of 2. Output: first for the Tab key too
         self.variant_order.trace_add("write", lambda *_a: self._update_name_hint())
         self.merge_var.trace_add("write", lambda *_a: self._update_name_hint())
         for var in (self.merge_var, self.merge_berth_var):
@@ -1219,12 +1268,12 @@ class App(tk.Tk):
         for var in (self.orig, self.upd):
             var.trace_add("write", lambda *_a: self._update_name_hint())
             var.trace_add("write", lambda *_a: self._schedule_days())
-            var.trace_add("write", lambda *_a: self._show_pairs())
+            var.trace_add("write", lambda *_a: debounce(self, "pairs", 400, self._show_pairs))
         self._update_name_hint()
         self._schedule_days()
 
         # --- categories
-        cf = self.cats_frame = ttk.LabelFrame(right, text="3. Changes to Include", padding=8)
+        cf = self.cats_frame = ttk.LabelFrame(right, text="3. Changes to include", padding=8)
         cf.grid(row=0, column=0, sticky="nsew")
         heads = [("Change type", ""),
                  ("Show in\nCWN", "Highlight this type of change in the output CWN. For cancelled trains: "
@@ -1274,7 +1323,7 @@ class App(tk.Tk):
         bf = ttk.Frame(cf)
         bf.grid(row=cat_rows + 2, column=0, columnspan=4, sticky="w", pady=(4, 0))
         ttk.Button(bf, text="Reset to defaults", command=self._reset_cats).grid(row=0, column=0)
-        ttk.Button(bf, text="Highlight only (no old values)", command=self._highlight_only).grid(
+        ttk.Button(bf, text="Highlight only (no previous values)", command=self._highlight_only).grid(
             row=0, column=1, padx=6)
 
         # --- run + log
@@ -1285,28 +1334,20 @@ class App(tk.Tk):
         top = ttk.Frame(rf)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
-        self.run_btn = ttk.Button(top, text="Run comparison", style="Run.TButton", command=self._run)
+        self.run_btn = ttk.Button(top, text="Compare", style="Run.TButton", command=self._run)
         self.run_btn.grid(row=0, column=0)
         self.prog = ttk.Progressbar(top, mode="determinate", maximum=1.0)
         self.prog.grid(row=0, column=1, sticky="ew", padx=8)
         self.stop_btn = ttk.Button(top, text="Stop", command=self.stop_run, state="disabled")
         self.stop_btn.grid(row=0, column=2)
         Tooltip(self.stop_btn, "Stop the run (Esc). Nothing is saved from a stopped run.")
-        self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
+        self.status = ttk.Label(rf, text=READY, style="Small.TLabel")
         self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
         self.progress = Progress(self.prog, self.status)
-        logf = ttk.Frame(rf)
-        logf.grid(row=2, column=0, sticky="nsew")
-        logf.columnconfigure(0, weight=1)
-        logf.rowconfigure(0, weight=1)
-        self.log = tk.Text(logf, height=4, wrap="word", font="TkFixedFont", state="disabled")
-        self.log.grid(row=0, column=0, sticky="nsew")
-        sb = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
-        sb.grid(row=0, column=1, sticky="ns")
-        self.log.configure(yscrollcommand=sb.set)
+        self.log = log_box(rf, row=2, column=0, sticky="nsew")
         ob = ttk.Frame(rf)
         ob.grid(row=3, column=0, sticky="w", pady=(6, 0))
-        self.open_cwn = ttk.Button(ob, text="Open output CWN", state="disabled",
+        self.open_cwn = ttk.Button(ob, text="Open output", state="disabled",
                                    command=lambda: _open_path(self.result["cwn"]))
         self.open_cwn.grid(row=0, column=0)
         self.open_rep = ttk.Button(ob, text="Open report", state="disabled",
@@ -1348,9 +1389,9 @@ class App(tk.Tk):
         counts_cb = self.berth_counts_cb = ttk.Checkbutton(
             bf, text="Show unit counts for each siding location", variable=self.berth_counts)
         counts_cb.grid(row=5, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): the number "
-                           "of units of each type every night's FINISH and START, and the cars, shown in red where "
-                           "they are more than the location holds.")
+        Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): how many "
+                           "units of each type are there at each night's FINISH and START, and how many cars, in red "
+                           "where that is more than the location holds.")
         self.berth_hint = theme.tip(ttk.Label(bf, text="", style="Small.TLabel", wraplength=430, justify="left"),
                                     "Tips")
         self.berth_hint.grid(row=6, column=0, columnspan=3, sticky="w", pady=(4, 0))
@@ -1395,7 +1436,8 @@ class App(tk.Tk):
         xmls = [p for p in paths if p.lower().endswith(".xml")]
         charts = [p for p in paths if p.lower().endswith((".xlsx", ".xlsm"))]
         if not xmls and not charts:
-            messagebox.showwarning(APP_NAME, "Drop Attune XMLs (.xml) or berthing charts (.xlsx).")
+            messagebox.showwarning(APP_NAME, "Drop Attune XMLs (.xml), berthing charts or platform workings (.xlsx).",
+                                   parent=self)
             return
         mode = self.mode.get()
         if mode not in BERTH_MODES:
@@ -1408,7 +1450,8 @@ class App(tk.Tk):
         slots = [Slot(var, takes(exts[kind])) for var, (_l, kind) in zip(self.berth_vars[mode], BERTH_MODES[mode][1])]
         _placed, left = route_drop(xmls + charts, slots, next((s for s in slots if s.var is target), None))
         if left:
-            self._set_status(f"{len(left)} file(s) did not fit a box here and were left out.", "Warn.TLabel")
+            self._set_status(f"{plural(len(left), 'file')} did not fit a box here and "
+                             + ("was" if len(left) == 1 else "were") + " left out.", "Warn.TLabel")
 
     def _run_berthing(self, o: Options):
         mode = o.mode
@@ -1416,14 +1459,14 @@ class App(tk.Tk):
         labels = [lab.rstrip(":") for lab, _k in BERTH_MODES[mode][1]]
         for path, label in zip(files, labels):
             if not path and not label.endswith("(optional)"):
-                messagebox.showwarning(APP_NAME, f"Choose the {label[0].lower() + label[1:]}.")
+                messagebox.showwarning(APP_NAME, f"Choose the {label[0].lower() + label[1:]}.", parent=self)
                 return
             for one in (p.strip() for p in path.split(";") if p.strip()):
                 if not os.path.isfile(one):
-                    messagebox.showwarning(APP_NAME, f"This file could not be found:\n{one}")
+                    messagebox.showwarning(APP_NAME, f"This file could not be found:\n{one}", parent=self)
                     return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}", parent=self)
             return
         for path, (_l, kind) in zip(files, BERTH_MODES[mode][1]):
             for one in (p.strip() for p in path.split(";") if p.strip()):
@@ -1461,7 +1504,7 @@ class App(tk.Tk):
                 self.q.put(("error", str(exc)))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     # ------------------------------------------------------------ helpers
@@ -1536,6 +1579,7 @@ class App(tk.Tk):
         """Station Working Book options (shown instead of the comparison options)."""
         sb = self.book_frame = ttk.Frame(of)
         sb.grid(row=0, column=0, rowspan=5, columnspan=3, sticky="new")
+        sb.lower()                              # at the top of the frame: first for the Tab key too
         sb.columnconfigure(1, weight=1)
         self.book_vars = {k: tk.StringVar() for k in ("station", "platforms", "list", "operator", "timetable",
                                                       "services", "label", "merge")}
@@ -1625,7 +1669,7 @@ class App(tk.Tk):
                 self.q.put(("bookxml", token, stations, timetable_name(plan), days, "", plan.start))
             except Exception as exc:
                 self.q.put(("bookxml", token, [], "", [], str(exc), ""))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     def _book_xml_read(self, token, stations, timetable, days, error, start=""):
@@ -1642,7 +1686,7 @@ class App(tk.Tk):
             self.book_vars["timetable"].set(timetable)
         from rstools.stationbook import DAY_NAMES
         missing = [DAY_NAMES[d] for d in range(7) if d not in days]
-        self.book_note.configure(text=f"{len(stations)} stations in the XML. " + (
+        self.book_note.configure(text=f"{plural(len(stations), 'station')} in the XML. " + (
             "It has unit diagrams for every day." if not missing else
             "It has no unit diagrams for " + ", ".join(missing) + ", so stock and inward workings will be "
             "missing on those days - export the XML with every day's unit diagrams."))
@@ -1772,19 +1816,15 @@ class App(tk.Tk):
         (self.book_frame.grid if station else self.book_frame.grid_remove)()
         (self.cats_frame.grid_remove if single else self.cats_frame.grid)()
         self.run_btn.configure(text=BERTH_MODES[mode][2] if berth else "Put variants in order" if reorder
-                               else "Make station working book" if station else "Run comparison")
-        self.open_cwn.configure(text="Open platform workings" if mode == "work_berth" else
-                                "Open berthing chart" if berth else "Open tidied CWN" if reorder
-                                else "Open station working book" if station else "Open output CWN")
+                               else "Create station working book" if station else
+                               {"batch": "Compare folders", "cumulative": "Add round"}.get(mode, "Compare"))
+        self.open_cwn.configure(text="Open output")
         (self.open_rep.grid if not single or mode in ("berth_round", "berth_compare") else self.open_rep.grid_remove)()
         self.run_frame.configure(text="3. Run" if single else "4. Run")
-        self.out_frame.configure(text="2. Stations and Output" if station else "2. Output")
-        self.intro.configure(text=BERTH_MODES[mode][3] if berth else
-                             "Saves a copy of a multi-day CWN with each train's day variants in order. The CWN "
-                             "itself is not changed." if reorder else
-                             "Makes a TRACS-RS style station working book from an Attune XML." if station else
-                             "Compares an original and an updated CWN, and produces a highlighted CWN and a change "
-                             "report.")
+        self.out_frame.configure(text="2. Stations and output" if station else "2. Output")
+        self.intro.configure(text=BERTH_MODES[mode][3] if berth else INTROS.get(mode, INTROS["compare"]))
+        if not self.running:
+            self.status.configure(text=READY)
         if station:
             self._read_book_xml()
         self._show_dnd_hint()
@@ -1894,7 +1934,8 @@ class App(tk.Tk):
                 self._set_mode("reorder")
                 self.util.set(files[0])
             else:
-                messagebox.showwarning(APP_NAME, "Drop a CWN (.xlsx, .xlsm, .xls, .xlsb) or an Attune XML (.xml).")
+                messagebox.showwarning(APP_NAME, "Drop a CWN (.xlsx, .xlsm, .xls, .xlsb) or an Attune XML (.xml).",
+                                       parent=self)
             return event.action
         if folders:                                   # folders: compare two folders of CWNs
             self._set_mode("batch")
@@ -1903,7 +1944,7 @@ class App(tk.Tk):
             return event.action
         if not files:
             messagebox.showwarning(APP_NAME, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb)"
-                                   + (" or an Attune XML (.xml)." if section is None else "."))
+                                   + (" or an Attune XML (.xml)." if section is None else "."), parent=self)
             return event.action
         if section is None and target is None and self.mode.get() == "reorder" and len(files) == 1:
             self.util.set(files[0])                   # dropped anywhere while putting variants in order
@@ -1915,7 +1956,8 @@ class App(tk.Tk):
             self.orig.set(first)
             self.upd.set(second)
             if len(files) > 2:
-                self._set_status(f"{len(files) - 2} more file(s) dropped than there are boxes - left out.",
+                self._set_status(f"{plural(len(files) - 2, 'more file', 'more files')} dropped than there are boxes "
+                                 "- left out.",
                                  "Warn.TLabel")
         else:
             cumulative = self.mode.get() == "cumulative"
@@ -1967,7 +2009,8 @@ class App(tk.Tk):
 
     def _browse_dir(self):
         from rstools.fsutil import output_folder
-        p = filedialog.askdirectory(title="Choose output folder", initialdir=output_folder(self.out_dir.get()))
+        p = filedialog.askdirectory(parent=self, title="Choose the output folder",
+                                    initialdir=output_folder(self.out_dir.get()))
         if p:
             self.out_dir.set(os.path.normpath(p))
 
@@ -2004,20 +2047,20 @@ class App(tk.Tk):
 
     def _run_station_book(self, o: Options):
         if not o.original.lower().endswith(".xml") or not os.path.isfile(o.original):
-            messagebox.showwarning(APP_NAME, "Choose the Attune XML (.xml).")
+            messagebox.showwarning(APP_NAME, "Choose the Attune XML (.xml).", parent=self)
             return
         from rstools.stationbook import parse_station_list
         entries = parse_station_list(o.book_list)
         if o.book_station and (o.book_station, o.book_platforms) not in entries and entries:
             entries.append((o.book_station, o.book_platforms))      # chosen but not yet added to the list
         if not entries and not o.book_station:
-            messagebox.showwarning(APP_NAME, "Choose the station (or add several to the list).")
+            messagebox.showwarning(APP_NAME, "Choose the station (or add several to the list).", parent=self)
             return
         if not o.book_days:
-            messagebox.showwarning(APP_NAME, "Tick at least one sheet (SX, SO or Su).")
+            messagebox.showwarning(APP_NAME, "Tick at least one sheet (SX, SO or Su).", parent=self)
             return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}", parent=self)
             return
         merge = [p.strip().strip('"') for p in o.book_merge.split(";") if p.strip()]
         self.add_recent("util", o.original)
@@ -2048,18 +2091,18 @@ class App(tk.Tk):
                 self.q.put(("error", str(exc)))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     def _run_reorder(self, o: Options):
         if not o.original:
-            messagebox.showwarning(APP_NAME, "Choose the CWN first.")
+            messagebox.showwarning(APP_NAME, "Choose the CWN first.", parent=self)
             return
         if not os.path.isfile(o.original):
-            messagebox.showwarning(APP_NAME, f"This file could not be found:\n{o.original}")
+            messagebox.showwarning(APP_NAME, f"This file could not be found:\n{o.original}", parent=self)
             return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}", parent=self)
             return
         self.add_recent("util", o.original)
         saved = dataclasses.replace(o, output_name="", days=[])
@@ -2081,7 +2124,7 @@ class App(tk.Tk):
                 self.q.put(("error", str(exc)))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     # ------------------------------------------------------------ batch (two folders)
@@ -2095,53 +2138,45 @@ class App(tk.Tk):
             return
         from .batch import pair_files
         pairs, left, right = pair_files(a, b)
-        text = f"{len(pairs)} pair(s) found"
+        text = f"{plural(len(pairs), 'pair')} found"
         if pairs:
             text += ": " + "; ".join(f"{os.path.basename(o)} > {os.path.basename(u)}" for o, u in pairs[:4])
             text += " ..." if len(pairs) > 4 else ""
         if left or right:
-            text += f". Not paired: {len(left)} original(s), {len(right)} updated."
+            text += f". Not paired: {plural(len(left), 'original')}, {len(right)} updated."
         self.prev_info.configure(text=text)
 
     def _run_batch(self, o: Options):
         from .batch import pair_files, workers_for
         if not (os.path.isdir(o.original) and os.path.isdir(o.updated)):
             messagebox.showwarning(APP_NAME, "Choose the folder of original CWNs and the folder of "
-                                              "updated CWNs.")
+                                              "updated CWNs.", parent=self)
             return
         if os.path.normcase(os.path.abspath(o.original)) == os.path.normcase(os.path.abspath(o.updated)):
-            messagebox.showwarning(APP_NAME, "The two folders are the same folder.")
+            messagebox.showwarning(APP_NAME, "The same folder is chosen for the originals and the updated CWNs. "
+                                             "Choose two different folders.", parent=self)
             return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}", parent=self)
             return
         pairs, left, right = pair_files(o.original, o.updated)
         if not pairs:
             messagebox.showwarning(APP_NAME, "No CWNs could be paired between the two folders. Pairs need the "
-                                              "same or a very similar file name.")
+                                              "same or a very similar file name.", parent=self)
             return
         lines = [f"{os.path.basename(a)}  >  {os.path.basename(b)}" for a, b in pairs[:20]]
         more = f"\n... and {len(pairs) - 20} more" if len(pairs) > 20 else ""
         skipped = (f"\n\nNot paired (left out): {', '.join(os.path.basename(x) for x in (left + right)[:8])}"
                    + (" ..." if len(left) + len(right) > 8 else "")) if left or right else ""
-        if not messagebox.askyesno(APP_NAME, f"Compare these {len(pairs)} pair(s)?\n\n" + "\n".join(lines) + more
+        if not messagebox.askyesno(APP_NAME, f"Compare these {plural(len(pairs), 'pair')}?\n\n"
+                                   + "\n".join(lines) + more
                                    + skipped + f"\n\n{workers_for(pairs)} will be compared at a time.", parent=self):
             return
         saved = dataclasses.replace(o, output_name="", days=[])
         saved.save()
         self.opts = saved
-        self.running = True
-        self.result = None
-        for b in (self.open_cwn, self.open_rep, self.open_dir):
-            b.state(["disabled"])
-        self.run_btn.state(["disabled"])
-        self.set_busy(True)
-        self.log.configure(state="normal")
-        self.log.delete("1.0", "end")
-        self.log.configure(state="disabled")
-        self.progress.begin()
-        self._append_log(f"Comparing {len(pairs)} pair(s), {workers_for(pairs)} at a time")
-        self._batch_started = datetime.datetime.now()
+        self._start()
+        self._append_log(f"Comparing {plural(len(pairs), 'pair')}, {workers_for(pairs)} at a time")
 
         def work():
             from .batch import run_batch
@@ -2151,7 +2186,7 @@ class App(tk.Tk):
                 self.q.put(("batch_done", results))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     # ------------------------------------------------------------ saved comparisons (this tab)
@@ -2218,7 +2253,7 @@ class App(tk.Tk):
             except Exception:
                 found = {p: None for p in paths}
             self.q.put(("days", token, found))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
     def _days_read(self, token, found):
@@ -2250,7 +2285,8 @@ class App(tk.Tk):
         for i, (cb, var) in enumerate(zip(self.day_cbs, self.day_vars)):
             cb.state(["!disabled"] if i in days else ["disabled"])
             var.set((i in pending) if pending else (i in days or not days))
-        self.all_days_btn.state(["!disabled"] if days else ["disabled"])
+        for b in self.day_btns:
+            b.state(["!disabled"] if days else ["disabled"])
         self.day_note.configure(text=note)
         if days:
             self._pending_days = None
@@ -2258,9 +2294,9 @@ class App(tk.Tk):
                 self._run_when_days_known = False
                 self.after(100, self._run)
 
-    def _all_days(self):
+    def _pick_days(self, test):
         for i, var in enumerate(self.day_vars):
-            var.set(i in self.available_days)
+            var.set(i in self.available_days and test(i))
 
     def chosen_days(self) -> list:
         """Ticked days, or [] when every available day is ticked (no filter)."""
@@ -2272,7 +2308,7 @@ class App(tk.Tk):
     def _read_prev_info(self):
         path = self.orig.get().strip().strip('"')
         if not path or not os.path.exists(path):
-            self.prev_info.configure(text="Select a comparison CWN previously generated by this app.")
+            self.prev_info.configure(text="Choose a comparison CWN made earlier by this app.")
             return
         self.prev_info_token += 1
         token = self.prev_info_token
@@ -2292,8 +2328,8 @@ class App(tk.Tk):
                         f"Round {r['round']} ({self._colour_name(r['colour'])}, {r.get('updated', '')})" for r in rs)
                 self.q.put(("previnfo", token, msg, cols))
             except Exception as exc:
-                self.q.put(("previnfo", token, f"Could not read file: {exc}", []))
-        threading.Thread(target=work, daemon=True).start()
+                self.q.put(("previnfo", token, f"This file could not be read: {exc}", []))
+        self.pump.start(work)
         self.pump.kick()
 
     @staticmethod
@@ -2301,9 +2337,28 @@ class App(tk.Tk):
         c = c.upper()[-6:]
         return next((n for n, v in PRESET_COLOURS.items() if v == c), "#" + c)
 
-    def _append_log(self, msg):
+    def _finish(self, how: str = "done"):
+        """Common end of a run: buttons back, the progress bar and status line show how it ended."""
+        self.running = False
+        self.set_busy(False)
+        self.run_btn.state(["!disabled"])
+        self.progress.finish(how == "done")
+        self.status.configure(text={"done": self.progress.took(), "stopped": STOPPED, "failed": FAILED}[how])
+
+    def _task_name(self) -> str:
+        """The chosen task as a short name for messages, e.g. 'Berthing chart'."""
+        return {"compare": "CWN comparison", "batch": "Batch comparison", "cumulative": "New round",
+                "reorder": "Putting variants in order", "station": "Station working book",
+                "berth_make": "Berthing chart", "berth_round": "Berthing chart round",
+                "berth_compare": "Berthing chart comparison",
+                "work_berth": "Berthing arrangements"}.get(self.mode.get(), "Stock Tools")
+
+    def _append_log(self, msg, tag=None):
+        if tag is None:
+            head = msg.lstrip()
+            tag = "warn" if head.startswith("WARNING") else "error" if head.startswith("ERROR") else None
         self.log.configure(state="normal")
-        self.log.insert("end", msg + "\n")
+        self.log.insert("end", msg + "\n", tag or ())
         self.log.see("end")
         self.log.configure(state="disabled")
 
@@ -2321,20 +2376,23 @@ class App(tk.Tk):
         if o.mode in BERTH_MODES:
             return self._run_berthing(o)
         if not o.original or not o.updated:
-            messagebox.showwarning(APP_NAME, "Choose both files first.")
+            messagebox.showwarning(APP_NAME, ("Choose the earlier comparison CWN and the updated CWN."
+                                             if o.mode == "cumulative" else "Choose the original and the updated "
+                                             "CWN."), parent=self)
             return
         for p in (o.original, o.updated):
             if not os.path.exists(p):
-                messagebox.showwarning(APP_NAME, f"This file could not be found:\n{p}")
+                messagebox.showwarning(APP_NAME, f"This file could not be found:\n{p}", parent=self)
                 return
         if o.output_dir and not os.path.isdir(o.output_dir):
-            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}")
+            messagebox.showwarning(APP_NAME, f"The output folder does not exist:\n{o.output_dir}", parent=self)
             return
         if self.available_days and not any(v.get() for i, v in enumerate(self.day_vars) if i in self.available_days):
-            messagebox.showwarning(APP_NAME, "Tick at least one day to check.")
+            messagebox.showwarning(APP_NAME, "Tick at least one day to check.", parent=self)
             return
         if not any(o.cat(k, "cwn") or o.cat(k, "report") for k, *_ in CATEGORIES):
-            messagebox.showwarning(APP_NAME, "All change types are switched off.")
+            messagebox.showwarning(APP_NAME, "Every change type is switched off. Tick some under 3. Changes to "
+                                             "include.", parent=self)
             return
         self.add_recent("cwn", o.original, o.updated)
         saved = dataclasses.replace(o, output_name="", days=[])      # days are chosen afresh each time
@@ -2352,7 +2410,7 @@ class App(tk.Tk):
                 self.q.put(("error", str(exc)))
             except Exception as exc:
                 self.q.put(("error", errorlog.describe(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        self.pump.start(work)
         self.pump.kick()
 
 
@@ -2380,53 +2438,43 @@ class App(tk.Tk):
                     self._pending_release = item[1]
                     self.update_note.configure(text=f"Update available: v{item[1].version} - click to install")
                 elif kind == "done":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
+                    self._finish()
                     self.result = item[1]
-                    self.status.configure(text="Finished")
                     self.open_cwn.state(["!disabled"])
                     self.open_dir.state(["!disabled"])
                     if self.result.get("report"):
                         self.open_rep.state(["!disabled"])
                     r = self.result
-                    self.notify_done("CWN comparison finished", f"{r['changes']} change(s) found.")
+                    self.notify_done(f"{self._task_name()} finished", f"{plural(r['changes'], 'change')} found.")
                     self.open_outputs([r["cwn"]])
                     from rstools.fsutil import excel_warning
                     warn = excel_warning([r["cwn"], r.get("report")])
                     if warn:
                         self._append_log("WARNING: " + warn)
                     (messagebox.showwarning if warn else messagebox.showinfo)(
-                        APP_NAME, f"Comparison complete.\n\n{r['changes']} change(s) found"
-                        + (f", {r['carried']} earlier change(s) carried forward" if r.get('carried') else "")
+                        APP_NAME, f"Comparison complete.\n\n{plural(r['changes'], 'change')} found"
+                        + (f", {plural(r['carried'], 'earlier change', 'earlier changes')} carried forward"
+                           if r.get('carried') else "")
                         + f".\n\nCWN: {r['cwn']}" + (f"\nReport: {r['report']}" if r.get("report") else "")
                         + (f"\n\n{warn}" if warn else ""))
                 elif kind == "bookxml":
                     self._book_xml_read(*item[1:])
                 elif kind == "book_done":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
+                    self._finish()
                     _k, path, warnings, summary = item
-                    self.progress.finish()
-                    self.status.configure(text="Finished")
                     self.result = {"cwn": path}
                     self.open_cwn.state(["!disabled"])
                     self.open_dir.state(["!disabled"])
                     for w in warnings:
                         self._append_log("WARNING: " + w)
                     self._append_log(summary)
-                    self.notify_done("Station working book ready", summary)
+                    self.notify_done(f"{self._task_name()} finished", summary)
                     self.open_outputs([path])
                     (messagebox.showwarning if warnings else messagebox.showinfo)(
                         APP_NAME, f"{summary}\n\nSaved: {path}" + "".join(f"\n\n{w}" for w in warnings[:4]))
                 elif kind == "berth_done":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
+                    self._finish()
                     res = item[1]
-                    self.progress.finish()
-                    self.status.configure(text="Finished")
                     self.result = {"cwn": res.chart, "report": res.report}
                     self.open_cwn.state(["!disabled"])
                     self.open_dir.state(["!disabled"])
@@ -2435,8 +2483,7 @@ class App(tk.Tk):
                     for w in res.warnings:
                         self._append_log("WARNING: " + w)
                     self._append_log(res.summary)
-                    self.notify_done("Platform workings ready" if res.chart.endswith("(berthing added).xlsx")
-                                     else "Berthing chart ready", res.summary)
+                    self.notify_done(f"{self._task_name()} finished", res.summary)
                     self.open_outputs([res.chart])
                     from rstools.fsutil import excel_warning
                     warn = excel_warning([res.chart, res.report])
@@ -2447,14 +2494,10 @@ class App(tk.Tk):
                         + "".join(f"\n\n{w}" for w in notes[:4])
                         + ("\n\n(More in the run log and on the chart's Notes sheet.)" if len(notes) > 4 else ""))
                 elif kind == "books_done":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
+                    self._finish()
                     results = item[1]
                     made = [r for r in results if r[1]]
                     failed = [r for r in results if r[4]]
-                    self.progress.finish()
-                    self.status.configure(text="Finished")
                     if made:
                         self.result = {"cwn": made[0][1]}
                         self.open_cwn.state(["!disabled"])
@@ -2463,25 +2506,22 @@ class App(tk.Tk):
                         self._append_log(f"{station}: {summary or 'ERROR ' + err}")
                         for w in warns:
                             self._append_log(f"  WARNING: {w}")
-                    text = f"{len(made)} station working book(s) made."
-                    self.notify_done("Station working books ready", text)
+                    text = f"{plural(len(made), 'station working book')} made."
+                    self.notify_done(f"{self._task_name()} finished", text)
                     self.open_outputs([r[1] for r in made])
                     (messagebox.showwarning if failed else messagebox.showinfo)(
                         APP_NAME, text + (f"\n\nSaved in: {os.path.dirname(made[0][1])}" if made else "")
                         + "".join(f"\n\n{st}: {err}" for st, _p, _w, _s, err in failed[:6]))
                 elif kind == "reorder_done":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
+                    self._finish()
                     n, tabs, path = item[1]["trains"], item[1]["tabs"], item[1]["path"]
-                    self.progress.finish()
-                    self.status.configure(text="Finished")
                     merged = item[1].get("merged", 0)
-                    text = (f"{n} train(s) on {tabs} tab(s) had their day variants put in order"
-                            + (f"; {merged} variant(s) were merged into another the same apart from its days."
+                    text = (f"{plural(n, 'train')} on {plural(tabs, 'tab')} had their day variants put in order"
+                            + (f"; {plural(merged, 'variant')} {'was' if merged == 1 else 'were'} merged into "
+                               "another that differs only in its days."
                                if merged else ".") if n else
                             "Every train's day variants are already in order, so no copy was saved.")
-                    self.notify_done("Day variants put in order", text)
+                    self.notify_done(f"{self._task_name()} finished", text)
                     notes = list(item[1]["warnings"])
                     if path:
                         self.result = {"cwn": path}
@@ -2500,45 +2540,35 @@ class App(tk.Tk):
                     self.progress.set(n / total)
                     self.status.configure(text=f"Compared {n} of {total}")
                     if res:
-                        self._append_log(f"{os.path.basename(b)}: {res['changes']} change(s) -> {res['cwn']}")
+                        self._append_log(f"{os.path.basename(b)}: {plural(res['changes'], 'change')} -> {res['cwn']}")
                     else:
                         self._append_log(f"ERROR {os.path.basename(b)}: {err}")
                 elif kind == "batch_done":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
+                    self._finish()
                     results = [r for r in item[1] if r]
                     failed = len(item[1]) - len(results)
-                    took = (datetime.datetime.now() - self._batch_started).total_seconds()
-                    self.status.configure(text=f"Finished in {took:.0f} s")
                     self.result = {"cwn": results[0]["cwn"]} if results else None
                     if results:
                         self.open_dir.state(["!disabled"])
                     from rstools.fsutil import excel_warning
                     warn = excel_warning([r["cwn"] for r in results])
-                    summary = (f"{len(results)} comparison(s) made, {sum(r['changes'] for r in results)} change(s) "
-                               f"in all." + (f" {failed} could not be compared - see the log." if failed else "")
+                    summary = (f"{plural(len(results), 'comparison')} made, "
+                               f"{plural(sum(r['changes'] for r in results), 'change')} in all."
+                               + (f" {failed} could not be compared - see the log." if failed else "")
                                + (f"\n\n{warn}" if warn else ""))
                     self._append_log(summary)
-                    self.notify_done("Batch comparison finished", summary, not failed)
+                    self.notify_done(f"{self._task_name()} finished", summary, not failed)
                     if results:
                         self.open_outputs([os.path.dirname(results[0]["cwn"])])
                     (messagebox.showwarning if failed or warn else messagebox.showinfo)(APP_NAME, summary)
                 elif kind == "stopped":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
-                    self.progress.finish(False)
-                    self.status.configure(text="Stopped - nothing was saved")
+                    self._finish("stopped")
                     self._append_log("Stopped - nothing was saved.")
                 elif kind == "error":
-                    self.running = False
-                    self.set_busy(False)
-                    self.run_btn.state(["!disabled"])
-                    self.status.configure(text="Failed")
+                    self._finish("failed")
                     self._append_log("ERROR: " + item[1])
-                    self.notify_done("CWN comparison failed", item[1].splitlines()[0], False)
-                    messagebox.showerror(APP_NAME, item[1][:1500])
+                    self.notify_done(f"{self._task_name()} failed", item[1].splitlines()[0], False)
+                    messagebox.showerror(APP_NAME, item[1][:1500], parent=self)
         except queue.Empty:
             pass
 

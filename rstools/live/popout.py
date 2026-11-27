@@ -17,7 +17,9 @@ try:
 except ImportError:                     # the geometry helpers below are used (and tested) without a window system
     tk = ttk = None  # type: ignore[assignment]
 
-TITLE = "Live View"
+from rstools.branding import APP_NAME  # noqa: E402
+
+TITLE = f"{APP_NAME} - Live View"
 MIN_VISIBLE = (160, 60)                # px of the window that must be on a screen for a saved place to be used
 DEFAULT_SIZE = (1200, 760)
 GEOMETRY = re.compile(r"^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$")     # as 'wm geometry' gives it: '1200x800+-1920+0'

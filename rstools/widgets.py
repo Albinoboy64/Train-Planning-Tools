@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import time
+from functools import partial
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, List, Optional
@@ -142,7 +143,7 @@ def local_folder_box(entry, var):
         busy.append(1)
         try:
             var.set("")
-            messagebox.showwarning("Output folder", NETWORK_REFUSED, parent=entry)
+            messagebox.showwarning(f"{_app_name()} - Output folder", NETWORK_REFUSED, parent=entry)
         finally:
             busy.clear()
 
@@ -172,6 +173,15 @@ class QueuePump:
         self._fast_until = 0.0
         self._due = 0.0
 
+    def start(self, target: Callable, *args):
+        """Run `target(*args)` on a helper thread; the queues are read often until it has finished, so what it
+        sends shows at once (not up to a second later)."""
+        import threading
+        t = threading.Thread(target=target, args=args, daemon=True)
+        self._threads = [x for x in getattr(self, "_threads", []) if x.is_alive()] + [t]
+        t.start()
+        self.kick()
+
     def add(self, q, handle: Callable[[], None], busy: Callable[[], bool] = lambda: False):
         self.parts.append((q, handle, busy))
         self.kick()
@@ -199,6 +209,10 @@ class QueuePump:
     def _tick(self):
         self._after = None
         active = time.monotonic() < self._fast_until
+        threads = getattr(self, "_threads", None)
+        if threads:
+            self._threads = [t for t in threads if t.is_alive()]
+            active = active or bool(self._threads)            # a helper thread may still send something
         for q, handle, busy in self.parts:
             had = not q.empty()
             if had:
@@ -229,11 +243,13 @@ class Progress:
 
     def __init__(self, bar: ttk.Progressbar, label=None):
         self.bar, self.label = bar, label
+        self.started = time.monotonic()
         self.value = 0.0
         self._shown = -1.0
         self._msg: Optional[str] = None
 
     def begin(self, msg: str = ""):
+        self.started = time.monotonic()
         self.value = 0.0
         self._msg = None
         self._draw(0.0)
@@ -251,6 +267,10 @@ class Progress:
         if ok:
             self.set(1.0)
 
+    def took(self) -> str:
+        """'Finished in 3.2 s' (or '2 min 5 s'): how long the run took since begin()."""
+        return "Finished in " + duration(time.monotonic() - self.started)
+
     def message(self, msg: str):
         if self.label is not None and msg and msg != self._msg:
             self._msg = msg
@@ -259,6 +279,84 @@ class Progress:
     def _draw(self, f: float):
         self._shown = f
         self.bar["value"] = f
+
+
+def duration(seconds: float) -> str:
+    """3.2 s, 45 s, 2 min 5 s."""
+    if seconds < 10:
+        return f"{seconds:.1f} s"
+    if seconds < 60:
+        return f"{seconds:.0f} s"
+    m, s = divmod(int(round(seconds)), 60)
+    return f"{m} min {s} s"
+
+
+LOG_HINT = "What the run does is shown here."
+
+
+def log_box(parent, **grid) -> tk.Text:
+    """The run log of a tab, gridded with `grid`: coloured by the theme (theme.style_text), a scroll bar only
+    when the text is longer than the box, and a short hint while it is empty."""
+    f = ttk.Frame(parent)
+    f.grid(**grid)
+    f.columnconfigure(0, weight=1)
+    f.rowconfigure(0, weight=1)
+    text = tk.Text(f, height=4, wrap="word", font="TkFixedFont", state="disabled", relief="flat", borderwidth=1,
+                   highlightthickness=1)
+    text.grid(row=0, column=0, sticky="nsew")
+    sb = ttk.Scrollbar(f, orient="vertical", command=text.yview)
+    sb.grid(row=0, column=1, sticky="ns")
+
+    def scrolled(lo, hi):
+        (sb.grid_remove if float(lo) <= 0.0 and float(hi) >= 1.0 else sb.grid)()
+        sb.set(lo, hi)
+    text.configure(yscrollcommand=scrolled)
+    text.configure(state="normal")
+    text.insert("end", LOG_HINT, "hint")
+    text.configure(state="disabled")
+    return text
+
+
+def debounce(widget, name: str, ms: int, fn: Callable[[], None]):
+    """Run fn() once, `ms` after the last of a burst of calls (e.g. each key typed in a box)."""
+    jobs = widget.__dict__.setdefault("_debounce_jobs", {})
+    if jobs.get(name):
+        try:
+            widget.after_cancel(jobs[name])
+        except tk.TclError:
+            pass
+
+    def run():
+        jobs[name] = None
+        fn()
+    jobs[name] = widget.after(ms, run)
+
+
+DAY_PICKS = (("All", lambda d: True), ("Weekdays", lambda d: d < 5), ("Weekend", lambda d: d >= 5),
+             ("None", lambda d: False))
+
+
+def day_buttons(parent, pick: Callable[[Callable[[int], bool]], None], **grid) -> List[ttk.Button]:
+    """The All / Weekdays / Weekend / None buttons next to day tick boxes, in a frame gridded with `grid`;
+    each calls `pick(test)` with a test of a day number (0 = Monday)."""
+    f = ttk.Frame(parent)
+    f.grid(**grid)
+    out = []
+    for i, (text, test) in enumerate(DAY_PICKS):
+        b = ttk.Button(f, text=text, width=len(text) + 2, command=partial(pick, test))
+        b.grid(row=0, column=i, padx=(0, 4))
+        out.append(b)
+    return out
+
+
+READY = "Ready - press F5 to run"
+STOPPED = "Stopped - nothing was saved"
+FAILED = "Failed - see the message"
+
+
+def _app_name() -> str:
+    from .branding import APP_NAME
+    return APP_NAME
 
 
 class TaskBox(ttk.Combobox):

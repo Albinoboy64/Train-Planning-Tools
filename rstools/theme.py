@@ -522,7 +522,6 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     style.configure("Small.TLabel", foreground=p["muted"], font="AppSmall")
     style.configure("Caption.TLabel", foreground=p["muted"], font="AppSmall")
     style.configure("Warn.TLabel", foreground=p["warn"])
-    style.configure("Bold.TLabel", font="AppBold")
     style.configure("Bold.TCheckbutton", font="AppBold")
     style.configure("Run.TButton", font="AppRun", padding=(14, 7))
     style.configure("Run.TButton", background=p["accent"], foreground=p["accent_fg"])
@@ -532,8 +531,6 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     _sizes(root, style, p)
 
     # a section of a tab that is not the one chosen (e.g. Utilities while comparing CWNs): its title greyed
-    style.configure("Off.TLabelframe", background=p["bg"], bordercolor=p["border"], relief="groove")
-    style.configure("Off.TLabelframe.Label", foreground=p["muted"], background=p["bg"], font="AppBold")
 
     # plain tk widgets: drop-down lists, logs, tooltips
     root.option_add("*TCombobox*Listbox.background", p["field"])
@@ -547,6 +544,12 @@ def apply(root: tk.Tk, mode: str, recolour: bool = True) -> dict:
     if hasattr(root, "_focus_shown"):
         focus_cues(root, root._focus_shown)
     return p
+
+
+def recolour(root: tk.Tk, p: dict):
+    """Colour the plain tk widgets (and the title bar) for the palette the ttk styles were just set for."""
+    _recolour(root, p)
+    _dark_title_bar(root, p.get("name") != "light")
 
 
 def apply_sizes(root: tk.Tk):
@@ -752,6 +755,7 @@ def style_text(widget: tk.Text, p: dict):
     widget.tag_configure("warn", foreground=p["warn"])
     widget.tag_configure("error", foreground=p["error"])
     widget.tag_configure("ok", foreground=p["ok"])
+    widget.tag_configure("hint", foreground=p["muted"])
 
 
 def apply_menu(menu, p: dict):

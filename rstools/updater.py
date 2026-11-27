@@ -111,7 +111,7 @@ def latest_release(token: str = "") -> Release:
         if exc.code in (401, 403, 404):
             raise UpdateError("GitHub did not allow access to the releases. Check the internet connection; if "
                               "you use a private copy of the repository, add a read-only access token in "
-                              f"Options > GitHub access token. (HTTP {exc.code})")
+                              f"Help > GitHub access token. (HTTP {exc.code})")
         raise UpdateError(f"GitHub returned an error (HTTP {exc.code}).")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise UpdateError(f"Could not reach GitHub - check the internet connection or proxy. ({exc})")

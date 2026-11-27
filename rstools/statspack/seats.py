@@ -667,7 +667,7 @@ def seats_reports(found: List[TrainSeats], days: Sequence[int], group: Group, wi
     if g.headcodes and g.route:
         notes.append([f"...with headcodes starting: {', '.join(g.headcodes)} ('-' = not these)."])
     notes.append(["Days: " + ", ".join(DAY_NAMES[d] for d in days) + ". Seats and standing capacity come from the "
-                  "fleet data (Stats Pack > Edit fleet data); corridors from Options > Edit corridors."])
+                  "fleet data (Stats Pack > Edit fleet data); corridors from Data > Edit corridors."])
     if stations.missing:
         notes.append(["Not found in the XML (check the spelling in the corridor list): "
                       + "; ".join(sorted(s.replace("|", " / ") for s in stations.missing)) + "."])

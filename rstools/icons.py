@@ -81,6 +81,17 @@ SHAPES: Dict[str, Shape] = {
                    _line([(0.58, 0.08), (0.58, 0.30), (0.80, 0.30)], W),
                    _line([(0.34, 0.55), (0.66, 0.55)], W), _line([(0.34, 0.72), (0.66, 0.72)], W)),
     "add": _union(_line([(0.5, 0.18), (0.5, 0.82)], 0.12), _line([(0.18, 0.5), (0.82, 0.5)], 0.12)),
+    "stop": _box(0.24, 0.24, 0.76, 0.76, 0.06),
+    "clear": _union(_line([(0.24, 0.24), (0.76, 0.76)], 0.11), _line([(0.76, 0.24), (0.24, 0.76)], 0.11)),
+    # two arrows, one each way
+    "swap": _union(_line([(0.14, 0.34), (0.80, 0.34)], W), _line([(0.64, 0.18), (0.82, 0.34), (0.64, 0.50)], W),
+                   _line([(0.86, 0.66), (0.20, 0.66)], W), _line([(0.36, 0.50), (0.18, 0.66), (0.36, 0.82)], W)),
+    # an arrow leaving a tray
+    "export": _union(_line([(0.12, 0.56), (0.12, 0.88), (0.88, 0.88), (0.88, 0.56)], W),
+                     _line([(0.5, 0.66), (0.5, 0.12)], W), _line([(0.30, 0.32), (0.5, 0.12), (0.70, 0.32)], W)),
+    # a window with an arrow out of its corner
+    "popout": _union(_line([(0.46, 0.14), (0.12, 0.14), (0.12, 0.88), (0.86, 0.88), (0.86, 0.54)], W),
+                     _line([(0.44, 0.56), (0.88, 0.12)], W), _line([(0.60, 0.12), (0.88, 0.12), (0.88, 0.40)], W)),
     # tabs: a unit (carriage), a bar chart, a clock and an eye
     "stock": _union(_stroke(_box(0.08, 0.22, 0.92, 0.72, 0.12), W), _box(0.20, 0.34, 0.40, 0.50, 0.03),
                     _box(0.60, 0.34, 0.80, 0.50, 0.03), _circle(0.30, 0.84, 0.075), _circle(0.70, 0.84, 0.075)),
@@ -172,20 +183,29 @@ def _for_button(widget) -> Tuple[str, str]:
         return "file", "fg"
     if text.startswith("add"):
         return "add", "fg"
+    for start, name in (("stop", "stop"), ("clear", "clear"), ("swap", "swap"), ("export", "export"),
+                        ("pop out", "popout")):
+        if text.startswith(start):
+            return name, "fg"
     return "", ""
 
 
 def _decorate(event):
     w = event.widget
-    if getattr(w, "_icon_done", False):
-        return
-    w._icon_done = True
     try:
+        text = str(w.cget("text"))
+        if getattr(w, "_icon_text", None) == text:
+            return
+        w._icon_text = text
         name, role = _for_button(w)
-        if name:
-            w.configure(image=spec(w, name, role), compound="left")
+        w.configure(image=spec(w, name, role) if name else "", compound="left" if name else "none")
     except (tk.TclError, AttributeError):
         pass
+
+
+def refresh_button(button):
+    """Pick the icon again after a button's text changed (e.g. 'Browse...' to 'Add...')."""
+    _decorate(type("E", (), {"widget": button})())
 
 
 def decorate_all(root):

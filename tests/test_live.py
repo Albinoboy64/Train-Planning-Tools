@@ -408,7 +408,7 @@ def test_live_berthing_cells_side_by_side(tmp_path, monkeypatch):
         (["SAT START", "4 387 0510", "4 387 0520"], "changed"),
         (["SAT FINISH", "4 377 0600", ""], "removed"),
         (["SUN START", "", "4 387 0700"], "added")]
-    assert res.columns == ["Column", "Older chart", "Newer chart"]
+    assert res.columns == ["Column", "Original chart", "Updated chart"]
     out = str(tmp_path / "live.xlsx")
     export(out, res, res.items, "All", "")
     text = " ".join(str(c) for ws in openpyxl.load_workbook(out) for r in ws.iter_rows(values_only=True) for c in r)
@@ -463,7 +463,7 @@ def test_live_view_pops_out_and_comes_back(tmp_path, monkeypatch):
         assert win.pop_out()
         app.update()
         assert win.out and tab.pop_btn.cget("text") == "Bring back"
-        assert str(app.tk.call("wm", "title", str(win.holder))) == "Live View"
+        assert str(app.tk.call("wm", "title", str(win.holder))) == "Train Planning Tools - Live View"
         assert win.note.winfo_ismapped()
         # only the results are in the window: the task, files and Compare stay in the main window
         assert win.holder is tab.out_holder and tab.listv.winfo_toplevel() is not app

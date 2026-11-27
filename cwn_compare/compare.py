@@ -22,7 +22,7 @@ CATEGORIES = [
     ("CANCELLED", "Cancelled train", False,
      "Trains that no longer run at all. In the CWN they are re-inserted struck through."),
     ("NEW", "New train", False, "Trains that did not appear in the original CWN."),
-    ("TIME", "Time change", True, "Departure / inward / arrival time changed."),
+    ("TIME", "Time change", True, "Departure, inbound or arrival time changed."),
     ("LOCATION", "Location change", True,
      "Destination, origin, start/call/pass or the tabs a headcode appears on changed."),
     ("PLATFORM", "Platform change", True, "Platform changed."),
@@ -30,7 +30,7 @@ CATEGORIES = [
     ("FORMATION", "Inbound / outbound working change", True,
      "An inbound service now forms a different outbound service (or vice versa)."),
     ("BERTHING", "Berthing / next-day working change", True,
-     "AM/PM berth, or a next-day working (berth road or next departure time) changed. "
+     "AM / PM berth, or a next-day working (berth road or next departure time) changed. "
      "Re-ordered lines and day-of-week-only differences are not changes."),
     ("DAYS", "Days run change", True,
      "Days-run code changed. If nothing else about the train changed only the days are highlighted."),

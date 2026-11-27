@@ -9,6 +9,9 @@ import webbrowser
 from tkinter import messagebox, ttk
 
 from . import theme, updater
+from .branding import APP_NAME
+
+TITLE = f"{APP_NAME} - Check for updates"
 
 
 class UpdateDialog(tk.Toplevel):
@@ -17,7 +20,7 @@ class UpdateDialog(tk.Toplevel):
         self.app, self.current, self.token = app, current, token
         self.release = release
         self.q: "queue.Queue" = queue.Queue()
-        self.title("Check for updates")
+        self.title(TITLE)
         self.transient(app)
         self.resizable(True, True)
         self.minsize(520, 300)
@@ -68,7 +71,7 @@ class UpdateDialog(tk.Toplevel):
     def _download(self):
         if any(getattr(t, "running", False) for t in (self.app, self.app.stats_tab, self.app.tt_tab,
                                                        self.app.live_tab)):
-            messagebox.showinfo("Check for updates", "Please wait until the current run finishes.", parent=self)
+            messagebox.showinfo(TITLE, "A run is going - try again when it has finished.", parent=self)
             return
         self.install_btn.state(["disabled"])
         self.prog.stop()
@@ -108,18 +111,18 @@ class UpdateDialog(tk.Toplevel):
         self.prog.configure(value=1.0)
         if self.release is not None and updater.can_replace_in_place() \
                 and path == updater.download_target(self.release):
-            if messagebox.askokcancel("Check for updates", f"Version {self.release.version} is ready.\n\n"
-                                      "Train Planning Tools will close, update and reopen.", parent=self):
+            if messagebox.askokcancel(TITLE, f"Version {self.release.version} is ready.\n\n"
+                                      f"{APP_NAME} will close, update and reopen.", parent=self):
                 self.app.save_app_settings()            # before the new version starts and reads them
                 try:
                     updater.install_and_restart(path)
                 except (updater.UpdateError, OSError) as exc:
-                    messagebox.showerror("Check for updates", str(exc), parent=self)
+                    messagebox.showerror(TITLE, str(exc), parent=self)
                     return
                 self.app.destroy()
             return
         self.sub.configure(text=f"Saved to {path}")
-        messagebox.showinfo("Check for updates", f"The new version was saved to:\n{path}\n\nClose this app and "
+        messagebox.showinfo(TITLE, f"The new version was saved to:\n{path}\n\nClose this app and "
                             "run the new file (you can replace your old copy with it).", parent=self)
         try:
             os.startfile(os.path.dirname(path))  # type: ignore[attr-defined]

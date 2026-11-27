@@ -12,31 +12,18 @@ from typing import Callable, Dict, List, Optional, Sequence, cast
 
 from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, LiveRow
 
-MODES = {
-    "cwn": "Stock Tools: two CWNs",
-    "berthing": "Stock Tools: two berthing charts",
-    "sp_packs": "Stats Pack: two stats pack files",
-    "sp_plans": "Stats Pack: two plans (XML + TRENT print each)",
-    "units": "Stats Pack: unit reports, two plans",
-    "timetables": "Timing Tools: GTR timetable against Network Rail",
-    "print_tt": "Timing Tools: train prints against a timetable",
-    "list_tt": "Timing Tools: Attune train list against a timetable",
-    "prints": "Timing Tools: two sets of train prints or VPT exports",
-    "lists": "Timing Tools: two Attune train lists",
-    "s4check": "Timing Tools: Section 4 check (Attune XML, optional VPTs)",
-    "s4docs": "Timing Tools: two sets of Section 4 documents",
-    "tprs": "Timing Tools: two sets of Timetable Planning Rules",
-}
 MODE_GROUPS = [        # the Task list: a group for each tab, its tasks in the order of that tab's own list
-    ("Stock Tools", [("cwn", "Two CWNs"), ("berthing", "Two berthing charts")]),
-    ("Stats Pack", [("sp_plans", "Two plans (XML + TRENT print each)"), ("sp_packs", "Two stats pack files"),
-                    ("units", "Unit reports, two plans")]),
-    ("Timing Tools", [("timetables", "GTR timetable against Network Rail"),
-                      ("print_tt", "Train prints against a timetable"),
-                      ("list_tt", "Attune train list against a timetable"),
-                      ("prints", "Two sets of train prints or VPT exports"), ("lists", "Two Attune train lists"),
-                      ("s4check", "Section 4 check (Attune XML, optional VPTs)"),
-                      ("s4docs", "Two sets of Section 4 documents"), ("tprs", "Two sets of Timetable Planning Rules")]),
+    ("Stock Tools", [("cwn", "Compare two CWNs or platform workings"), ("berthing", "Compare two berthing charts")]),
+    ("Stats Pack", [("sp_plans", "Compare two plans (XML + TRENT print each)"),
+                    ("sp_packs", "Compare two stats pack files"), ("units", "Compare the unit reports of two plans")]),
+    ("Timing Tools", [("timetables", "Check the GTR timetable against Network Rail"),
+                      ("print_tt", "Check a timetable against train prints"),
+                      ("list_tt", "Check a timetable against an Attune train list"),
+                      ("prints", "Compare two sets of train prints or VPT exports"),
+                      ("lists", "Compare two Attune train lists"),
+                      ("s4check", "Check an Attune XML against Section 4 possessions"),
+                      ("s4docs", "Compare two sets of Section 4 documents"),
+                      ("tprs", "Compare two sets of Timetable Planning Rules")]),
 ]
 Log = Callable[[str], None]
 
@@ -210,7 +197,7 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
                                   rows, [c.description for c in mine], len(items)))
         if (so and so.footer) or (sn and sn.footer):         # also when only one file has the day's tab
             _footer_item(items, sk, title, so, sn, by_block)
-    return LiveResult(f"{os.path.basename(orig)}  vs  {os.path.basename(upd)}",
+    return LiveResult(f"{os.path.basename(orig)} vs {os.path.basename(upd)}",
                       ["Field", "Original", "Updated"], items, warnings)
 
 
@@ -442,7 +429,7 @@ def stats_packs(old_path: str, new_path: str, log: Log) -> LiveResult:
         if name == "Glossary":
             continue
         _table_items(name, old.get(name), new.get(name), items)
-    return LiveResult(f"{os.path.basename(old_path)}  vs  {os.path.basename(new_path)}",
+    return LiveResult(f"{os.path.basename(old_path)} vs {os.path.basename(new_path)}",
                       ["Column", "Original", "Updated"], items)
 
 
@@ -470,7 +457,7 @@ def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) ->
         for name in names:
             if name != "Glossary":
                 _table_items(f"{label} - {name}", old_t.get(key, {}).get(name), new_t.get(key, {}).get(name), items)
-    return LiveResult(f"{os.path.basename(trent_a)}  vs  {os.path.basename(trent_b)}",
+    return LiveResult(f"{os.path.basename(trent_a)} vs {os.path.basename(trent_b)}",
                       ["Column", "Original", "Updated"], items, list(old.warnings) + list(new.warnings)
                       + [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])
 
@@ -533,7 +520,7 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
     else:
         stored = rules.load_set() if rules.active_set_info() else None
         if stored is None:
-            raise ValueError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Options > Rules and "
+            raise ValueError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Data > Rules and "
                              "reference data.")
         statement = stored
     log(f"Reading {os.path.basename(xml)}")
@@ -613,8 +600,8 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
                               f"{status} cell(s)", [r for _o, _k, r in sorted(rows, key=lambda t: (t[0], t[1]))],
                               [f"{c.column}: {c.kind.lower()} ({c.old or '-'} -> {c.new or '-'})" for c in cs],
                               len(items)))
-    return LiveResult(f"{os.path.basename(old_path)}  vs  {os.path.basename(new_path)}",
-                      ["Column", "Older chart", "Newer chart"], items,
+    return LiveResult(f"{os.path.basename(old_path)} vs {os.path.basename(new_path)}",
+                      ["Column", "Original chart", "Updated chart"], items,
                       [] if items else ["No differences between the charts."])
 
 
@@ -664,6 +651,6 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
                 state, ", ".join(diff) + " changed")
             label = " / ".join(str(x) for x in k[:nkeys] if x not in (None, "")) or "(row)"
             items.append(LiveItem(f"{rep.name}|{k}", rep.name, label, state, status, rows, [], len(items)))
-    return LiveResult(f"Unit reports: {os.path.basename(trent_a)}  vs  {os.path.basename(trent_b)}",
+    return LiveResult(f"Unit reports: {os.path.basename(trent_a)} vs {os.path.basename(trent_b)}",
                       ["Figure", "Original", "Updated"], items,
                       [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])

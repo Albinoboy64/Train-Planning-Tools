@@ -6,15 +6,15 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Optional
 
-from .widgets import Tooltip
+from .widgets import TaskBox, Tooltip
 
 TIPS = {
     # ---------------------------------------------------------------- shared
     "Add...": "Add files to this box. Files already in it are kept, so files from different folders can be used "
               "together.",
-    "Ignore trains in the source that are not in the files compared with it": "Leave out trains (or rows) found "
-        "only in the first file - the original or the reference - e.g. when a print covers only part of a "
-        "timetable. Trains only in the second file are still shown.",
+    "Leave out trains only in the first file (the original or reference)": "Leave out trains (or rows) found "
+        "only in the first file, e.g. when a print covers only part of a timetable. Trains only in the second "
+        "file are still shown.",
     "Check for differences (untick to pair trains for checking by eye)": "Untick to switch error checking off: "
         "each train is put side by side with its match for checking by eye, with nothing coloured or flagged. "
         "Trains found in only one file are still listed, so nothing is missed.",
@@ -22,27 +22,28 @@ TIPS = {
                        "to save it to your Downloads folder.",
     "Output name:": "File name for the output, without the extension. Leave blank to use the name shown "
                     "underneath. An existing file is never overwritten: (2), (3)... is added instead.",
-    "Save as:": "Excel (default) keeps colours, filters and frozen headings. PDF and Word are for printing "
-                "or sending on.",
+    "Save as:": "Excel keeps colours, filters and frozen headings. PDF and Word are for printing or sending "
+                "on.",
+    "Task:": "What to do. The boxes below change to suit the task.",
     # ---------------------------------------------------------------- Stock Tools
-    "Add a new round to an earlier comparison CWN": "Compare a newer CWN with a comparison CWN made earlier by this "
+    "Compare two CWNs or platform workings": "Compare an original and an updated CWN (or platform workings): a "
+        "copy of the updated file with every change highlighted and noted, and a change report.",
+    "Add a new round to an earlier comparison": "Compare a newer CWN with a comparison CWN made earlier by this "
                                                     "app. The earlier highlights are kept and the new round is "
                                                     "shown in another colour.",
-    "Compare two folders of CWNs (batch)": "Compare every CWN in one folder with its partner in another folder "
-                                           "(paired by file name).",
+    "Compare two folders of CWNs or workings (batch)": "Compare every CWN in one folder with its partner in "
+                                                       "another folder (paired by file name).",
     "CWN:": "The multi-day CWN. It is not changed - a copy is saved.",
-    "1. Input": "The files for the chosen task. Files dropped on this box (or anywhere on the tab) go to the "
-                "right place.",
-    "Our VPT (optional, for running lines):": "A VPT of the same timetable: its running lines settle clashes where "
+    "GTR VPT (optional):": "A VPT of the same timetable: its running lines settle clashes where "
         "only some lines are blocked.",
     "Other operators' VPT(s) (optional):": "VPT exports from other operators: their trains are checked too.",
-    "Section 4 check: trains in Network Rail's standard possession times": "Check the Attune XML against the "
+    "Check an Attune XML against Section 4 possessions": "Check the Attune XML against the "
         "Engineering Access Statement Section 4: every train running through a section during one of its "
         "possessions.",
     "Section 4 PDF(s):": "The Section 4 PDFs, one per route, e.g. Kent & Sussex, East Coast, East Midlands. Leave "
                          "blank to use the rule set in use: the built-in 2027 EAS v4 rules, or a newer set added "
-                         "in Options > Rules and reference data.",
-    "Station Working Book (TRACS-RS layout, from an Attune XML)": "One sheet each for SX, SO and Su. Needs an "
+                         "in Data > Rules and reference data.",
+    "Create a station working book from an Attune XML (TRACS-RS layout)": "One sheet each for SX, SO and Su. Needs an "
         "Attune XML with every day's unit diagrams.",
     "Station:": "The station, as named in the XML. Type to see matching stations.",
     "Platforms (optional):": "Only trains leaving from these platforms, e.g. 10-15 for London Bridge low level, "
@@ -55,7 +56,7 @@ TIPS = {
                    "'London Kings Cross (TLGN)'.",
     "SX": "A sheet for Monday to Friday. Trains that differ by day get a row for each version, marked e.g. "
           "'Runs Monday and Friday only'.",
-    "By first day run - MO first, then TO, WO, ThO, FO (then SO, SuO)":
+    "By first day run - MO first, then TO, WO, ThO, FO (then SO, Su)":
         "The first day each variant runs decides its place, whatever the times: MO or MWO first, then TO, then WO, "
         "ThFO, FO, then Saturday and Sunday.",
     "By departure time - earliest first, then by day": "The variant that departs earliest comes first (e.g. an "
@@ -66,21 +67,21 @@ TIPS = {
     "Updated CWN folder:": "Each CWN here is paired with the original of the same name once proof, draft and "
                            "version numbers and dates are ignored (e.g. BTN_CWN_v1.2 with BTN_CWN_v2.0), "
                            "otherwise with the clearly most similar name.",
-    "Output type:": "Full CWN highlighted and noted: the whole updated CWN with changes highlighted, previous "
-                    "values struck through and notes added. Highlighted only: the updated CWN with anything new or "
-                    "changed highlighted, without the original versions. ACWN: only the amended trains.",
+    "Output type:": "Full CWN with changes highlighted and noted: the whole updated CWN with changes "
+                    "highlighted, previous values struck through and notes added. New or changed items "
+                    "highlighted only: without the previous values. ACWN: only the amended trains.",
     "Colour for new amendments:": "Colour for this round's changes - choose one not used by earlier rounds.",
     "Create change report as": "Also write a change report listing every change by type, location and train.",
     "Days to check:": "Untick days to check and output only the trains running on the ticked days. Days the "
                       "chosen CWNs do not cover are greyed out.",
     "Reset to defaults": "Switch every change type back on.",
-    "Highlight only (no old values)": "Mark changes without showing the previous values struck through.",
+    "Highlight only (no previous values)": "Mark changes without showing the previous values struck through.",
     # ---------------------------------------------------------------- berthing charts
-    "Make a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
+    "Create a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
         "sidings, laid out like a chart you choose. A new chart has no highlights.",
     "Add a round of changes to a berthing chart": "Remakes the chart from the updated XML. Cells that differ from the "
         "original XML are filled in the chosen colour; earlier highlights are kept.",
-    "Compare two berthing charts": "Highlights in the newer chart every unit or time that differs from the older one. "
+    "Compare two berthing charts": "Highlights in the updated chart every unit or time that differs from the original. "
         "Spacing slips and the old 'L' marker do not count.",
     "STP XML (optional):": "For an STP chart: each day's STP diagrams replace the LTP ones, and STP trains are shown "
                            "in bold on lavender.",
@@ -90,6 +91,8 @@ TIPS = {
     "Berthing chart:": "The chart to add this round's changes to.",
     "Original XML:": "The XML the chart was made from. For an STP chart: the LTP and STP XMLs, separated by ';'.",
     "Updated XML:": "The changed XML. For an STP chart: the LTP and STP XMLs, separated by ';'.",
+    "Original chart:": "The earlier berthing chart.",
+    "Updated chart:": "The newer berthing chart: the differences are highlighted in a copy of it.",
     "Issue on cover:": "Shown on the cover, e.g. Proof 2. Leave blank to keep the chart's own.",
     "Edit berth locations...": "Open the list that links each berth to its XML location (TIPLOC and platform or "
                                "road) in Excel.",
@@ -101,7 +104,7 @@ TIPS = {
     "Compare two stats pack files": "Compare two stats pack workbooks made earlier (by this app or TRACS-RS).",
     "Fuel check (171s)": "Follow each diesel unit (171/7, 171/8) through the week and check it is fuelled at least "
                          "every 48 hours; units that are not are listed first. Always covers the ticked days "
-                         "together, even when 'Each ticked day on its own' is chosen.",
+                         "together, even when 'Show each day separately' is chosen.",
     "Several stations:": "Make a book for each of several stations in one run. Pick a "
                          "station (and platforms) and press Add to list, or type them separated by ';' with "
                          "platforms in brackets, e.g. London Kings Cross; London Bridge [10-15]; Cambridge.",
@@ -109,13 +112,17 @@ TIPS = {
                               "TRENT print alone: the XML adds next-day workings for SNGX diagrams.",
     "TRENT VL29 print(s):": "The TRENT VehicleLayout29 print (saved as Word), from the same plan as the XML. "
                             "Several prints can go in this box, e.g. the LTP print and a week's STP print.",
-    "Each ticked day on its own": "Report each ticked day separately (unit reports: no following of units "
-                                  "between days; capacity report: no week total).",
-    "Capacity report: by headcode group, corridor or station to station": "Seating capacity and / or standing "
+    "Each ticked day on its own": "Report each ticked day separately, with no week total.",
+    "Show each day separately": "Report each ticked day separately: units are not followed from one day to "
+                                "the next.",
+    "Create unit reports: washes and CETs, depot returns / swaps, captive units, fuel": "Reports on how the "
+        "units are used: where they are washed and CET'd, depot returns and swaps, captive units and diesel "
+        "fuelling. Made from the TRENT print; the XML adds next-day workings.",
+    "Create a capacity report: by headcode group, corridor or station to station": "Seating capacity and / or standing "
         "room of every passenger train in a headcode group, on a corridor or between two stations, per day or for "
         "the week, optionally only trains at a station between two times. From the fleet data.",
     "Standing room": "Show standing capacity. With both ticked, total capacity (seats + standing) is shown too.",
-    "Service group:": "Count the trains of one headcode group: pick from the list or type one, e.g. 1F or 9T.",
+    "Headcode group:": "Count the trains of one headcode group: pick from the list or type one, e.g. 1F or 9T.",
     "Corridor:": "Count every passenger train running along this route. Choose one direction (in the box "
                  "underneath) or both. Corridors are an editable list (Edit corridors).",
     "Station to station:": "Count the trains that stop at the first station and later at the second. Seats are "
@@ -137,20 +144,28 @@ TIPS = {
                                                            "seats, vehicles per unit, fleet sizes and unit "
                                                            "lengths.",
     # ---------------------------------------------------------------- Timing Tools
-    "GTR timetable against the Network Rail timetable": "Check the GTR timetable against the Network Rail "
+    "Check the GTR timetable against the Network Rail timetable": "Check the GTR timetable against the Network Rail "
                                                          "timetable (the reference). Output: the Consolidated "
                                                          "TT Comparison workbook.",
-    "Train prints against a timetable (Attune Single Train Report)": "Use Attune 'Single Train Report' prints as "
+    "Check a timetable against train prints (Attune Single Train Report)": "Use Attune 'Single Train Report' prints as "
                                                                       "the reference and check a timetable "
                                                                       "against their public times.",
-    "Attune train list against a timetable": "Use an Attune train list as the reference and check each train's "
-                                              "origin departure and destination arrival in a timetable.",
+    "Check a timetable against an Attune train list": "Use an Attune train list as the reference and check "
+                                                      "each train's origin departure and destination arrival "
+                                                      "in a timetable.",
     "GTR timetable:": "The GTR timetable check workbook (sheets such as 'OT SNGX TT Checks K - OUT SX').",
     "Network Rail timetable:": "The Network Rail timetable workbook - the reference.",
     "Attune train list - reference:": "The Attune train list export (Excel or CSV).",
     "Timetable to check:": "The timetable workbook to check (GTR or Network Rail layout).",
     # ---------------------------------------------------------------- Live View
-    "Compare:": "What to compare - any comparison the other tabs can do.",
+    "Compare two sets of train prints (PDF or Word) or Attune VPT exports": "Compare two versions of the same "
+        "trains location by location: times, platforms, lines and activities.",
+    "Compare two Attune train list exports (Excel or CSV)": "Compare two Attune train lists column by column, "
+        "train by train.",
+    "Compare two sets of Section 4 documents (PDF)": "Compare two issues of Network Rail's Section 4 possession "
+        "tables: every possession's times, dates, places, lines blocked and remarks.",
+    "Compare two sets of Timetable Planning Rules (PDF)": "Compare two issues of the Timetable Planning Rules: "
+        "every table row and paragraph.",
     "Refresh when a file is saved": "Watch the files: when one is saved, compare again within a moment and "
                                     "mark the trains that changed.",
     "Find:": "Show only trains whose section, headcode or status contains this text.",
@@ -180,7 +195,10 @@ class _TextTip(Tooltip):
     def show(self, _e=None):
         try:
             source = self.source if self.source is not None else _label_for(self.widget)
-            self.text = (lookup(source.cget("text")) or "") if source is not None else ""
+            if isinstance(source, TaskBox):          # a task list: the help of the task chosen
+                self.text = lookup(source.get()) or ""
+            else:
+                self.text = (lookup(source.cget("text")) or "") if source is not None else ""
         except tk.TclError:
             self.text = ""
         super().show()
@@ -198,7 +216,10 @@ def attach(root):
         stack.extend(w.winfo_children())
         if getattr(w, "_has_tip", False):
             continue
-        if isinstance(w, _LABELLED):
+        if isinstance(w, TaskBox):
+            w._has_tip = True
+            _TextTip(w, w)
+        elif isinstance(w, _LABELLED):
             w._has_tip = True
             _TextTip(w, w)
         elif isinstance(w, _INPUTS):                # the label is found when shown (rows move with the mode)

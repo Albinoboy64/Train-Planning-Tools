@@ -90,7 +90,7 @@ def test_help_text_lookup():
     assert "never overwritten" in lookup("Output name:") and "10-15" in lookup("Platforms (optional):")
     assert "48 hours" in lookup("Fuel check (171s)") and lookup("Other depots")
     # no pop-ups on the menu bar, and none that only repeat the control's own words
-    for redundant in ("Options", "Save/Load", "Help", "Browse...", "Clear", "Swap files", "Create stats pack",
+    for redundant in ("Options", "Save/Load", "Help", "Browse...", "Clear", "Swap the two files", "Create stats pack",
                       "Open report", "All days", "Weekdays", "Mon", "MO", "377/4", "SNGX (BI, SU, SL)",
                       "Original Attune XML:", "Changed rows only"):
         assert lookup(redundant) is None, redundant

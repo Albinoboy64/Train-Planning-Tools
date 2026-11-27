@@ -17,15 +17,16 @@ import tkinter as tk
 from typing import Dict, List, Tuple
 from tkinter import ttk, filedialog, messagebox
 
-from rstools import errorlog, theme
-from rstools.widgets import Progress, TaskBox, Tooltip
+from rstools import errorlog, theme, icons
+from rstools.widgets import FAILED, Progress, TaskBox, Tooltip, day_buttons
 from rstools.branding import APP_NAME
-from rstools.naming import file_label
+from rstools.naming import file_label, plural
 
 from .model import ADDED, CHANGED, DIFF_STATES, ISSUE, PAIRED, REMOVED, SAME, view
 
 TITLE = f"{APP_NAME} - Live View"
-EMPTY_HINT = "Choose the files above and press Compare (F5). The trains and their differences show here."
+EMPTY_HINT = "Choose the files and press Compare: the trains and their differences show here."
+READY = "Ready - press F5 to compare"
 _XL, _PR, _LI = (".xlsx", ".xlsm"), (".pdf", ".docx", ".docm"), (".xlsx", ".xlsm", ".csv")
 _PV = _PR + (".vpt",)                                   # train prints, or Attune VPT exports
 _CWN = (".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm")
@@ -48,14 +49,14 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
                ("b", "Updated Section 4 PDF(s):", (".pdf",), True)],
     "tprs": [("a", "Original TPR PDF(s):", (".pdf",), True), ("b", "Updated TPR PDF(s):", (".pdf",), True)],
     "s4check": [("xa", "Attune XML:", (".xml",), False),
-                ("a", "Section 4 PDF(s) (blank: the rule set in use):", (".pdf",), True),
-                ("xb", "Our VPT (optional, for running lines):", (".vpt",), False),
+                ("a", "Section 4 PDF(s) (optional):", (".pdf",), True),
+                ("xb", "GTR VPT (optional):", (".vpt",), False),
                 ("tb", "Other operators' VPT(s) (optional):", (".vpt",), True)],
-    "berthing": [("a", "Older berthing chart:", _XL, False), ("b", "Newer berthing chart:", _XL, False)],
+    "berthing": [("a", "Original berthing chart:", _XL, False), ("b", "Updated berthing chart:", _XL, False)],
     "units": [("xa", "Original Attune XML (optional):", (".xml",), False),
-              ("ta", "Original TRENT print(s):", (".docx",), True),
+              ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
               ("xb", "Updated Attune XML (optional):", (".xml",), False),
-              ("tb", "Updated TRENT print(s):", (".docx",), True)],
+              ("tb", "Updated TRENT VL29 print(s):", (".docx",), True)],
 }
 OPTIONAL = {("s4check", "a"), ("s4check", "xb"), ("s4check", "tb"),          # boxes that may be left blank
             ("units", "xa"), ("units", "xb")}
@@ -67,7 +68,8 @@ FILTERS = {"Differences only": DIFF_STATES, "All": None,                      # 
            "Changed since confirmed": "reopened", "Confirmed": "confirmed", "Not yet confirmed": "unconfirmed",
            "Updated by the last refresh": "fresh"}
 TICK = "\u2714"
-MAX_LIST = 20000                    # rows put in the list at once (search or filter to narrow a bigger result)
+MAX_LIST = 20000                    # rows put in the list (search or filter to narrow a bigger result)
+LIST_BATCH = 500                    # rows put in the list between events
 SEP = " ; "
 POLL_MS = 1500
 
@@ -113,6 +115,8 @@ class LiveTab(ttk.Frame):
         self.reopened: set = set()               # confirmed, then changed by a refresh: the tick was taken off
         self._progress_for = ""                  # the comparison the confirmations belong to
         self._autosave_after = None
+        self._mode_now = ""
+        self._again = False                      # an option changed during a refresh: refresh once more after it
         self._build()
         self._mode_changed()
         app.pump.add(self.q, self._poll, lambda: self.running)
@@ -138,7 +142,7 @@ class LiveTab(ttk.Frame):
         last = getattr(self.app.opts, "live_mode", "") or "cwn"
         self.mode_box.show(last if last in FILES else "cwn")        # the task used last time
         self.mode_box.grid(row=0, column=1, sticky="w", padx=4, pady=2)
-        self.mode_box.bind("<<ComboboxSelected>>", lambda _e: (self.mode_box.show(self.mode()), self._mode_changed()))
+        self.mode_box.bind("<<ComboboxSelected>>", lambda _e: self._task_picked())
         self.files_frame = ttk.Frame(top)
         self.files_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.files_frame.columnconfigure(1, weight=1)
@@ -147,7 +151,8 @@ class LiveTab(ttk.Frame):
         for key in ("a", "b", "xa", "ta", "xb", "tb"):
             var = self.vars[key] = tk.StringVar()
             lab = ttk.Label(self.files_frame, text="")
-            box = self.app.file_box(self.files_frame, var, f"live_{key}")
+            box = self.app.file_box(self.files_frame, var, f"live_{key}",       # this task's file types only
+                                    exts=lambda k=key: next((sp[2] for sp in FILES[self.mode()] if sp[0] == k), ()))
             btn = ttk.Button(self.files_frame, text="Browse...", command=lambda k=key: self._browse(k))
             self.rows[key] = (lab, box, btn)
             self.clear_btns[key] = ttk.Button(self.files_frame, text="Clear", width=6,
@@ -165,16 +170,16 @@ class LiveTab(ttk.Frame):
                                  command=self._days_changed)
             cb.grid(row=0, column=i + 1, padx=(0, 4))
             self.day_cbs.append(cb)
-        self.days_note = ttk.Label(self.days_frame, text="(available once the CWNs are loaded)", style="Small.TLabel")
-        self.days_note.grid(row=0, column=len(DAY_LABELS) + 1, padx=(6, 0))
+        self.day_btns = day_buttons(self.days_frame, self._pick_days, row=0, column=len(DAY_LABELS) + 1,
+                                    padx=(6, 0))
+        self.days_note = ttk.Label(self.days_frame, text="(available after Compare)", style="Small.TLabel")
+        self.days_note.grid(row=0, column=len(DAY_LABELS) + 2, padx=(6, 0))
         ctl = ttk.Frame(top)
         ctl.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 4))
-        ctl.columnconfigure(3, weight=1)
+        ctl.columnconfigure(2, weight=1)
+        # the same run row as the other tabs: Run | (option) | progress, stretching | Stop; the status below
         self.run_btn = ttk.Button(ctl, text="Compare", style="Run.TButton", command=self.run)
         self.run_btn.grid(row=0, column=0)
-        self.stop_btn = ttk.Button(ctl, text="Stop", command=self.stop_run, state="disabled")
-        self.stop_btn.grid(row=0, column=2, padx=(12, 0))
-        Tooltip(self.stop_btn, "Stop the comparison (Esc).")
         self.auto_var = tk.BooleanVar(value=True)
         self.auto_var.trace_add("write", lambda *_a: self._keep_watching())
         ttk.Checkbutton(ctl, text="Refresh when a file is saved", variable=self.auto_var).grid(row=0, column=1,
@@ -183,23 +188,27 @@ class LiveTab(ttk.Frame):
         opts.grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 4))
         self.ignore_var = tk.BooleanVar(value=False)
         self.check_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="Ignore trains in the source that are not in the files compared with it",
-                        variable=self.ignore_var, command=self._view_changed).grid(row=0, column=0, sticky="w")
+        self.ignore_cb = ttk.Checkbutton(opts, text="Leave out trains only in the first file (the original or "
+                                                    "reference)", variable=self.ignore_var,
+                                         command=self._view_changed)
+        self.ignore_cb.grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(opts, text="Check for differences (untick to pair trains for checking by eye)",
                         variable=self.check_var, command=self._view_changed).grid(row=0, column=1, sticky="w",
                                                                                  padx=(16, 0))
         self.pax_var = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_passenger_only", False)))
-        self.pax_cb = ttk.Checkbutton(opts, text="Passenger times only", variable=self.pax_var,
+        checks = ttk.Frame(opts)                     # second row: what is compared (shown by task)
+        checks.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        self.pax_cb = ttk.Checkbutton(checks, text="Passenger times only", variable=self.pax_var,
                                       command=self._pax_changed)
-        self.pax_cb.grid(row=0, column=2, sticky="w", padx=(16, 0))
+        self.pax_cb.grid(row=0, column=0, sticky="w", padx=(0, 16))
         self.hdr_var = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_check_header", True)))
-        self.hdr_cb = ttk.Checkbutton(opts, text="Check header differences", variable=self.hdr_var,
+        self.hdr_cb = ttk.Checkbutton(checks, text="Check header differences", variable=self.hdr_var,
                                       command=self._checks_changed)
-        self.hdr_cb.grid(row=0, column=3, sticky="w", padx=(16, 0))
+        self.hdr_cb.grid(row=0, column=1, sticky="w", padx=(0, 16))
         self.tim_var = tk.BooleanVar(value=bool(getattr(self.app.opts, "live_check_timing", True)))
-        self.tim_cb = ttk.Checkbutton(opts, text="Check timing differences", variable=self.tim_var,
+        self.tim_cb = ttk.Checkbutton(checks, text="Check timing differences", variable=self.tim_var,
                                       command=self._checks_changed)
-        self.tim_cb.grid(row=0, column=4, sticky="w", padx=(16, 0))
+        self.tim_cb.grid(row=0, column=2, sticky="w")
         Tooltip(self.hdr_cb, "Train header details (days run, train ID, UID, class...). Untick to ignore them: "
                              "differences in them are greyed and do not make a train 'changed'.")
         Tooltip(self.tim_cb, "Arrival, departure and passing times. Untick to compare only the header and the "
@@ -207,9 +216,12 @@ class LiveTab(ttk.Frame):
         Tooltip(self.pax_cb, "Hide passing times and times shown in one file only (intermediate timing points), "
                              "for comparing timetables where one file does not show them.")
         self.prog = ttk.Progressbar(ctl, mode="determinate", maximum=1.0, length=120)
-        self.prog.grid(row=0, column=2, padx=(12, 0))          # always in place: nothing moves when it runs
-        self.status = ttk.Label(ctl, text="Choose the files and press Compare (F5).", style="Small.TLabel")
-        self.status.grid(row=0, column=3, sticky="w", padx=(10, 0))
+        self.prog.grid(row=0, column=2, sticky="ew", padx=(12, 0))   # always in place: nothing moves when it runs
+        self.stop_btn = ttk.Button(ctl, text="Stop", command=self.stop_run, state="disabled")
+        self.stop_btn.grid(row=0, column=3, padx=(8, 0))
+        Tooltip(self.stop_btn, "Stop the run (Esc).")
+        self.status = ttk.Label(ctl, text=READY, style="Small.TLabel", wraplength=1000, justify="left")
+        self.status.grid(row=1, column=0, columnspan=4, sticky="w", pady=(4, 0))
         self.window = None                  # popout.LiveWindow, set by the app: the output in its own window
         self.progress = Progress(self.prog)
 
@@ -293,15 +305,13 @@ class LiveTab(ttk.Frame):
         sb = ttk.Scrollbar(left, orient="vertical", command=self.listv.yview)
         sb.grid(row=1, column=1, sticky="ns")
         self.listv.configure(yscrollcommand=sb.set)
-        self.listv.bind("<<TreeviewSelect>>", lambda _e: self._show_selected())
+        self.listv.bind("<<TreeviewSelect>>", lambda _e: (self._show_selected(), self._confirm_label()))
         nav = ttk.Frame(left)
         nav.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        ttk.Button(nav, text="< Previous", command=lambda: self.step(-1)).grid(row=0, column=0)
-        ttk.Button(nav, text="Next >", command=lambda: self.step(1)).grid(row=0, column=1, padx=4)
         self.export_btn = ttk.Button(nav, text="Export...", command=self.export, state="disabled")
-        self.export_btn.grid(row=0, column=2, padx=(4, 0))
+        self.export_btn.grid(row=0, column=0)                 # Previous / Next are in the toolbar above
         self.count_lbl = ttk.Label(nav, text="", style="Small.TLabel")
-        self.count_lbl.grid(row=0, column=3, padx=(8, 0))
+        self.count_lbl.grid(row=0, column=1, padx=(8, 0))
         prog = ttk.Frame(left)
         prog.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self.confirm_btn = ttk.Button(prog, text=f"{TICK} Confirm (Space)", command=self.toggle_confirmed)
@@ -310,9 +320,9 @@ class LiveTab(ttk.Frame):
         ttk.Button(prog, text="Load progress...", command=self.load_progress).grid(row=0, column=2)
         self.progress_lbl = ttk.Label(prog, text="", style="Small.TLabel")
         self.progress_lbl.grid(row=0, column=3, padx=(8, 0))
-        Tooltip(self.confirm_btn, "Tick the selected train as checked. Ticks are saved automatically for these "
-                                  "files; a train that changes after it was ticked is un-ticked and listed under "
-                                  "'Changed since confirmed'.")
+        Tooltip(self.confirm_btn, "Mark the selected train as confirmed (checked), or take the mark off. Marks are "
+                                  "saved automatically for these files; a train that changes after it was confirmed "
+                                  "loses its mark and is listed under 'Changed since confirmed'.")
 
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
@@ -335,10 +345,22 @@ class LiveTab(ttk.Frame):
         self.notes = tk.Text(right, height=4, wrap="word", font="TkFixedFont", state="disabled", relief="flat",
                              borderwidth=1, highlightthickness=1)
         self.notes.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        self.legend = ttk.Label(right, text="Yellow: changed   Green: added   Red: removed / missing   Orange: issue   "
-                                            "Grey: not compared   "
-                                            "(click a row to see its full values)", style="Small.TLabel")
+        # the key: a swatch in each difference colour of the theme in use (redrawn by retheme), then the marks
+        self.legend = ttk.Frame(right)
         self.legend.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        keys = ttk.Frame(self.legend)                         # the swatches on their own line, close together
+        keys.grid(row=0, column=0, sticky="w")
+        self._swatches = {}
+        col = 0
+        for state, text in ((CHANGED, "changed"), (ADDED, "added"), (REMOVED, "removed or missing"),
+                            (ISSUE, "issue")):
+            sw = self._swatches[state] = tk.Label(keys, text="", width=2, borderwidth=1, relief="solid")
+            sw.grid(row=0, column=col, padx=(0 if col == 0 else 10, 3))
+            ttk.Label(keys, text=text, style="Small.TLabel").grid(row=0, column=col + 1)
+            col += 2
+        ttk.Label(self.legend, text="Grey text: not compared.   * or bold: updated by the last refresh.   "
+                                    "!: changed since confirmed.   Click a row to see its full values.",
+                  style="Small.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
         for widget in (self.listv, self.detail):
             widget.bind("<F3>", lambda _e: self.step(1) or "break")
             widget.bind("<Shift-F3>", lambda _e: self.step(-1) or "break")
@@ -405,7 +427,7 @@ class LiveTab(ttk.Frame):
         self.layout_var.set(layout)
         self.app.opts.live_layout = layout
         self.app.save_app_settings()
-        self._apply_layout()
+        self._arrange_panes()
 
     def _arrange_panes(self):
         """(Re)build the paned window for the chosen layout, with the train list unless it is hidden."""
@@ -420,10 +442,6 @@ class LiveTab(ttk.Frame):
         self.pane.add(self.right, weight=3)
         for pane in (self.left, self.right):             # panes that are not its children must be above it
             pane.lift(self.pane)
-
-    def _apply_layout(self):
-        """Side by side or stacked: the same two panes in a paned window turned round (the selection stays)."""
-        self._arrange_panes()
 
     def _list_visibility(self):
         """Hide the train list (details only, Previous / Next in the toolbar) or show it again."""
@@ -450,18 +468,25 @@ class LiveTab(ttk.Frame):
         self.detail.tag_configure("dhead", font="AppBold")
         # the clicked row, right across; configured last so it shows over the difference colours
         self.detail.tag_configure("picked", background=p["select"], foreground=p["select_fg"])
-        cw = self._char_width()                              # columns follow the text size
-        for col, chars in (("ok", 3), ("group", 16), ("train", 16), ("status", 28)):
-            self.listv.column(col, width=chars * cw)
         self.notes.configure(background=p["field"], foreground=p["fg"], highlightbackground=p["border"],
-                             insertbackground=p["fg"])
+                             highlightcolor=p["accent"], insertbackground=p["fg"])
+        for state, key in ((CHANGED, "d_changed"), (ADDED, "d_added"), (REMOVED, "d_removed"), (ISSUE, "d_issue")):
+            self._swatches[state].configure(background=p[key], highlightbackground=p["border"])
 
     # ------------------------------------------------------------------ mode and files
     def mode(self) -> str:
         return self.mode_box.picked() or "cwn"          # a group heading counts as its first task
 
-    def _mode_changed(self):
+    def _task_picked(self):
+        """A task chosen in the list: only a different task clears what is shown (a heading picks its group's
+        first task)."""
         mode = self.mode()
+        self.mode_box.show(mode)
+        if mode != self._mode_now:
+            self._mode_changed()
+
+    def _mode_changed(self):
+        mode = self._mode_now = self.mode()
         try:
             self.app.opts.live_mode = mode
         except AttributeError:
@@ -477,6 +502,7 @@ class LiveTab(ttk.Frame):
                 btn.grid(row=r, column=2, pady=1)
                 many = spec[r][3]
                 btn.configure(text="Add..." if many else "Browse...")       # several prints: each adds to the list
+                icons.refresh_button(btn)
                 if many:
                     self.clear_btns[key].grid(row=r, column=3, padx=(4, 0), pady=1)
                 else:
@@ -489,6 +515,9 @@ class LiveTab(ttk.Frame):
                 box.grid_remove()
                 btn.grid_remove()
                 self.clear_btns[key].grid_remove()
+        for key, *_s in spec:                       # the Tab key follows the rows in the order shown
+            for w in (*self.rows[key], self.clear_btns[key]):
+                w.lift()
         if mode == "cwn":
             self.days_frame.grid()
         else:
@@ -509,7 +538,7 @@ class LiveTab(ttk.Frame):
         _k, label, exts, many = next(s for s in FILES[mode] if s[0] == key)
         kinds = " or ".join(dict.fromkeys(_TYPE_NAMES.get(e, e) for e in exts))
         types = [(kinds + " files", " ".join("*" + e for e in exts)), ("All files", "*.*")]
-        kw = dict(parent=self, title=label.rstrip(":"), filetypes=types)
+        kw = dict(parent=self, title="Choose the " + file_label(label), filetypes=types)
         start = os.path.dirname(self.vars[key].get().split(";")[0].strip().strip('"')) or self._last_folder()
         if start and os.path.isdir(start):
             kw["initialdir"] = start
@@ -574,7 +603,8 @@ class LiveTab(ttk.Frame):
         slots = [Slot(self.vars[k], lambda p, e=exts: p.lower().endswith(e), multi=many) for k, _l, exts, many in spec]
         _placed, left = route_drop(paths, slots, join=lambda fs: _join("", fs))
         if left:
-            self.status.configure(text=f"{len(left)} file(s) did not fit a box for this comparison and were left out.")
+            self.status.configure(text=f"{plural(len(left), 'file')} did not fit a box for this task and "
+                                       + ("was" if len(left) == 1 else "were") + " left out.")
 
     def _files(self):
         out = {}
@@ -585,7 +615,7 @@ class LiveTab(ttk.Frame):
             if not paths and (mode, key) in OPTIONAL:
                 continue
             if not paths:
-                raise ValueError(f"Choose the {what} file.")
+                raise ValueError(f"Choose the {what}.")
             if not many and len(paths) > 1:
                 raise ValueError(f"Choose one file for the {what}.")
             for p in paths:
@@ -630,6 +660,13 @@ class LiveTab(ttk.Frame):
             return None
         ticked = {i for i, v in enumerate(self.day_vars) if v.get()} & self._days_known
         return None if ticked == self._days_known else sorted(ticked)
+
+    def _pick_days(self, test):
+        if not self._days_known:
+            return
+        for i, var in enumerate(self.day_vars):
+            var.set(i in self._days_known and test(i))
+        self._days_changed()
 
     def _days_changed(self):
         if self._days_known and not any(v.get() for i, v in enumerate(self.day_vars) if i in self._days_known):
@@ -702,12 +739,14 @@ class LiveTab(ttk.Frame):
 
     def run(self, refresh: bool = False):
         if self.running:
+            if refresh:
+                self._again = True               # compared again with the new option once this run ends
             return
         try:
             files = self._files()
         except ValueError as exc:
             if not refresh:
-                messagebox.showwarning(TITLE, str(exc))
+                messagebox.showwarning(TITLE, str(exc), parent=self)
             return
         mode = self.mode()
         if not refresh:
@@ -726,7 +765,7 @@ class LiveTab(ttk.Frame):
                      header=self.hdr_var.get() or mode not in CHECK_MODES,
                      timing=self.tim_var.get() or mode not in CHECK_MODES,
                      loose=bool(getattr(self.app.opts, "ignore_spacing", True)))
-        threading.Thread(target=self._work, args=(mode, files, days, refresh, stamps, extra), daemon=True).start()
+        self.app.pump.start(self._work, mode, files, days, refresh, stamps, extra)
         self.app.pump.kick()
 
     @staticmethod
@@ -765,6 +804,9 @@ class LiveTab(ttk.Frame):
         self.running = False
         self.run_btn.state(["!disabled"])
         self.app.set_busy(False)
+        if self._again:
+            self._again = False
+            self.after(50, lambda: self.run(refresh=True))
 
     def _loaded(self, mode, res, refresh, stamps, known, files=None):
         self._finished()
@@ -790,31 +832,36 @@ class LiveTab(ttk.Frame):
         stamp = time.strftime("%H:%M:%S")
         took = time.monotonic() - self._started
         if refresh:
-            self.status.configure(text=f"Refreshed {stamp} ({took:.1f} s): {len(self.fresh)} item(s) changed since "
-                                       f"the last refresh; {diffs} difference(s) in all.")
+            self.status.configure(text=f"Refreshed {stamp} ({took:.1f} s): {plural(len(self.fresh), 'item')} "
+                                       f"changed since the last refresh; {plural(diffs, 'difference')} in all.")
         else:
-            self.status.configure(text=f"Compared {stamp} ({took:.1f} s): {len(res.items)} item(s), {diffs} with "
-                                       "differences." + (f" {len(res.warnings)} note(s)." if res.warnings else "")
+            self.status.configure(text=f"Compared {stamp} ({took:.1f} s): {plural(len(res.items), 'item')}, "
+                                       f"{diffs:,} with differences."
+                                       + (f" {plural(len(res.warnings), 'note')}." if res.warnings else "")
                                        + (f" {len(self.confirmed)} confirmed earlier (restored)." if self.confirmed
                                           else ""))
         cols = list(res.columns)
         widths = [len(c) for c in cols]                 # columns sized to what they hold
-        for it in res.items[:3000]:
+        step = max(1, len(res.items) // 400)           # a spread of up to ~400 items is enough to size by
+        for it in res.items[::step]:
             for row in it.rows:
                 cap = 24 if row.state == "muted" else 200      # long train details (operator name...) may be
                 for i, cell in enumerate(row.cells[:len(cols)]):   # cut short rather than widen every column
                     widths[i] = max(widths[i], min(cap, len(str(cell))))
         self.detail.configure(columns=[f"c{i}" for i in range(len(cols))])
+        cw = self._char_width()
         for i, name in enumerate(cols):
             self.detail.heading(f"c{i}", text=name)
-            cw = self._char_width()
             self.detail.column(f"c{i}", width=max(6 * cw, min(52 * cw, cw * widths[i] + 2 * cw)), anchor="w",
                                stretch=i == len(cols) - 1)    # columns keep their widths (scroll sideways if
                                                               # wider than the pane); the last takes any spare
         self._fill_list()
         self.export_btn.state(["!disabled"] if res.items else ["disabled"])
+        self.filter_box.state(["!disabled", "readonly"])
+        self.find_entry.state(["!disabled"])
         if not refresh:
-            self.app.notify_done("Live View ready", f"{len(res.items)} item(s), {diffs} with differences.")
+            self.app.notify_done("Live View comparison finished",
+                                 f"{plural(len(res.items), 'item')}, {diffs:,} with differences.")
 
     # ------------------------------------------------------------------ export
     def export(self):
@@ -843,7 +890,7 @@ class LiveTab(ttk.Frame):
                 self.q.put(("exported", path, ""))
             except Exception as exc:
                 self.q.put(("exported", path, errorlog.file_problem(exc) or f"The export failed: {exc}"))
-        threading.Thread(target=work, daemon=True).start()
+        self.app.pump.start(work)
         self.app.pump.kick()
 
     def _export_folder(self) -> str:
@@ -863,13 +910,15 @@ class LiveTab(ttk.Frame):
         for cb in self.day_cbs:
             cb.state(["disabled"])
         self.export_btn.state(["disabled"])
+        for w in (self.filter_box, self.find_entry):         # nothing to filter or find until a comparison
+            w.state(["disabled"])
         self.listv.delete(*self.listv.get_children())
         self.detail.delete(*self.detail.get_children())
         self.head.configure(text=EMPTY_HINT)
         self._set_notes([])
         self.count_lbl.configure(text="")
         if not self.running:
-            self.status.configure(text="Choose the files and press Compare (F5).")
+            self.status.configure(text=READY)
 
     # ------------------------------------------------------------------ list and detail
     def _search_soon(self):
@@ -913,34 +962,47 @@ class LiveTab(ttk.Frame):
             yield it
 
     def _fill_list(self):
+        """List the trains for the filter and search. The first rows go in at once; a long list goes on in
+        batches between events, so the window keeps responding (a newer fill replaces one still going)."""
         self._search_after = None
         keep = self.listv.selection()
+        self._fill_gen = getattr(self, "_fill_gen", 0) + 1
         self.listv.delete(*self.listv.get_children())
-        shown = 0
-        total = 0
+        rows, total = [], 0
         for it in self._visible():
             total += 1
-            if shown >= MAX_LIST:
-                continue
+            if len(rows) < MAX_LIST:
+                rows.append(it)
+        extra = f" (first {MAX_LIST:,} shown - search to narrow)" if total > len(rows) else ""
+        self.count_lbl.configure(text=f"{total:,} shown of {len(self.items):,}{extra}")
+        self._progress_text()
+        want = keep[0] if keep and any(it.key == keep[0] for it in rows) else None
+        self._insert_rows(rows, 0, self._fill_gen, want)
+
+    def _insert_rows(self, rows, start: int, gen: int, want):
+        if gen != self._fill_gen or not self.winfo_exists():
+            return                                       # a newer fill has started
+        end = min(start + LIST_BATCH, len(rows))
+        for it in rows[start:end]:
             tags = (it.state,) + (("fresh",) if it.key in self.fresh else ())
             self.listv.insert("", "end", iid=it.key, values=(self._tick(it.key), it.group,
                                                              ("* " if it.key in self.fresh else "") + it.label,
                                                              it.status), tags=tags)
-            shown += 1
-        extra = f" (first {MAX_LIST:,} shown - search to narrow)" if total > shown else ""
-        self.count_lbl.configure(text=f"{total:,} shown of {len(self.items):,}{extra}")
-        self._progress_text()
-        target = keep[0] if keep and self.listv.exists(keep[0]) else None
-        if target is None:
-            kids = self.listv.get_children()
-            target = kids[0] if kids else None
-        if target:
-            self.listv.selection_set(target)
-            self.listv.see(target)
-        else:
-            self.detail.delete(*self.detail.get_children())
-            self.head.configure(text="Nothing to show" if self.items else "")
-            self._set_notes([])
+        last = end >= len(rows)
+        if start == 0 or last:
+            target = want if want and self.listv.exists(want) else None
+            if start == 0 and target is None and want is None:
+                kids = self.listv.get_children()
+                target = kids[0] if kids else None
+            if target and not (start > 0 and self.listv.selection()):
+                self.listv.selection_set(target)
+                self.listv.see(target)
+            elif start == 0 and not rows:
+                self.detail.delete(*self.detail.get_children())
+                self.head.configure(text="Nothing to show" if self.items else "")
+                self._set_notes([])
+        if not last:
+            self.after(1, lambda: self._insert_rows(rows, end, gen, want))
 
     # ------------------------------------------------------------------ confirmations (manual checking)
     def _tick(self, key: str) -> str:
@@ -979,7 +1041,14 @@ class LiveTab(ttk.Frame):
         if self.listv.exists(key):
             self.listv.set(key, "ok", self._tick(key))
         self._progress_text()
+        self._confirm_label()
         self._autosave_soon()
+
+    def _confirm_label(self):
+        """'Confirm' for a train not yet confirmed, 'Unconfirm' for one that is."""
+        sel = self.listv.selection()
+        done = bool(sel) and sel[0] in self.confirmed
+        self.confirm_btn.configure(text="Unconfirm (Space)" if done else f"{TICK} Confirm (Space)")
 
     def _files_now(self) -> Dict[str, List[str]]:
         return {k: _split(self.vars[k].get()) for k, *_r in FILES[self.mode()] if _split(self.vars[k].get())}
@@ -1003,15 +1072,21 @@ class LiveTab(ttk.Frame):
     def _autosave_soon(self):
         if self._autosave_after:
             self.after_cancel(self._autosave_after)
-        self._autosave_after = self.after(800, self._autosave)
+        self._autosave_after = self.after(800, lambda: self._autosave(background=True))
 
-    def _autosave(self):
+    def _autosave(self, background: bool = False):
+        """Save the confirmations for these files. On the timer the file is written by a helper thread, so a
+        slow drive never holds up the window."""
         from .progress import autosave_path, save
         self._autosave_after = None
         files = self._files_now()
         if files and self.items:
-            save(autosave_path(self.mode(), files), self.mode(), files, self.confirmed, self.get_state(),
-                 self.reopened)
+            args = (autosave_path(self.mode(), files), self.mode(), files, dict(self.confirmed), self.get_state(),
+                    set(self.reopened))
+            if background:
+                threading.Thread(target=save, args=args, daemon=True).start()
+            else:
+                save(*args)
 
     def save_progress(self):
         """Save the files, options and confirmations to a file (to carry on later or pass to a colleague)."""
@@ -1031,7 +1106,9 @@ class LiveTab(ttk.Frame):
         if save(path, self.mode(), self._files_now(), self.confirmed, self.get_state(), self.reopened):
             self.status.configure(text=f"Progress saved: {path}")
         else:
-            messagebox.showerror(TITLE, f"The progress could not be saved to:\n{path}", parent=self)
+            messagebox.showerror(TITLE, f"The progress could not be saved to:\n{path}\n\n"
+                                        "Check the folder exists and you can save there, "
+                                        "or choose another folder.", parent=self)
 
     def load_progress(self):
         """Load saved progress: the same files and options, compared again, with the confirmations restored."""
@@ -1074,7 +1151,7 @@ class LiveTab(ttk.Frame):
         self.detail.delete(*self.detail.get_children())
         if it is None:
             return
-        self.head.configure(text=f"{it.label}  -  {it.status}   ({it.group})")
+        self.head.configure(text=f"{it.label} - {it.status} ({it.group})")
         self._rows, self._details_iid = {}, ""
         only = self.changed_only.get()
         shown = [r for r in it.rows if not only or r.state not in (SAME, "muted")]
@@ -1108,7 +1185,8 @@ class LiveTab(ttk.Frame):
         differ = sum(1 for r in details if r.state not in (SAME, "muted"))
         arrow = "▼ " if self._details_open() else "▶ "
         title = self._fit([arrow + "Train Header Details", arrow + "Header Details", arrow + "Header"], "c0")
-        info = (f"{len(details)} items" + (f" - {differ} differ" if differ else "")
+        info = (plural(len(details), "item")
+                + (f" - {differ} {'differs' if differ == 1 else 'differ'}" if differ else "")
                 + ("" if self._details_open() else "   (click to show)"))
         cells = [title] + [""] * (len(self.result.columns) - 1 if self.result else 0)
         if len(cells) > 2:
@@ -1188,18 +1266,37 @@ class LiveTab(ttk.Frame):
     # ------------------------------------------------------------------ watching the files
     def _watch_files(self):
         """Re-run the comparison when a compared file has been saved (and has stopped changing)."""
+        self._watch_id = None
+        if not (self.auto_var.get() and self.result is not None and not self.running and self.watch):
+            return self._keep_watching()
+        paths = list(self.watch)
+
+        def look():                                      # the file times are read by a helper thread
+            stamps = {}
+            for p in paths:
+                try:
+                    stamps[p] = self._stamp(p)
+                except Exception:
+                    stamps[p] = None
+            self.q.put(("stamps", stamps))
+        self._watch_id = "looking"                      # no second timer while this look is going
+        self.app.pump.start(look)
+        self.app.pump.kick()
+
+    def _stamps_read(self, stamps):
+        """The file times read by _watch_files: compare again once a changed file has stopped changing."""
+        self._watch_id = None
         try:
             if self.auto_var.get() and self.result is not None and not self.running and self.watch:
-                changed = [p for p, st in self.watch.items() if self._stamp(p) != st]
+                changed = [p for p, st in self.watch.items() if p in stamps and stamps[p] != st]
                 if changed:
-                    now = tuple((p, self._stamp(p)) for p in changed)
+                    now = tuple((p, stamps[p]) for p in changed)
                     if now == self._pending_change and all(s is not None for _p, s in now):
                         self._pending_change = None
                         self.run(refresh=True)          # unchanged since the last check: the save is complete
                     else:
                         self._pending_change = now
         finally:
-            self._watch_id = None
             self._keep_watching()
 
     def _keep_watching(self):
@@ -1212,7 +1309,9 @@ class LiveTab(ttk.Frame):
         try:
             while True:
                 item = self.q.get_nowait()
-                if item[0] == "step":                    # each step read or compared moves the bar on
+                if item[0] == "stamps":                  # file times read for 'Refresh when a file is saved'
+                    self._stamps_read(item[1])
+                elif item[0] == "step":                  # each step read or compared moves the bar on
                     self.progress.set(self.progress.value + (0.9 - self.progress.value) * 0.3)
                 elif item[0] == "done":
                     self.progress.finish()
@@ -1221,17 +1320,19 @@ class LiveTab(ttk.Frame):
                     _k, path, err = item
                     if err:
                         self.status.configure(text=err)
-                        messagebox.showerror(TITLE, err)
+                        messagebox.showerror(TITLE, err, parent=self)
                     else:
                         from rstools.fsutil import excel_warning
                         warn = excel_warning([path])
                         self.status.configure(text=f"Exported to {path}")
                         if warn:
-                            messagebox.showwarning(TITLE, warn)
+                            messagebox.showwarning(TITLE, warn, parent=self)
                         self.app.open_outputs([path])
                 elif item[0] == "stopped":
+                    self._again = False
                     self._finished()
-                    self.status.configure(text="Stopped.")
+                    self.progress.finish(False)
+                    self.status.configure(text="Stopped")
                 elif item[0] == "error":
                     _k, msg, refresh, stamps = item
                     self._finished()
@@ -1241,8 +1342,8 @@ class LiveTab(ttk.Frame):
                         self.status.configure(text=f"Refresh failed at {time.strftime('%H:%M:%S')}: "
                                                    f"{msg.splitlines()[0]} - will try again when the file is saved.")
                     else:
-                        self.status.configure(text="Comparison failed - see the message.")
+                        self.status.configure(text=FAILED)
                         self.app.notify_done("Live View failed", msg.splitlines()[0], False)
-                        messagebox.showerror(TITLE, msg[:1500])
+                        messagebox.showerror(TITLE, msg[:1500], parent=self)
         except queue.Empty:
             pass

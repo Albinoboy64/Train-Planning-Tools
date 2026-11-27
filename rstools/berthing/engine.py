@@ -167,7 +167,7 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
     progress(0.75, "Writing the chart...")
     _save(lambda: writer.write(new, path, lambda t: _updates_line(t, shade), (), [], counts), path)
-    about = [("Older chart", os.path.basename(old_path)), ("Newer chart", os.path.basename(new_path)),
+    about = [("Original chart", os.path.basename(old_path)), ("Updated chart", os.path.basename(new_path)),
              ("Highlight colour", shade), ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
     progress(0.92, "Writing the change report...")
     _save(lambda: write_report(report, changes, "Berthing chart changes", about), report)

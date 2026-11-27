@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import threading
 import time
 import tkinter as tk
 from functools import partial
@@ -14,9 +13,10 @@ from tkinter import ttk, filedialog, messagebox
 
 from rstools import errorlog, theme
 from rstools.autocomplete import Suggest
-from rstools.widgets import Progress, TaskBox, Tooltip, local_folder_box
+from rstools.widgets import FAILED, READY, STOPPED, Progress, TaskBox, Tooltip, day_buttons, debounce, \
+    duration, local_folder_box, log_box
 from rstools.branding import APP_NAME
-from rstools.naming import file_label
+from rstools.naming import file_label, plural
 from rstools.fsutil import write_json
 
 from rstools.days import DAYS, DAY_NAMES
@@ -36,19 +36,21 @@ FILETYPES = {"xml": [("Attune diagram XML", "*.xml"), ("All files", "*.*")],
 MODES = {"create": ("Create a stats pack", "Create stats pack"),
          "plans": ("Compare two plans (two sets of XML + TRENT print)", "Compare plans"),
          "packs": ("Compare two stats pack files", "Compare stats packs"),
-         "units": ("Unit reports: washes and CETs, depot returns / swaps, captive units, fuel", "Create unit report"),
-         "seats": ("Capacity report: by headcode group, corridor or station to station", "Create capacity report")}
+         "units": ("Create unit reports: washes and CETs, depot returns / swaps, captive units, fuel",
+                   "Create unit reports"),
+         "seats": ("Create a capacity report: by headcode group, corridor or station to station",
+                   "Create capacity report")}
 TASK_GROUPS = [("Stats packs", [(m, MODES[m][0]) for m in ("create", "plans", "packs")]),      # the Task list
                ("Reports", [(m, MODES[m][0]) for m in ("units", "seats")])]
 FILES = {"create": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")],
-         "plans": [("xml_a", "Original XML:"), ("trent_a", "Original TRENT VL29 print(s):"),
-                   ("xml_b", "Updated XML:"), ("trent_b", "Updated TRENT VL29 print(s):")],
+         "plans": [("xml_a", "Original Attune XML:"), ("trent_a", "Original TRENT VL29 print(s):"),
+                   ("xml_b", "Updated Attune XML:"), ("trent_b", "Updated TRENT VL29 print(s):")],
          "packs": [("pack_a", "Original stats pack:"), ("pack_b", "Updated stats pack:")],
          "units": [("xml_a", "Attune XML (optional):"), ("trent_a", "TRENT VL29 print(s):")],
          "seats": [("xml_a", "Attune XML:"), ("trent_a", "TRENT VL29 print(s):")]}
 NOTE = ("Several VL29 prints can go in one box, e.g. the LTP print and a week's STP print. The XML must be from the "
         "same plan as the TRENT print; unit reports can be made from the TRENT print alone.")
-UNIT_POSSIBLE = (("every", "Every unit"), ("over", "Units over a limit only"), ("off", "Off"))
+UNIT_POSSIBLE = (("every", "Every unit"), ("over", "Only units overdue for it"), ("off", "Off"))
 UNIT_PERIODS = (("week", "Whole week (follows each unit with the next-day workings)"),
                 ("days", "Show each day separately"),
                 ("timetable", "Entire timetable (totals by fleet only)"))
@@ -56,6 +58,13 @@ OPTIONAL = {("units", "xml_a")}         # boxes that may be left blank
 OP_LABEL = {op: f"{op} ({', '.join(deps)})" for op, deps in OPERATOR_DEPOTS.items()}
 OP_LABEL[OTHER] = "Other depots"
 FLEET_COLS = 6
+
+
+def _mtime(path: str):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
 
 
 def _version() -> str:
@@ -144,16 +153,17 @@ class StatsPackTab(ttk.Frame):
             ttk.Checkbutton(uf, text=text, variable=self.unit_vars[key]).grid(row=i // 3, column=i % 3, sticky="w",
                                                                             padx=(0, 10))
         self.unit_possible = tk.StringVar(value="every")
-        ttk.Label(uf, text="Note where a WASH, CET or FUEL could be added:").grid(row=2, column=0, columnspan=2,
+        ttk.Label(uf, text="Show where a wash, CET or fuel could be added:").grid(row=2, column=0, columnspan=2,
                                                                                     sticky="w", pady=(4, 0))
         self.possible_box = ttk.Combobox(uf, state="readonly", width=22, values=[t for _v, t in UNIT_POSSIBLE])
         self.possible_box.grid(row=2, column=2, sticky="w", pady=(4, 0))
         self.possible_box.set(dict(UNIT_POSSIBLE)["every"])
         self.possible_box.bind("<<ComboboxSelected>>", lambda _e: self.unit_possible.set(
             next(v for v, t in UNIT_POSSIBLE if t == self.possible_box.get())))
-        Tooltip(self.possible_box, "Adds a 'Could be added at' note to each unit, and a tab of the stops at a "
-                                   "location where the TRENT print does this activity, long enough for it, where "
-                                   "the unit does not (whole-week reports only).")
+        Tooltip(self.possible_box, "Adds a 'Could be added at' note to each unit, and a tab listing stops long "
+                                   "enough for a wash, CET or fuel at places where the TRENT print does them but "
+                                   "this unit does not. 'Only units overdue for it': units past the wash, CET or "
+                                   "fuel limit. Whole-week reports only.")
         self.two_plans = tk.BooleanVar(value=False)         # unit / capacity reports: compare two timetables
         self.unit_period = tk.StringVar(value="week")
         for r, (value, text) in enumerate(UNIT_PERIODS, start=3):
@@ -166,6 +176,7 @@ class StatsPackTab(ttk.Frame):
 
         # 1. input
         ff = self.in_frame = ttk.LabelFrame(left, text="1. Input", padding=8)
+        opt.lift(ff)                    # the Tab key goes through Input before Options, as they are shown
         ff.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ff.columnconfigure(1, weight=1)
         self.vars = {k: tk.StringVar() for k in ("xml_a", "trent_a", "xml_b", "trent_b", "pack_a", "pack_b")}
@@ -178,6 +189,10 @@ class StatsPackTab(ttk.Frame):
             ent.grid(row=r, column=1, sticky="ew", padx=4, pady=2)
             btn.grid(row=r, column=2, pady=2)
             self.file_rows[key] = (lab, ent, btn)
+            if _kind(key) == "trent":                   # a box that can hold several prints can be emptied
+                clear = ttk.Button(ff, text="Clear", width=6, command=lambda v=self.vars[key]: v.set(""))
+                clear.grid(row=r, column=3, padx=(4, 0), pady=2)
+                self.file_rows[key] += (clear,)
             self.vars[key].trace_add("write", lambda *_a, k=key: self._file_changed(k))
         self.note = theme.tip(ttk.Label(ff, text=NOTE, style="Small.TLabel", wraplength=480, justify="left"),
                               "About the files")
@@ -189,16 +204,6 @@ class StatsPackTab(ttk.Frame):
         of = self.out_frame = ttk.LabelFrame(left, text="3. Output", padding=8)
         of.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         of.columnconfigure(1, weight=1)
-        fmtf = ttk.Frame(of)
-        fmtf.grid(row=9, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        ttk.Label(fmtf, text="Save as:").grid(row=0, column=0, padx=(0, 6))
-        self.fmt_var = tk.StringVar(value="xlsx")
-        for i, (key, text) in enumerate((("xlsx", "Excel (default)"), ("pdf", "PDF"), ("docx", "Word"))):
-            ttk.Radiobutton(fmtf, text=text, variable=self.fmt_var, value=key,
-                            command=self._fmt_changed).grid(row=0, column=i + 1, padx=(0, 10))
-        self.fmt_hint = theme.collapse_empty(ttk.Label(of, text="", style="Small.TLabel", wraplength=480,
-                                                       justify="left"))
-        self.fmt_hint.grid(row=10, column=0, columnspan=3, sticky="w")
         self.output = tk.StringVar(value="totals_days")
         self.output_radios = []
         for i, (val, text) in enumerate(OUTPUTS.items()):
@@ -221,9 +226,12 @@ class StatsPackTab(ttk.Frame):
         flag.grid(row=1, column=1, columnspan=3, sticky="w", pady=(3, 0))
         self.flag_var = tk.BooleanVar(value=True)
         self.flag_miles = tk.StringVar(value="10")
+        flag_spin = ttk.Spinbox(flag, from_=0.5, to=9999, increment=5, width=6, textvariable=self.flag_miles)
         ttk.Checkbutton(flag, text="Flag mileage increases over", variable=self.flag_var).grid(row=0, column=0)
-        ttk.Spinbox(flag, from_=0.5, to=9999, increment=5, width=6, textvariable=self.flag_miles).grid(
-            row=0, column=1, padx=4)
+        flag_spin.grid(row=0, column=1, padx=4)
+        flag_spin.lift()                                     # after the tick box for the Tab key
+        self.flag_var.trace_add("write", lambda *_a: flag_spin.state(            # greyed when not flagging
+            ["!disabled"] if self.flag_var.get() else ["disabled"]))
         ttk.Label(flag, text="miles").grid(row=0, column=2)
         ttk.Label(of, text="Save to folder:").grid(row=5, column=0, sticky="w", pady=(6, 0))
         self.out_dir = tk.StringVar()
@@ -236,11 +244,19 @@ class StatsPackTab(ttk.Frame):
         self.name_hint = theme.tip(ttk.Label(of, text="", style="Small.TLabel", wraplength=480, justify="left"),
                                    "Default name and folder")
         self.name_hint.grid(row=7, column=0, columnspan=3, sticky="w")
-        ttk.Button(of, text="Edit fleet data (operator, seats, units, lengths)...", command=self.edit_fleet).grid(
-            row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        fmtf = ttk.Frame(of)
+        fmtf.grid(row=8, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(fmtf, text="Save as:").grid(row=0, column=0, padx=(0, 6))
+        self.fmt_var = tk.StringVar(value="xlsx")
+        for i, (key, text) in enumerate((("xlsx", "Excel"), ("pdf", "PDF"), ("docx", "Word"))):
+            ttk.Radiobutton(fmtf, text=text, variable=self.fmt_var, value=key,
+                            command=self._fmt_changed).grid(row=0, column=i + 1, padx=(0, 10))
+        self.fmt_hint = theme.collapse_empty(ttk.Label(of, text="", style="Small.TLabel", wraplength=480,
+                                                       justify="left"))
+        self.fmt_hint.grid(row=9, column=0, columnspan=3, sticky="w")
 
         # 4. selection
-        sel = self.sel_frame = ttk.LabelFrame(right, text="4. Days, Operators and Fleets", padding=8)
+        sel = self.sel_frame = ttk.LabelFrame(right, text="4. Days, operators and fleets", padding=8)
         sel.grid(row=0, column=0, sticky="nsew")
         sel.columnconfigure(0, weight=1)
         ttk.Label(sel, text="Diagram days:").grid(row=0, column=0, sticky="w")
@@ -252,11 +268,7 @@ class StatsPackTab(ttk.Frame):
             ttk.Checkbutton(dayf, text=DAY_NAMES[i][:3], variable=v, command=self._days_changed).grid(
                 row=0, column=i, padx=(0, 8))
             self.day_vars.append(v)
-        bf = ttk.Frame(sel)
-        bf.grid(row=2, column=0, sticky="w", pady=(4, 0))
-        for i, (text, pick) in enumerate((("All days", lambda d: True), ("Weekdays", lambda d: d < 5),
-                                          ("Weekend", lambda d: d >= 5), ("None", lambda d: False))):
-            ttk.Button(bf, text=text, command=lambda p=pick: self._set_days(p)).grid(row=0, column=i, padx=(0, 4))
+        day_buttons(sel, self._set_days, row=2, column=0, sticky="w", pady=(4, 0))
         self.day_note = ttk.Label(sel, text="", style="Warn.TLabel", wraplength=440, justify="left")
         self.day_note.grid(row=3, column=0, sticky="w", pady=(2, 0))
 
@@ -268,6 +280,8 @@ class StatsPackTab(ttk.Frame):
         fb.grid(row=6, column=0, sticky="w", pady=(4, 0))
         ttk.Button(fb, text="All fleets", command=lambda: self._set_fleets(True)).grid(row=0, column=0)
         ttk.Button(fb, text="None", command=lambda: self._set_fleets(False)).grid(row=0, column=1, padx=4)
+        ttk.Button(fb, text="Edit fleet data (operator, seats, units, lengths)...", command=self.edit_fleet).grid(
+            row=0, column=2, padx=(12, 0))
         self.fleet_note = theme.collapse_empty(ttk.Label(sel, text="", style="Small.TLabel", wraplength=440,
                                                          justify="left"))
         self.fleet_note.grid(row=7, column=0, sticky="w", pady=(4, 0))
@@ -287,23 +301,10 @@ class StatsPackTab(ttk.Frame):
         self.stop_btn = ttk.Button(top, text="Stop", command=self.stop_run, state="disabled")
         self.stop_btn.grid(row=0, column=2)
         Tooltip(self.stop_btn, "Stop the run (Esc). Nothing is saved from a stopped run.")
-        self.status = ttk.Label(rf, text="Ready - press F5 or Ctrl+Enter to run", style="Small.TLabel")
+        self.status = ttk.Label(rf, text=READY, style="Small.TLabel")
         self.status.grid(row=1, column=0, sticky="w", pady=(4, 2))
         self.progress = Progress(self.prog, self.status)
-        logf = ttk.Frame(rf)
-        logf.grid(row=2, column=0, sticky="nsew")
-        logf.columnconfigure(0, weight=1)
-        logf.rowconfigure(0, weight=1)
-        self.log = tk.Text(logf, height=4, wrap="word", font="TkFixedFont", state="disabled",
-                           relief="flat", borderwidth=1, highlightthickness=1, highlightcolor="#B0B0B0",
-                           highlightbackground="#C8C8C8")
-        self.log.grid(row=0, column=0, sticky="nsew")
-        sb = ttk.Scrollbar(logf, orient="vertical", command=self.log.yview)
-        sb.grid(row=0, column=1, sticky="ns")
-        self.log.configure(yscrollcommand=sb.set)
-        self.log.tag_configure("warn", foreground="#9C5700")
-        self.log.tag_configure("error", foreground="#C00000")
-        self.log.tag_configure("ok", foreground="#006100")
+        self.log = log_box(rf, row=2, column=0, sticky="nsew")
         ob = ttk.Frame(rf)
         ob.grid(row=3, column=0, sticky="w", pady=(6, 0))
         self.open_btn = ttk.Button(ob, text="Open output", state="disabled", command=self._open_outputs)
@@ -340,7 +341,7 @@ class StatsPackTab(ttk.Frame):
         by_kind = {k: [p for p in paths if p.lower().endswith(ext)] for k, ext in EXT.items()}
         if not any(by_kind.values()):
             messagebox.showwarning(TITLE, "Drop an Attune XML (.xml), a TRENT unit diagram print (.docx) "
-                                          "or stats packs (.xlsx).")
+                                          "or stats packs (.xlsx).", parent=self)
             return event.action
         if key and paths and all(p.lower().endswith(EXT[_kind(key)]) for p in paths):
             if len(paths) == 1 or _kind(key) == "trent":   # dropped on its own box (prints: all of them)
@@ -378,11 +379,11 @@ class StatsPackTab(ttk.Frame):
         self.seat_kind = tk.StringVar(value="Service group")
         self.seat_group = {"Service group": tk.StringVar(), "Corridor": tk.StringVar()}
         self.seat_boxes = {}
-        labels = {"Service group": "Service group:", "Corridor": "Corridor:"}
+        labels = {"Service group": "Headcode group:", "Corridor": "Corridor:"}
         for r, kind in enumerate(("Service group", "Corridor")):
             ttk.Radiobutton(sf, text=labels[kind], variable=self.seat_kind, value=kind,
                             command=self._seat_kind_changed).grid(row=2 * r, column=0, sticky="w")
-            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=36,     # pick or type
+            box = ttk.Combobox(sf, textvariable=self.seat_group[kind], width=30,     # pick or type
                                style="Suggest.TCombobox")
             box.grid(row=2 * r, column=1, sticky="ew", padx=(4, 0), pady=1)
             pick = (lambda _v=None, k=kind: (self.seat_kind.set(k), self._seat_kind_changed()))
@@ -390,7 +391,7 @@ class StatsPackTab(ttk.Frame):
             box.bind("<Key>", lambda e, f=pick: f() if e.char and e.char.isprintable() else None, add="+")
             Suggest(box, lambda b=box: b.cget("values"), pick)
             self.seat_boxes[kind] = box
-        self.seat_group_note = theme.collapse_empty(ttk.Label(sf, text="", style="Small.TLabel", wraplength=640,
+        self.seat_group_note = theme.collapse_empty(ttk.Label(sf, text="", style="Small.TLabel", wraplength=440,
                                                               justify="left"))
         self.seat_group_note.grid(row=1, column=1, sticky="w", padx=(4, 0))
         self.corridor_dir = tk.StringVar(value="both")
@@ -464,7 +465,7 @@ class StatsPackTab(ttk.Frame):
                         variable=self.two_plans, command=self._mode_changed).grid(row=8, column=0, columnspan=2,
                                                                                   sticky="w", pady=(4, 0))
         ttk.Button(sf, text="Edit corridors...", command=self.edit_groups).grid(
-            row=6, column=1, sticky="e")
+            row=9, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self._stations: list = []
         self._headcode_groups: list = []
         self._load_groups()
@@ -544,10 +545,21 @@ class StatsPackTab(ttk.Frame):
 
     def edit_groups(self):
         from .seats import ensure_user_groups
-        self.app.open_outputs([ensure_user_groups()], force=True)
-        self.fleet_note.configure(text="Save and close the corridor list in Excel, then choose the capacity report "
-                                       "again to see the changes.")
-        self.after(2000, self._load_groups)
+        path = ensure_user_groups()
+        self._groups_file = (path, _mtime(path))
+        self.app.open_outputs([path], force=True)
+        self.fleet_note.configure(text="The corridor list is open in Excel. Save it and come back to this window: "
+                                       "the changes are read in then.")
+        if not getattr(self, "_watching_groups", False):        # read again when the window is back in front
+            self._watching_groups = True
+            self.winfo_toplevel().bind("<FocusIn>", self._groups_maybe_changed, add="+")
+
+    def _groups_maybe_changed(self, _e=None):
+        path, before = getattr(self, "_groups_file", ("", None))
+        if path and _mtime(path) != before:
+            self._groups_file = (path, _mtime(path))
+            self._load_groups()
+            self.fleet_note.configure(text="The corridor list was read again.")
 
     # ------------------------------------------------------------ helpers
     def _task_picked(self, _event=None):
@@ -563,8 +575,9 @@ class StatsPackTab(ttk.Frame):
     def _mode_changed(self):
         mode = self.mode.get()
         shown = dict(files_for(mode, self.two_plans.get()))
-        for key, (lab, ent, btn) in self.file_rows.items():
-            for w in (lab, ent, btn):
+        for key, row in self.file_rows.items():
+            lab = row[0]
+            for w in row:
                 (w.grid if key in shown else w.grid_remove)()
             if key in shown:
                 lab.configure(text=shown[key])
@@ -585,13 +598,15 @@ class StatsPackTab(ttk.Frame):
             self._load_groups()
         self._number_frames()
         self._update_name_hint()
+        if not self.running:
+            self.status.configure(text=READY)
         if mode != "packs":
             self._read_inputs()
 
     def _number_frames(self):
         """Number the frames shown, in order, with no gap when 'Options' is hidden."""
         frames = [(self.in_frame, "Input"), (self.opt_frame, "Options"), (self.out_frame, "Output"),
-                  (self.sel_frame, "Days, Operators and Fleets"), (self.run_frame, "Run")]
+                  (self.sel_frame, "Days, operators and fleets"), (self.run_frame, "Run")]
         n = 0
         for frame, title in frames:
             if frame is self.opt_frame and not frame.winfo_manager():
@@ -608,8 +623,9 @@ class StatsPackTab(ttk.Frame):
             self._set_state(child, enabled)
 
     def _file_changed(self, key):
-        if _kind(key) in ("xml", "trent") and self.mode.get() != "packs":
-            self._read_inputs(only=_kind(key))
+        kind = _kind(key)
+        if kind in ("xml", "trent") and self.mode.get() != "packs":      # read once typing in the box pauses
+            debounce(self, f"read_{kind}", 400, lambda: self._read_inputs(only=kind))
         self._update_name_hint()
 
     def _update_name_hint(self):
@@ -636,30 +652,31 @@ class StatsPackTab(ttk.Frame):
                 name = plans_name(self._prints[0], self._prints[1], get["xml_a"], get["xml_b"], ticked)
         except Exception:
             name = None
-        where = "the updated stats pack" if mode == "packs" else "the (updated) TRENT print"
         what = f"'{name}'" if name else ("a name from the two packs" if mode == "packs" else
                                           "a name from the timetable, e.g. 'Stats pack for DEC26'")
-        self.name_hint.configure(text=f"Leave the name blank for {what}, and the folder blank to save next "
-                                      f"to {where}.")
+        self.name_hint.configure(text=f"Leave the name blank for {what}. Leave the folder blank to save to "
+                                      "Downloads.")
 
     def _browse(self, key):
         cur = self.vars[key].get().strip() or self.vars.get(key.replace("_b", "_a"), tk.StringVar()).get().strip()
         cur = (_split(cur) or [""])[0]
         start = os.path.dirname(cur) if cur else (self._last_dir or None)
+        title = "Choose the " + file_label(self.file_rows[key][0].cget("text"))
         if _kind(key) == "trent":                   # one or more prints (TLGN: one per day type)
-            ps = filedialog.askopenfilenames(filetypes=FILETYPES["trent"], initialdir=start)
+            ps = filedialog.askopenfilenames(parent=self, title=title, filetypes=FILETYPES["trent"], initialdir=start)
             if ps:
                 self._last_dir = os.path.dirname(ps[0])
                 self.vars[key].set(" ; ".join(os.path.normpath(p) for p in ps))
             return
-        p = filedialog.askopenfilename(filetypes=FILETYPES[_kind(key)], initialdir=start)
+        p = filedialog.askopenfilename(parent=self, title=title, filetypes=FILETYPES[_kind(key)], initialdir=start)
         if p:
             self._last_dir = os.path.dirname(p)
             self.vars[key].set(os.path.normpath(p))
 
     def _browse_dir(self):
         from rstools.fsutil import output_folder
-        p = filedialog.askdirectory(title="Choose output folder", initialdir=output_folder(self.out_dir.get()))
+        p = filedialog.askdirectory(parent=self, title="Choose the output folder",
+                                    initialdir=output_folder(self.out_dir.get()))
         if p:
             self.out_dir.set(os.path.normpath(p))
 
@@ -722,7 +739,7 @@ class StatsPackTab(ttk.Frame):
                 continue
             if kind == "trent":
                 self.fleet_note.configure(text="Reading the TRENT print...")
-            threading.Thread(target=self._read_worker, args=(kind, token, paths), daemon=True).start()
+            self.app.pump.start(self._read_worker, kind, token, paths)
             self.app.pump.kick()
 
     def _read_worker(self, kind, token, paths):
@@ -996,10 +1013,6 @@ class StatsPackTab(ttk.Frame):
             return 10.0
         return value if value > 0 else None
 
-    def stop(self):
-        """Stop polling (the window is closing)."""
-        pass                                    # the window's queue pump stops with it
-
     def run(self):
         """Start the selected run (Run button, F5 or Ctrl+Enter)."""
         if self.running:
@@ -1015,51 +1028,58 @@ class StatsPackTab(ttk.Frame):
             if not files[key]:
                 if (mode, key) in OPTIONAL and not self.two_plans.get():
                     continue
-                return messagebox.showwarning(TITLE, f"Choose the {file_label(label)} file.")
+                return messagebox.showwarning(TITLE, f"Choose the {file_label(label)}.", parent=self)
             parts = _split(files[key]) if _kind(key) == "trent" else [files[key]]
             for p in parts:
                 if not os.path.isfile(p):
-                    return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}")
+                    return messagebox.showwarning(TITLE, f"This file could not be found:\n{p}", parent=self)
                 if not p.lower().endswith(EXT[_kind(key)]):
                     return messagebox.showwarning(TITLE, f"The {file_label(label)} should be a "
-                                                         f"{EXT[_kind(key)]} file:\n{p}")
+                                                         f"{EXT[_kind(key)]} file:\n{p}", parent=self)
         if mode != "packs":
             if not days:
-                return messagebox.showwarning(TITLE, "Tick at least one diagram day.")
+                return messagebox.showwarning(TITLE, "Tick at least one diagram day.", parent=self)
             if not ops:
-                return messagebox.showwarning(TITLE, "Tick at least one operator.")
+                return messagebox.showwarning(TITLE, "Tick at least one operator.", parent=self)
             if fleets is not None and not fleets:
-                return messagebox.showwarning(TITLE, "Tick at least one fleet.")
+                return messagebox.showwarning(TITLE, "Tick at least one fleet.", parent=self)
         out_dir = self.out_dir.get().strip().strip('"')
         if out_dir and not os.path.isdir(out_dir):
-            return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{out_dir}")
+            return messagebox.showwarning(TITLE, f"The output folder does not exist:\n{out_dir}", parent=self)
+        if mode in ("plans", "packs") and self.flag_var.get():
+            try:
+                float(self.flag_miles.get())
+            except ValueError:
+                return messagebox.showwarning(TITLE, "Type the mileage increase to flag as a number of miles, "
+                                                     "e.g. 10, or untick 'Flag mileage increases over'.", parent=self)
         opts = PackOptions(days=days, operators=ops, fleets=fleets, output=self.output.get(),
                            output_dir=out_dir, output_name=self.out_name.get().strip(),
                            compare=CompareOptions(**{k: v.get() for k, v in self.cmp_vars.items()},
                                                   flag_miles=self._flag_threshold()),
                            fmt=self.fmt_var.get(), possible=self.unit_possible.get())
         if mode == "units" and not any(v.get() for v in self.unit_vars.values()):
-            return messagebox.showwarning(TITLE, "Tick at least one unit report.")
+            return messagebox.showwarning(TITLE, "Tick at least one unit report.", parent=self)
         if mode == "seats":
             st = self._seat_state()
             if not st["seating"] and not st["standing"]:
-                return messagebox.showwarning(TITLE, "Tick seating capacity, standing room or both.")
+                return messagebox.showwarning(TITLE, "Tick seating capacity, standing room or both.", parent=self)
             if st["kind"] == "Station to station":
                 if not all(st["journey"]):
-                    return messagebox.showwarning(TITLE, "Choose the two stations.")
+                    return messagebox.showwarning(TITLE, "Choose the two stations.", parent=self)
                 if st["journey"][0].casefold() == st["journey"][1].casefold():
-                    return messagebox.showwarning(TITLE, "Choose two different stations.")
+                    return messagebox.showwarning(TITLE, "Choose two different stations.", parent=self)
             elif not st["groups"][st["kind"]]:
                 return messagebox.showwarning(TITLE, "Choose or type a headcode group (e.g. 1F)." if
-                                              st["kind"] == "Service group" else "Choose or type a corridor.")
+                                              st["kind"] == "Service group" else "Choose or type a corridor.",
+                                              parent=self)
             if self.seat_window.get():
                 from .seats import SeatsError, parse_time
                 try:
                     parse_time(self.seat_from.get()), parse_time(self.seat_to.get())
                 except SeatsError as exc:
-                    return messagebox.showwarning(TITLE, str(exc))
+                    return messagebox.showwarning(TITLE, str(exc), parent=self)
                 if not self.seat_station.get().strip() and st["kind"] != "Station to station":
-                    return messagebox.showwarning(TITLE, "Choose the station for the time window.")
+                    return messagebox.showwarning(TITLE, "Choose the station for the time window.", parent=self)
         for key, _label in files_for(mode, self.two_plans.get()):
             for p in (_split(files[key]) if _kind(key) == "trent" else [files[key]] if files[key] else []):
                 self.app.add_recent(_kind(key), p)
@@ -1077,7 +1097,7 @@ class StatsPackTab(ttk.Frame):
         self.app.set_busy(True)
         extra = {"two_plans": self.two_plans.get() and mode in ("units", "seats"), "seats": self._seat_state(),
                  "which": [k for k, v in self.unit_vars.items() if v.get()], "unit_period": self.unit_period.get()}
-        threading.Thread(target=self._work, args=(mode, files, opts, extra), daemon=True).start()
+        self.app.pump.start(self._work, mode, files, opts, extra)
         self.app.pump.kick()
 
     def _work(self, mode, files, opts, extra):
@@ -1093,7 +1113,7 @@ class StatsPackTab(ttk.Frame):
                 progress(0.1, "Reading and comparing the stats packs...")
                 out, n = compare_packs(files["pack_a"], files["pack_b"], opts.output_dir, opts.output_name,
                                        opts.compare, opts.fmt)
-                self.q.put(("done", [out], [], f"{n} difference(s) found between the stats packs."))
+                self.q.put(("done", [out], [], f"{plural(n, 'difference')} found between the stats packs."))
                 return
             progress(0.02, "Reading the files...")
             plans = [load_plan(PlanInputs(files["xml_a"], files["trent_a"]), log, xml_optional=mode == "units")]
@@ -1135,7 +1155,7 @@ class StatsPackTab(ttk.Frame):
             else:
                 outs, w, n = compare_plans(plans[0], plans[1], opts, version, progress)
                 warnings += w
-                summary = f"{n} difference(s) found between the plans."
+                summary = f"{plural(n, 'difference')} found between the plans."
             for msg in warnings:
                 log("WARNING: " + msg, "warn")
             self.q.put(("done", outs, warnings, summary))
@@ -1156,8 +1176,7 @@ class StatsPackTab(ttk.Frame):
         self.running = False
         self.app.set_busy(False)
         self.run_btn.state(["!disabled"])
-        secs = time.monotonic() - self._started
-        self.status.configure(text=(f"Finished in {secs:.1f} s" if ok else "Failed"))
+        self.status.configure(text=("Finished in " + duration(time.monotonic() - self._started) if ok else FAILED))
 
     def _poll(self):
         try:
@@ -1178,7 +1197,7 @@ class StatsPackTab(ttk.Frame):
                     messagebox.showwarning(TITLE, "Some ticked days are not in the files:\n\n" + "\n".join(item[1])
                                            + "\n\nDays missing from the TRENT print are left out. For days missing "
                                              "from the XML, calling points and times come from the TRENT print "
-                                             "only (no passes, seconds or public times).")
+                                             "only (no passes, seconds or public times).", parent=self)
                 elif kind == "done":
                     _k, outs, warnings, summary = item
                     self._finish(True)
@@ -1191,22 +1210,22 @@ class StatsPackTab(ttk.Frame):
                     if outs:
                         self.open_btn.state(["!disabled"])
                         self.dir_btn.state(["!disabled"])
-                    note = f"\n\n{len(warnings)} warning(s) - see the log." if warnings else ""
+                    note = f"\n\n{plural(len(warnings), 'warning')} - see the log." if warnings else ""
                     from rstools.fsutil import excel_warning
                     long_warn = excel_warning(outs)
                     if long_warn:
                         self._append("WARNING: " + long_warn, "warn")
                         note += f"\n\n{long_warn}"
                     self.app.notify_done("Stats Pack finished", summary)
-                    messagebox.showinfo(TITLE, f"{summary}\n\n" + "\n".join(outs) + note)
+                    messagebox.showinfo(TITLE, f"{summary}\n\n" + "\n".join(outs) + note, parent=self)
                 elif kind == "stopped":
                     self._finish(False)
-                    self.status.configure(text="Stopped - nothing was saved")
+                    self.status.configure(text=STOPPED)
                     self._append("Stopped - nothing was saved.", "warn")
                 elif kind == "error":
                     self._finish(False)
                     self._append("ERROR: " + item[1], "error")
                     self.app.notify_done("Stats Pack failed", item[1].splitlines()[0], False)
-                    messagebox.showerror(TITLE, item[1][:1500])
+                    messagebox.showerror(TITLE, item[1][:1500], parent=self)
         except queue.Empty:
             pass
