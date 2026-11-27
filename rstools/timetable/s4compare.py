@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .doccompare import ADDED, CHANGED, REMOVED, SAME, DocComparison, DocItem, books_of, norm, pair_fields
 from .section4 import Possession, Statement
@@ -131,8 +131,3 @@ def _compare_notes(a: Statement, b: Statement, cmp: DocComparison):
         return [(" > ".join(x for x in (n.route, n.kind, n.scope) if x), n.text, int(n.source.rsplit("p", 1)[-1])
                  if n.source.rsplit("p", 1)[-1].isdigit() else 0, n.refs) for n in st.notes]
     _compare_text(blocks(a), blocks(b), cmp)
-
-
-def read_side(paths: Sequence[str], log=lambda m: None) -> Statement:
-    from .section4 import read_statement
-    return read_statement(paths, log)
