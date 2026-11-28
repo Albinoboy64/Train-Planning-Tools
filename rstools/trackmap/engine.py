@@ -4,6 +4,7 @@ for the picture at a time (`View.at`) and draws it."""
 from __future__ import annotations
 
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -159,8 +160,8 @@ def _places(locations: Dict[str, str], used: Sequence[str]) -> Dict[str, List[st
     out: Dict[str, List[str]] = {}
     for tip in used:
         name = locations.get(tip, tip)
-        if not part_of(name, name):
-            continue                                # a junction or signal
+        if re.search(r"\bsig(?:nal)?\b", name, re.I):
+            continue                                # a signal
         head = next((n for n in names if len(n) < len(name) and part_of(name, n)), name)
         out.setdefault(head, []).append(tip)
     return out

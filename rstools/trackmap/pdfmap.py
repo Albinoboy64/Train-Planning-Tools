@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+from collections import Counter
 from functools import cached_property
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -122,6 +123,35 @@ def _thick_kind(stroke, width: float, length: float) -> Optional[str]:
     return "running"
 
 
+def _band(fill, pts: List[Point]):
+    """A filled shape of the WCML book: ('running' / 'points', its centre line) for a thin band - a track coloured by
+    track circuit, or a black crossover - 'block' for a red platform block, else None."""
+    if len(pts) < 3 or len(pts) > 2000:
+        return None
+    area = abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1]))) / 2
+    ends = {min(pts), max(pts), min(pts, key=lambda p: p[1]), max(pts, key=lambda p: p[1]),
+            min(pts, key=lambda p: p[0] + p[1]), max(pts, key=lambda p: p[0] + p[1]),
+            min(pts, key=lambda p: p[0] - p[1]), max(pts, key=lambda p: p[0] - p[1])}
+    a, b = max(((p, q) for p in ends for q in ends), key=lambda pq: math.dist(*pq))     # its two ends
+    length = math.dist(a, b)
+    if length < MIN_TRACK:
+        return None
+    thick = area / length
+    r, g, bl = fill
+    if (r, g, bl) == (255, 0, 0) and thick >= 4:
+        return "block"
+    if thick > 3.5 or min(r, g, bl) > 170:
+        return None                                # boxes, notes, white, the pale page grid
+    dx, dy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+    if max(abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) for p in pts) > 5.0:      # (an arrow head at an end)
+        return None                                # not a band along one line (a frame, an arrow)
+    if max(r, g, bl) < 70:
+        return ("points", [a, b]) if length < 120 else None
+    if max(r, g, bl) - min(r, g, bl) < 40:
+        return None                                # grey: grid, tunnels
+    return ("running", [a, b])
+
+
 def _page_point(rotation: int, w0: float, h0: float):
     """The function turning a point of the page's own space into the page as shown (top left origin), for a page
     stored turned (/Rotate 90 in the strip-diagram books)."""
@@ -148,6 +178,8 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
         left, bottom, right, top = page.get_mediabox()
         shown = _page_point(page.get_rotation(), right - left, top - bottom)
         tracks: List[dict] = []
+        bands: List[dict] = []                 # filled colour bands (the WCML book): used if nothing else is
+        blocks: List[Tuple[float, float, float, float]] = []                  # red platform blocks
         for obj in page.get_objects(max_depth=8):
             if obj.type != R.FPDF_PAGEOBJ_PATH:
                 continue
@@ -159,7 +191,8 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
             kind = (KINDS.get(stroke) if stroke else None) or (KINDS.get(fill) if fill else None)
             lw = ctypes.c_float()
             R.FPDFPageObj_GetStrokeWidth(raw, ctypes.byref(lw))
-            if not kind and not (stroke and lw.value >= 1.8):
+            plain = bool(fill) and not stroke and not kind
+            if not kind and not (stroke and lw.value >= 1.8) and not plain:
                 continue
             m = obj.get_matrix()
             pts: List[Point] = []
@@ -171,6 +204,14 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
                 sx, sy = shown(px - left, py - bottom)
                 pts.append((round(sx, 2), round(sy, 2)))
             length = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+            if plain:
+                band = _band(fill, pts)
+                if band == "block":
+                    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                    blocks.append((min(xs), min(ys), max(xs), max(ys)))
+                elif band:
+                    bands.append({"kind": band[0], "pts": band[1]})
+                continue
             if not kind:
                 kind = _thick_kind(stroke, lw.value, length)
                 if not kind:
@@ -187,6 +228,19 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
                 continue                       # the same track drawn twice (its outline and its band)
             tracks.append({"kind": kind, "pts": pts})
         labels = _labels(page, shown, left, bottom, page.get_rotation() in (90, 270))
+        if not tracks:                         # the WCML book: tracks drawn as filled bands, platforms as red blocks
+            upright = Counter(round(abs(b["pts"][1][1] - b["pts"][0][1])) for b in bands          # the mileage grid:
+                              if abs(b["pts"][0][0] - b["pts"][1][0]) < 1)                       # four or more
+            for b in bands:                    # numbered '1', '2'... (named here as the other books name them)
+                (x0, y0), (x1, y1) = b["pts"]                                                   # alike, upright
+                if abs(x0 - x1) < 1 and upright[round(abs(y1 - y0))] >= 4:
+                    continue
+                if not any(t["kind"] == b["kind"] and _same_line(t["pts"], b["pts"]) for t in tracks):
+                    tracks.append(b)
+            for lb in labels:
+                if re.fullmatch(r"\d{1,2}[a-zA-Z]?", lb["text"]) and any(
+                        x0 - 1 <= lb["x"] <= x1 + 1 and y0 - 1 <= lb["y"] <= y1 + 1 for x0, y0, x1, y1 in blocks):
+                    lb["text"] = "Plat " + lb["text"]
     finally:
         pdf.close()
     title = next((lb["text"] for lb in sorted(labels, key=lambda lb: -lb["size"])      # 'Sussex 25'
@@ -345,8 +399,11 @@ _SPELL = ((" g c ", " garden city "), (" peterboro ", " peterborough "), (" rd "
 
 
 def norm_place(name: str) -> str:
-    """A place name as maps write it: no '(C)' / '(Surrey)' suffix, 'St.' as 'St', '&' as 'and'."""
-    text = re.sub(r"\([^)]*\)", " ", name or "").replace("&", " and ").replace(".", " ")
+    """A place name as maps write it: no '(C)' / '(E)' part, brackets and apostrophes dropped ('Kensington (Olympia)'
+    -> 'kensington olympia', "Shepherd's Bush" -> 'shepherds bush'), 'St.' as 'St', '&' as 'and'."""
+    text = re.sub(r"\(\s*[A-Za-z]{1,2}\s*\)", " ", name or "")          # '(C)', '(E)': a part of a station
+    text = re.sub(r"[()]", " ", text).replace("'", "").replace("’", "")
+    text = text.replace("&", " and ").replace(".", " ")
     text = " " + " ".join(text.split()).casefold() + " "
     for short, full in _SPELL:
         text = text.replace(short, full)
@@ -367,6 +424,9 @@ def place_variants(name: str) -> List[str]:
     by the place it is at as well ('Selhurst T&R.S.M.D' -> 'selhurst')."""
     base = norm_place(name)
     out = [base]
+    bare = norm_place(re.sub(r"\([^)]*\)", " ", name or ""))      # 'Sutton (Surrey)' is also 'Sutton'
+    if bare and bare != base:
+        out.append(bare)
     if base.startswith("london ") and base[len("london "):] not in _GENERIC:
         out.append(base[len("london "):])
     for tail in (" station", " low level", " high level"):

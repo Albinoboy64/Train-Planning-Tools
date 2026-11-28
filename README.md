@@ -461,7 +461,7 @@ The Live View uses exactly the same reading and matching as the other tabs, so i
 
 **Track map view...** (on the Live View tab) shows the units at a station or siding on a track diagram, at any time of the day.
 
-1. **Add track map PDF...** once for each book: choose a route track diagram PDF (vector drawings, such as Network Rail's route track diagrams - both the colour-coded books such as Sussex and Kent and the strip-diagram books such as East Midlands, LNE and Anglia, including pages stored turned). The app reads only the track layout from it - the tracks, platforms, road names and page names - and keeps that (a few hundred KB) in the data folder. The PDF itself is not copied, shipped or sent anywhere, so each user adds their own copy.
+1. **Add track map PDF...** once for each book: choose a route track diagram PDF (vector drawings, such as Network Rail's route track diagrams - the colour-coded books such as Sussex and Kent, the strip-diagram books such as East Midlands, LNE and Anglia, including pages stored turned, and the WCML (LNW) book, whose tracks are filled bands and platforms numbered red blocks). The app reads only the track layout from it - the tracks, platforms, road names and page names - and keeps that (a few hundred KB) in the data folder. The PDF itself is not copied, shipped or sent anywhere, so each user adds their own copy.
 2. Choose the **Attune XML**, type the **station or siding** (e.g. *Brighton*) and press **Find pages**. With more than one book added, **All track maps** searches every one. The page where the place is the heading, or that carries its TIPLOC code (*63011 : BEDFDM*), comes first (e.g. *Sussex 25 - BRIGHTON*).
 3. Choose the **day** (or leave *(busiest)* for the day with most diagrams) and press **Show**.
 4. Drag the **time slider**, step from one arrival or departure to the next (**<<** / **>>**, or the arrow keys), or press **Play** (Space) at 1, 5 or 15 minutes a second.
@@ -483,6 +483,11 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.41.1** - The LNW track map
+* The **track map view** reads the **WCML (LNW) book**, from Watford Junction south (tracks drawn as filled bands by track circuit, platforms as numbered red blocks). The West London Line is shown from the Sussex and Kent books.
+* **Stations named "Junction"** (Watford Junction, Clapham Junction) are found; before, they were left out with real junctions.
+* Names with brackets or apostrophes are found as maps write them (*Kensington (Olympia)*, *Shepherd's Bush*).
 
 **3.41.0** - Track maps for every route book
 * The **track map view** now reads the **East Midlands, LNE and Anglia** strip-diagram books (pages stored turned, tracks drawn by track circuit, stations by their codes) as well as Sussex and Kent. **All track maps** finds a place in any book added.

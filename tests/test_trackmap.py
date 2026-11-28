@@ -180,6 +180,8 @@ def test_place_names_as_maps_write_them_and_the_locations_of_a_place():
     locs = {"STRHAM": "Streatham", "STRHCOM": "Streatham Common", "STRHHL": "Streatham Hill",
             "STRHSDG": "Streatham Down Sidings", "STRHJN": "Streatham North Jn"}
     assert place_locations(locs, "Streatham") == ["STRHAM", "STRHSDG"]      # not the stations sharing its name
+    assert place_locations({"WATFDJ": "Watford Junction", "WATFJS": "Watford Junction Signal WM372",
+                            "WATFYD": "Watford Junction Yard"}, "Watford Junction") == ["WATFDJ", "WATFYD"]
 
 
 def test_a_depot_shows_only_how_many_units_are_there():
@@ -249,3 +251,49 @@ def test_the_window_searches_every_map_and_draws_depot_totals(world, monkeypatch
         win._close()
     finally:
         root.destroy()
+
+
+def make_band_map(path):
+    """A page as the WCML (LNW) book draws it: tracks as thin filled bands coloured by track circuit (one ending in
+    an arrow head), platforms as red blocks numbered '1', '2'..., and a pale upright mileage grid of alike bands."""
+    from reportlab.lib.colors import Color
+    from reportlab.pdfgen import canvas
+    c = canvas.Canvas(path, pagesize=(842, 595))
+    yellow, green, red, blue = (Color(1, 0.8, 0), Color(0, 0.5, 0), Color(1, 0, 0), Color(0, 0, 1))
+    for x in range(100, 800, 40):                                       # the grid
+        c.setFillColor(blue)
+        c.rect(x, 200, 0.4, 111, fill=1, stroke=0)
+    for i, y in enumerate((400, 350, 300, 250)):
+        c.setFillColor(yellow if i % 2 else green)
+        p = c.beginPath()                                               # a band 3 pt deep, an arrow at its left
+        p.moveTo(60, y + 1.5)
+        p.lineTo(66, y + 5.5)
+        p.lineTo(66, y + 3)
+        p.lineTo(760, y + 3)
+        p.lineTo(760, y)
+        p.lineTo(66, y)
+        p.lineTo(66, y - 2.5)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
+    c.setFillColor(red)
+    c.rect(500, 230, 150, 17, fill=1, stroke=0)                         # platform 10, below the lowest track
+    c.setFillColor(Color(1, 1, 1))
+    c.setFont("Helvetica", 6)
+    c.drawString(572, 236, "10")
+    c.setFillColor(Color(0, 0, 0))
+    c.setFont("Helvetica", 12)
+    c.drawString(500, 180, "Watford Junction")
+    c.showPage()
+    c.save()
+
+
+def test_a_page_drawn_in_filled_bands_reads_its_tracks_and_numbered_platforms(tmp_path):
+    from rstools.trackmap.pdfmap import page_from_dict, read_page_layout
+    from rstools.trackmap.scene import match_roads
+    make_band_map(str(tmp_path / "bands.pdf"))
+    page = page_from_dict(read_page_layout(str(tmp_path / "bands.pdf"), 0))
+    roads = [t for t in page.tracks if t.kind == "running"]
+    assert len(roads) == 4 and all(abs(t.pts[0][1] - t.pts[-1][1]) < 2 and t.length > 650 for t in roads)
+    assert "Plat 10" in {lb.text for lb in page.labels}                 # the number in its red block
+    got = match_roads(page, [("WATFDJ", "10")], {"WATFDJ": "Watford Junction"}, "Watford Junction")
+    assert abs(got[("WATFDJ", "10")].pts[0][1] - (595 - 250)) < 4      # the track along the block
