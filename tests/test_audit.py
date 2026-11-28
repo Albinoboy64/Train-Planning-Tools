@@ -66,11 +66,15 @@ def test_rule_set_write_is_atomic(tmp_path, monkeypatch):
     assert [p.name for p in tmp_path.iterdir()] == ["set.json.gz"]
 
 
-def test_batch_pairs_with_the_same_name_get_distinct_names():
+def test_batch_pairs_with_the_same_name_get_distinct_names(tmp_path):
+    """Pairs compared at once get different names, none already in the folder (a rerun the same day)."""
     from cwn_compare.batch import _distinct_names
     pairs = [("a/CWN 1.xlsx", "b/CWN 1.xlsx"), ("c/CWN 1.xlsx", "d/CWN 1.xlsx"), ("e/X.xlsx", "f/Y.xlsx")]
-    names = _distinct_names(pairs)
-    assert names[0] == "" and names[1].endswith(" (2)") and names[2] == ""
+    first = _distinct_names(pairs, str(tmp_path))
+    assert len({n.casefold() for n in first}) == 3 and first[1] == f"{first[0]} (2)"
+    (tmp_path / f"{first[0]}.xlsx").write_bytes(b"from an earlier run")
+    again = _distinct_names(pairs, str(tmp_path))
+    assert again[0] == f"{first[0]} (2)" and again[1] == f"{first[0]} (3)" and again[2] == first[2]
 
 
 @pytest.mark.parametrize("text", ["null", "[]", '"x"', '{"categories": [1, 2]}', '{"categories": {"A": 3}}'])

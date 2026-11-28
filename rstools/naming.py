@@ -76,13 +76,17 @@ def clip(name: str) -> str:
 
 
 def output_stem(name: str) -> str:
-    """A typed output name made safe as a file name: characters Windows does not allow become '-', a typed
-    '.xlsx' is dropped and the name is shortened to MAX_NAME ('' stays '': the caller picks a default)."""
-    import re
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name or "").strip().rstrip(".")
-    if name.lower().endswith(".xlsx"):
-        name = name[:-5]
-    return clip(name)
+    """A typed output name made safe as a file name (fsutil.safe_stem: characters Windows does not allow become '-',
+    names Windows keeps for devices get a '_'), a typed '.xlsx' / '.pdf' / '.docx' is dropped and the name is
+    shortened to MAX_NAME ('' stays '': the caller picks a default)."""
+    name = (name or "").strip()
+    for ext in (".xlsx", ".pdf", ".docx"):
+        if name.lower().endswith(ext):
+            name = name[:-len(ext)].strip()
+    if not name:
+        return ""
+    from rstools.fsutil import safe_stem
+    return clip(safe_stem(name)).rstrip(" .")
 
 
 _PLAIN_FIRST = {"original", "updated", "earlier", "timetable", "train"}

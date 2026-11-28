@@ -485,6 +485,7 @@ class Placeholder:
     def __init__(self, entry, text: str = ""):
         self.entry, self.text = entry, text
         self.label = tk.Label(entry, text="", anchor="w", borderwidth=0, padx=0, pady=0, cursor="xterm")
+        self.label._placeholder = self         # type: ignore[attr-defined]  # recoloured with the theme
         self.label.bind("<Button-1>", lambda _e: self.entry.focus_set())
         var = entry.cget("textvariable")
         if var:

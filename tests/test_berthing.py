@@ -953,3 +953,12 @@ def test_a_left_over_change_report_never_stops_the_chart_being_saved(data):
     second = engine.compare_charts(str(data / "old.xlsx"), str(data / "new.xlsx"), "FFC000", str(data), name="Cmp")
     assert os.path.exists(second.chart) and os.path.exists(second.report) and second.report != first.report
     assert os.path.splitext(second.chart)[0] + " - Change Report.xlsx" == second.report
+
+
+def test_control_characters_in_a_chart_never_stop_it_being_saved(data):
+    """Text in a chart read in can carry control characters (Excel's '_x0001_'): they are dropped, the chart is
+    saved and the rest of the text kept."""
+    from rstools.berthing import writer
+    assert writer._clean("Plat\x01 1") == "Plat 1"
+    from rstools.berthing.chart import fix_text
+    assert fix_text("Hove\x02 Yard") == "Hove Yard"

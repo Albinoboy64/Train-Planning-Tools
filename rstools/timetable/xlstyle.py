@@ -42,7 +42,7 @@ def add_sheet(wb, title: str, headers: Sequence[str], rows: Sequence[Sequence], 
                                                                          wrap_text=True)
     formats, fills, centred = formats or {}, fills or {}, set(center)
     for c, text in enumerate(headers, start=1):
-        cell = ws.cell(1, c, text)
+        cell = ws.cell(1, c, clean_cell(text))       # headings may come from an input file
         cell.font, cell.fill, cell.alignment, cell.border = head_font, head_fill, head_align, border
         ws.column_dimensions[get_column_letter(c)].width = widths[c - 1] if c <= len(widths) else 14
     ws.row_dimensions[1].height = 30

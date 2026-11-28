@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import queue
 import threading
-import traceback
 import time
 import tkinter as tk
 from typing import Dict, List, Tuple
@@ -682,21 +681,9 @@ class LiveTab(ttk.Frame):
             self.run(refresh=True)
 
     def _learn_days(self, files):
-        """Days the CWNs cover (for the day tickboxes), once per pair of files. The CWNs were just read for the
-        comparison, so their trains come from the app's store of files read rather than being read again."""
-        from cwn_compare.days import coverage
-        from rstools.timetable.engine import read_jobs
-
-        from .adapters import model_of
-        days = set()
-        for key in ("a", "b"):
-            try:
-                path = files[key][0]
-                (model,) = read_jobs([(model_of, path)])
-                days |= set(coverage(model, path)[0])
-            except Exception:
-                errorlog.write(f"The days of a CWN could not be read for the day tickboxes:\n{traceback.format_exc()}")
-        return days
+        """Days the CWNs cover (for the day tickboxes), once per pair of files."""
+        from cwn_compare.days import days_of_files
+        return days_of_files(files[key][0] for key in ("a", "b"))
 
     # ------------------------------------------------------------------ comparing
     # ------------------------------------------------------------------ own window

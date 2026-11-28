@@ -109,7 +109,8 @@ def _read_jobs(jobs: Sequence[tuple], each: Optional[Callable[[int], None]] = No
             pool.shutdown()                            # a reader that cannot go to a helper: read here
             pool = None
         if pool is not None:
-            try:
+            from rstools.pools import stoppable
+            with stoppable(pool):                      # Stop or closing the window ends the helpers at once
                 futures = [pool.submit(reader, p) for reader, p in jobs]
                 out = []
                 for (reader, p), fut in zip(jobs, futures):
@@ -124,9 +125,7 @@ def _read_jobs(jobs: Sequence[tuple], each: Optional[Callable[[int], None]] = No
                                 each(len(out))
                         else:
                             raise
-                return out
-            finally:
-                pool.shutdown(cancel_futures=True)
+            return out
     out = []
     for reader, p in jobs:
         out.append(reader(p))

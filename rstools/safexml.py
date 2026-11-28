@@ -17,6 +17,9 @@ from . import limits
 HEAD_BYTES = 64 * 1024                  # the start of a file looked at for a declaration (it must come first)
 _DECL = re.compile(rb"<!\s*(DOCTYPE|ENTITY)", re.I)
 _ELEMENT = re.compile(rb"<[A-Za-z_]")       # the first element: a declaration can only come before it
+# comments and processing instructions before the first element are skipped first, so an element-like '<a>'
+# inside one cannot hide a declaration after it (an unclosed one hides everything after it)
+_SKIP = re.compile(rb"<!--.*?(?:-->|\Z)|<\?.*?(?:\?>|\Z)", re.S)
 
 
 class UnsafeXMLError(ET.ParseError):
@@ -45,7 +48,7 @@ def _probe(head: bytes) -> bytes:
 
 
 def _check_head(head: bytes, name: str):
-    probe = _probe(head)
+    probe = _SKIP.sub(b" ", _probe(head))
     first = _ELEMENT.search(probe)
     if first is None and len(head) >= HEAD_BYTES:
         raise UnsafeXMLError(f"'{name}' does not start like an XML file (no element in its first "

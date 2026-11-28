@@ -1309,3 +1309,14 @@ def test_berthing_places_flag_depots():
         places = auto.places(B(), {}, Depots.load({}, os.path.join(d, "none.csv")), ())   # type: ignore[arg-type]
     flags = {p.tiploc: p.depot for p in places}
     assert flags == {"LTLHSHD": False, "CRKLDPS": True, "STRHSH": False, "THBDTGS": True}, flags
+
+
+def test_a_headcode_used_twice_in_a_day_is_two_trains():
+    """An ECS headcode reused in the evening is a second train, not a 'Change of Formation' of the morning one."""
+    from rstools.statspack.model import Diagram, Move, _build_trains
+    d = Diagram("SL", "101", "377/4", "", 4, None)
+    d.moves = [Move("5A01", "VIC", "SLD", 6 * 3600, 6 * 3600 + 900, None, None, 3.0, ("SL101",), []),
+               Move("5A01", "BTN", "LVW", 19 * 3600, 19 * 3600 + 600, None, None, 1.0, ("SL101",), [])]
+    trains = _build_trains([d])
+    assert [(t.origin, t.dest, t.miles) for t in trains] == [("VIC", "SLD", 3.0), ("BTN", "LVW", 1.0)]
+    assert all(p.ends == "End of Service" for t in trains for p in t.parts)

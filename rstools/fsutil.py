@@ -119,14 +119,17 @@ def fit_stem(folder: str, stem: str, tails=(".xlsx",), reserve: int = 4) -> str:
     return cut.rstrip(" -.,(") or stem[:room]
 
 
-def unique_stem(folder: str, stem: str, tails=(".xlsx",)) -> str:
+def unique_stem(folder: str, stem: str, tails=(".xlsx",), taken=()) -> str:
     """A name (shortened to fit, see fit_stem) for which none of folder/name+tail exists yet: existing
-    outputs are never overwritten - ' (2)', ' (3)'... is added instead."""
+    outputs are never overwritten - ' (2)', ' (3)'... is added instead. `taken`: names already handed out to
+    outputs not written yet (several made at once), compared ignoring case as Windows does."""
     stem = fit_stem(folder, stem, tails)
+    used = {t.casefold() for t in taken}
     n = 1
     while True:
         name = stem if n == 1 else f"{stem} ({n})"
-        if not any(os.path.exists(long_path(os.path.join(folder, name + t))) for t in tails):
+        if name.casefold() not in used and \
+                not any(os.path.exists(long_path(os.path.join(folder, name + t))) for t in tails):
             return name
         n += 1
 

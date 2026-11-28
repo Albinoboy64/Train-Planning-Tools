@@ -100,12 +100,12 @@ STOCK_TASKS = [task for _group, tasks in STOCK_GROUPS for task in tasks]
 OPENABLE = (".xlsx", ".xlsm", ".xls", ".pdf", ".docx", ".csv", ".txt", ".log")
 
 
-def _open_path(path: str):
+def _open_path(path: str, parent=None):
     """Open an output (or a folder) as if double-clicked. Only folders and document files: never a program
-    or script, whatever a path ends up holding."""
+    or script, whatever a path ends up holding. `parent`: the window any message belongs to."""
     if not (os.path.isdir(path) or os.path.splitext(path)[1].lower() in OPENABLE):
         messagebox.showerror(APP_NAME, "This kind of file is not opened from the app (only folders, workbooks, "
-                                       f"PDF, Word and text files):\n{path}")
+                                       f"PDF, Word and text files):\n{path}", parent=parent)
         return
     try:
         if sys.platform.startswith("win"):
@@ -115,7 +115,7 @@ def _open_path(path: str):
         else:
             subprocess.Popen(["xdg-open", path])
     except Exception as exc:
-        messagebox.showerror(APP_NAME, f"Could not open {path}\n{exc}")
+        messagebox.showerror(APP_NAME, f"Could not open {path}\n{exc}", parent=parent)
 
 
 class ColourPicker(ttk.Frame):
@@ -141,7 +141,7 @@ class ColourPicker(ttk.Frame):
         if name in PRESET_COLOURS:
             self.set(PRESET_COLOURS[name])
             return
-        res = colorchooser.askcolor(color="#" + self.value, title="Choose highlight colour")
+        res = colorchooser.askcolor(color="#" + self.value, title="Choose highlight colour", parent=self)
         if res and res[1]:
             self.set(res[1].lstrip("#"))
         else:
@@ -772,7 +772,7 @@ class App(tk.Tk):
             messagebox.showinfo(APP_NAME, "No errors have been recorded.\n\nIf one happens, its details are "
                                            f"saved to:\n{path}", parent=self)
             return
-        win = tk.Toplevel(self)
+        win = tk.Toplevel(self, background=self.palette["bg"])     # no light strips in dark mode
         win.title("Error log")
         win.transient(self)
         hide = {k: tk.BooleanVar(value=True) for k in ("paths", "user", "content")}
@@ -844,7 +844,7 @@ class App(tk.Tk):
                 text = fh.read()
         except OSError:
             text = "The licence notices could not be found. See the project page on GitHub."
-        win = tk.Toplevel(self)
+        win = tk.Toplevel(self, background=self.palette["bg"])     # no light strips in dark mode
         win.title("Third-party software and licences")
         win.transient(self)
         box = tk.Text(win, wrap="word", width=100, height=34, relief="flat", padx=10, pady=8,
@@ -923,6 +923,12 @@ class App(tk.Tk):
             v.set(True)
         self._pending_days = None
         self._run_when_days_known = False
+        # the text that described what was in those boxes goes too
+        self._book_stations = []
+        self.book_note.configure(text="")
+        self.prev_info_token += 1               # a read still going for the old file is not shown
+        self.prev_info.configure(text="")
+        self._berth_operator_changed()          # 'Locations: n left out' no longer applies
 
     def save_app_settings(self):
         self.opts.open_when_done = self.open_var.get()
@@ -1563,11 +1569,15 @@ class App(tk.Tk):
         at = LAYOUT_ROW[mode]
         xmls = [p for p in files[:at] if p and os.path.isfile(p)]
         layout = files[at] if op == "SNGX" and files[at] and os.path.isfile(files[at]) else ""
+        self.configure(cursor="watch")          # a chart chosen as the layout is read first (a moment)
+        self.update_idletasks()
         try:
             sheets = engine.layout_sheets(layout, op)
         except BerthingError as exc:
             messagebox.showwarning(APP_NAME, str(exc), parent=self)
             return
+        finally:
+            self.configure(cursor="")
         rows = auto.initial_choices(op, sheets, self.berth_leave_out.get(op, []), self.berth_add.get(op, []))
         find = (lambda: engine.find_places(xmls, op, layout)) if xmls else None
         dlg = LocationsDialog(self, op, rows, find)
@@ -1583,7 +1593,7 @@ class App(tk.Tk):
         title = "Choose the " + label.rstrip(":").replace(" (optional)", "")
         if kind == "other":                       # several files: each one chosen is added to the box
             got = filedialog.askopenfilenames(title="Choose other operators' files", initialdir=init, filetypes=[
-                ("Attune XML, VPT or CIF", "*.xml *.vpt *.cif *.mca *.txt"), ("All files", "*.*")])
+                ("Attune XML, VPT or CIF", "*.xml *.vpt *.cif *.mca *.txt"), ("All files", "*.*")], parent=self)
             have = [p.strip() for p in var.get().split(";") if p.strip()]
             for p in got:
                 p = os.path.normpath(p)
@@ -1593,10 +1603,12 @@ class App(tk.Tk):
             return
         if kind == "xml":
             p = filedialog.askopenfilename(title=title, initialdir=init,
-                                           filetypes=[("Attune diagram XML", "*.xml"), ("All files", "*.*")])
+                                           filetypes=[("Attune diagram XML", "*.xml"), ("All files", "*.*")],
+                                           parent=self)
         else:
             p = filedialog.askopenfilename(title=title, initialdir=init,
-                                           filetypes=[("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")])
+                                           filetypes=[("Excel workbook", "*.xlsx *.xlsm"), ("All files", "*.*")],
+                                           parent=self)
         if p:
             var.set(os.path.normpath(p))
 
@@ -1611,7 +1623,7 @@ class App(tk.Tk):
         """XMLs and charts dropped on the berthing box go to the boxes that take them (a box dropped on is
         replaced; otherwise an empty box of that type, else the last one)."""
         from rstools.dropping import Slot, route_drop
-        xmls = [p for p in paths if p.lower().endswith((".xml", ".vpt", ".cif", ".mca"))]
+        xmls = [p for p in paths if p.lower().endswith((".xml", ".vpt", ".cif", ".mca", ".txt"))]
         charts = [p for p in paths if p.lower().endswith((".xlsx", ".xlsm"))]
         if not xmls and not charts:
             messagebox.showwarning(APP_NAME, "Drop Attune XMLs (.xml), other operators' VPT or CIF files, berthing "
@@ -1621,7 +1633,7 @@ class App(tk.Tk):
         if mode not in BERTH_MODES:
             mode = ("berth_round" if charts and len(xmls) >= 2 else "berth_make" if xmls else "berth_compare")
             self._set_mode(mode)
-        exts = {"xml": (".xml",), "xlsx": (".xlsx", ".xlsm"), "other": (".xml", ".vpt", ".cif", ".mca")}
+        exts = {"xml": (".xml",), "xlsx": (".xlsx", ".xlsm"), "other": (".xml", ".vpt", ".cif", ".mca", ".txt")}
 
         def takes(e: tuple) -> Callable[[str], bool]:
             return lambda p: p.lower().endswith(e)
@@ -1943,7 +1955,8 @@ class App(tk.Tk):
         paths = filedialog.askopenfilenames(
             title="Other operators' files (Attune XML preferred; VPT, CIF or F3 print)",
             filetypes=filetypes(("Attune XML", ".xml"), ("Attune VPT export", ".vpt"),
-                                ("Network Rail CIF", ".cif", ".mca"), ("Attune F3 print", ".pdf", ".docx")))
+                                ("Network Rail CIF", ".cif", ".mca"), ("Attune F3 print", ".pdf", ".docx")),
+                                parent=self)
         if not paths:
             return
         current = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
@@ -1976,14 +1989,9 @@ class App(tk.Tk):
 
         def work():
             try:
-                from rstools.stationbook import _plan_of, timetable_name
-                from rstools.statspack.seats import network_stations
-                from rstools.statspack.engine import cached
-                from rstools.statspack.attune import parse_attune_xml
-                plan = _plan_of(path)              # kept, so making the book does not read the XML again
-                stations = network_stations(cached(parse_attune_xml, path))
-                days = sorted(plan.diagram_days)
-                self.q.put(("bookxml", token, stations, timetable_name(plan), days, "", plan.start))
+                from rstools.stationbook import xml_summary
+                stations, timetable, days, start = xml_summary(path)
+                self.q.put(("bookxml", token, stations, timetable, days, "", start))
             except Exception as exc:
                 self.q.put(("bookxml", token, [], "", [], str(exc), ""))
         self.pump.start(work)
@@ -2226,8 +2234,9 @@ class App(tk.Tk):
         it, or else replaces the file in the box it belongs in."""
         from rstools.dropping import Slot, route_drop
         paths = [os.path.normpath(p) for p in self.tk.splitlist(event.data)]
+        berth_types = (".xml", ".xlsx", ".xlsm", ".vpt", ".cif", ".mca", ".txt")    # XML, chart, other operators
         if section == "berth" or (section is None and self.mode.get() in BERTH_MODES
-                                  and all(p.lower().endswith((".xml", ".xlsx", ".xlsm")) for p in paths)):
+                                  and all(p.lower().endswith(berth_types) for p in paths)):
             self._drop_berthing([p for p in paths if os.path.isfile(p)], target)
             return event.action
         vpts = [p for p in paths if os.path.isfile(p) and (p.lower().endswith(".vpt") or (
@@ -2248,8 +2257,8 @@ class App(tk.Tk):
                 self._set_mode("reorder")
                 self.util.set(files[0])
             else:
-                messagebox.showwarning(APP_NAME, "Drop a CWN (.xlsx, .xlsm, .xls, .xlsb) or an Attune XML (.xml).",
-                                       parent=self)
+                messagebox.showwarning(APP_NAME, "Drop a CWN (.xlsx, .xlsm, .xls, .xlsb, .xltx, .xltm) or an "
+                                       "Attune XML (.xml).", parent=self)
             return event.action
         if folders:                                   # folders: compare two folders of CWNs
             self._set_mode("batch")
@@ -2257,7 +2266,7 @@ class App(tk.Tk):
             route_drop(folders, slots, next((s for s in slots if s.var is target), None))
             return event.action
         if not files:
-            messagebox.showwarning(APP_NAME, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb)"
+            messagebox.showwarning(APP_NAME, "Drop Excel CWN files (.xlsx, .xlsm, .xls, .xlsb, .xltx, .xltm)"
                                    + (" or an Attune XML (.xml)." if section is None else "."), parent=self)
             return event.action
         if section is None and target is None and self.mode.get() == "reorder" and len(files) == 1:
@@ -2302,20 +2311,21 @@ class App(tk.Tk):
         init = os.path.dirname(var.get()) if var.get() else (os.path.dirname(self.opts.updated) or None)
         if self.mode.get() == "batch":
             p = filedialog.askdirectory(title="Choose the folder of original CWNs" if first else
-                                        "Choose the folder of updated CWNs", initialdir=var.get() or init)
+                                        "Choose the folder of updated CWNs", initialdir=var.get() or init, parent=self)
             if p:
                 var.set(os.path.normpath(p))
             return
         if self.mode.get() == "station":
             p = filedialog.askopenfilename(title="Choose the Attune XML", initialdir=init,
-                                           filetypes=[("Attune diagram XML", "*.xml"), ("All files", "*.*")])
+                                           filetypes=[("Attune diagram XML", "*.xml"), ("All files", "*.*")],
+                                           parent=self)
             if p:
                 var.set(os.path.normpath(p))
             return
         title = ("Choose an earlier comparison CWN made by this app" if first and self.mode.get() == "cumulative"
                  else "Choose the multi-day CWN" if self.mode.get() == "reorder"
                  else "Choose the original CWN" if first else "Choose the updated CWN")
-        p = filedialog.askopenfilename(title=title, filetypes=FILE_TYPES, initialdir=init)
+        p = filedialog.askopenfilename(title=title, filetypes=FILE_TYPES, initialdir=init, parent=self)
         if p:
             var.set(os.path.normpath(p))
             if first and self.mode.get() == "cumulative":
@@ -2445,15 +2455,32 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------ batch (two folders)
     def _show_pairs(self):
+        """The pairs the two folders give, listed under them. The folders are read by a helper thread (a network
+        folder can be slow), and only the latest answer is shown."""
         if self.mode.get() != "batch":
             return
+        self._pairs_token = getattr(self, "_pairs_token", 0) + 1
+        token = self._pairs_token
         a, b = self.orig.get().strip().strip('"'), self.upd.get().strip().strip('"')
-        if not (os.path.isdir(a) and os.path.isdir(b)):
+
+        def work():
+            from .batch import pair_files
+            try:
+                found = pair_files(a, b) if os.path.isdir(a) and os.path.isdir(b) else None
+            except OSError:
+                found = None
+            self.q.put(("pairs", token, found))
+        self.pump.start(work)
+        self.pump.kick()
+
+    def _pairs_found(self, token, found):
+        if token != getattr(self, "_pairs_token", 0) or self.mode.get() != "batch":
+            return
+        if found is None:
             self.prev_info.configure(text="Choose the two folders. Each updated CWN is paired with the original "
                                           "of the same (or most similar) name.")
             return
-        from .batch import pair_files
-        pairs, left, right = pair_files(a, b)
+        pairs, left, right = found
         text = f"{plural(len(pairs), 'pair')} found"
         if pairs:
             text += ": " + "; ".join(f"{os.path.basename(o)} > {os.path.basename(u)}" for o, u in pairs[:4])
@@ -2782,9 +2809,11 @@ class App(tk.Tk):
                         + (f", {plural(r['carried'], 'earlier change', 'earlier changes')} carried forward"
                            if r.get('carried') else "")
                         + f".\n\nCWN: {r['cwn']}" + (f"\nReport: {r['report']}" if r.get("report") else "")
-                        + (f"\n\n{warn}" if warn else ""))
+                        + (f"\n\n{warn}" if warn else ""), parent=self)
                 elif kind == "bookxml":
                     self._book_xml_read(*item[1:])
+                elif kind == "pairs":
+                    self._pairs_found(*item[1:])
                 elif kind == "bookops":
                     self._book_ops_listed(*item[1:])
                 elif kind == "book_done":
@@ -2799,7 +2828,8 @@ class App(tk.Tk):
                     self.notify_done(f"{self._task_name()} finished", summary)
                     self.open_outputs([path])
                     (messagebox.showwarning if warnings else messagebox.showinfo)(
-                        APP_NAME, f"{summary}\n\nSaved: {path}" + "".join(f"\n\n{w}" for w in warnings[:4]))
+                        APP_NAME, f"{summary}\n\nSaved: {path}" + "".join(f"\n\n{w}" for w in warnings[:4]),
+                        parent=self)
                 elif kind == "berth_done":
                     self._finish()
                     res = item[1]
@@ -2820,7 +2850,8 @@ class App(tk.Tk):
                         APP_NAME, f"{res.summary}\n\nSaved: {res.chart}" + (f"\nReport: {res.report}" if res.report
                                                                             else "")
                         + "".join(f"\n\n{w}" for w in notes[:4])
-                        + ("\n\n(More in the run log and on the chart's Notes sheet.)" if len(notes) > 4 else ""))
+                        + ("\n\n(More in the run log and on the chart's Notes sheet.)" if len(notes) > 4 else ""),
+                        parent=self)
                 elif kind == "books_done":
                     self._finish()
                     results = item[1]
@@ -2839,7 +2870,7 @@ class App(tk.Tk):
                     self.open_outputs([r[1] for r in made])
                     (messagebox.showwarning if failed else messagebox.showinfo)(
                         APP_NAME, text + (f"\n\nSaved in: {os.path.dirname(made[0][1])}" if made else "")
-                        + "".join(f"\n\n{st}: {err}" for st, _p, _w, _s, err in failed[:6]))
+                        + "".join(f"\n\n{st}: {err}" for st, _p, _w, _s, err in failed[:6]), parent=self)
                 elif kind == "reorder_done":
                     self._finish()
                     n, tabs, path = item[1]["trains"], item[1]["tabs"], item[1]["path"]
@@ -2862,7 +2893,7 @@ class App(tk.Tk):
                         notes += [warn] if warn else []
                         text += f"\n\nSaved: {path}"
                     (messagebox.showwarning if notes else messagebox.showinfo)(
-                        APP_NAME, text + "".join(f"\n\n{w}" for w in notes[:5]))
+                        APP_NAME, text + "".join(f"\n\n{w}" for w in notes[:5]), parent=self)
                 elif kind == "batch_one":
                     _k, n, total, a, b, res, err = item
                     self.progress.set(n / total)
@@ -2893,7 +2924,7 @@ class App(tk.Tk):
                     self.notify_done(f"{self._task_name()} finished", summary, not failed)
                     if results:
                         self.open_outputs([os.path.dirname(results[0]["cwn"])])
-                    (messagebox.showwarning if failed or warn else messagebox.showinfo)(APP_NAME, summary)
+                    (messagebox.showwarning if failed or warn else messagebox.showinfo)(APP_NAME, summary, parent=self)
                 elif kind == "stopped":
                     self._finish("stopped")
                     self._append_log("Stopped - nothing was saved.")

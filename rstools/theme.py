@@ -768,6 +768,14 @@ def _recolour(widget, p: dict):
         style_text(widget, p)
     elif isinstance(widget, tk.Canvas):
         widget.configure(background=p["bg"])
+    elif isinstance(widget, tk.Toplevel):          # dialogs and windows opened before the theme changed
+        widget.configure(background=p["bg"])
+    elif isinstance(widget, tk.Listbox):            # e.g. the Settings page list
+        widget.configure(background=p.get("field", p["panel"]), foreground=p["fg"], selectbackground=p["select"],
+                         selectforeground=p.get("select_fg", p["fg"]), highlightbackground=p["bg"],
+                         disabledforeground=p["disabled"])
+    elif getattr(widget, "_placeholder", None) is not None:    # a grey hint inside a box (widgets.Placeholder)
+        widget._placeholder._update()
     elif isinstance(widget, tk.Menu):
         widget.configure(background=p["panel"], foreground=p["fg"], activebackground=p["select"],
                          activeforeground=p.get("select_fg", p["fg"]), selectcolor=p["fg"],

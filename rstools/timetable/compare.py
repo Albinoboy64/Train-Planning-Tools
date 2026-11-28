@@ -50,8 +50,9 @@ def parse_days(code: str) -> Optional[Set[int]]:
     if code in _DAYSETS:
         return set(_DAYSETS[code])
     m = re.fullmatch(r"([A-Z]+?)([OX])", code)
-    if not m:
-        return None
+    if not m:                           # a list of days with no O / X ('MTWThF', 'TTh'): the days it names
+        from rstools.days import days_of_code
+        return days_of_code(code) or None
     days, rest = set(), m.group(1)
     while rest:
         for letters, num in _DAY_LETTERS:

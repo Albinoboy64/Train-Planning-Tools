@@ -976,3 +976,57 @@ def test_template_input_gives_a_workbook_excel_opens():
     with zipfile.ZipFile(res["cwn"]) as z:
         types = z.read("[Content_Types].xml").decode()
     assert "spreadsheetml.template" not in types and "spreadsheetml.sheet.main+xml" in types
+
+
+def test_reorder_merge_with_merged_cells_below_the_trains():
+    """Merging variants moves the rows below up: merged cells there (a notes box, two rows tall) move with them
+    instead of stopping the run, and '=' text among the trains is not mistaken for a formula."""
+    from cwn_compare.reorder import reorder_cwn
+    d = tempfile.mkdtemp()
+    rows = [list(r) for r in BTN_ORIG]
+
+    def v(days, pl):
+        r = list(rows[2]); r[1], r[3] = days, pl; return r
+    unit = U("377/3", "BTN", "312")
+    btn = [rows[0], rows[1], v("FO", "7"), unit, v("TWThO", "8"), v("MO", "7"), unit] + rows[3:]
+    src = os.path.join(d, "merge_box.xlsx")
+    make(src, btn, VIC_ORIG)
+    wb = openpyxl.load_workbook(src)
+    ws = wb["BTN"]
+    last = ws.max_row
+    ws.cell(row=last + 2, column=17, value="NOTES")           # a box beside the list, below its trains
+    ws.merge_cells(start_row=last + 2, start_column=17, end_row=last + 3, end_column=18)
+    ws.cell(row=3, column=5).value = "=== see note"
+    ws.cell(row=3, column=5).data_type = "s"                  # text, as Excel stores it
+    wb.save(src)
+    res = reorder_cwn(src, d, merge=True)
+    assert res["merged"] == 1
+    out = openpyxl.load_workbook(res["path"])["BTN"]
+    boxes = [str(m) for m in out.merged_cells.ranges]
+    assert boxes == [f"Q{last}:R{last + 1}"] and out.cell(row=last, column=17).value == "NOTES"   # up two rows
+    assert out["E3"].value == "=== see note" and out["E3"].data_type == "s"
+
+
+def test_comments_and_hidden_rows_move_with_their_trains():
+    """When a cancelled train is put back (rows move down), Excel comments and hidden rows below stay with
+    their own trains."""
+    from openpyxl.comments import Comment
+    d = tempfile.mkdtemp()
+    o_p, u_p = os.path.join(d, "o.xlsx"), os.path.join(d, "u.xlsx")
+    make(o_p, BTN_ORIG, VIC_ORIG)
+    btn = [list(r) for r in BTN_ORIG]
+    del btn[2]                                              # 2C02BT cancelled: put back, struck through
+    make(u_p, btn, VIC_ORIG)
+    wb = openpyxl.load_workbook(u_p)
+    ws = wb["BTN"]
+    last = next(r for r in range(3, ws.max_row + 1) if ws.cell(row=r, column=1).value == "2C08BT")
+    ws.cell(row=last, column=1).comment = Comment("check this one", "planner")
+    ws.row_dimensions[last].hidden = True
+    wb.save(u_p)
+    res = run(Options(original=o_p, updated=u_p, output_dir=d, output_name="cm"))
+    out = openpyxl.load_workbook(res["cwn"])["BTN"]
+    row = next(r for r in range(3, out.max_row + 1) if out.cell(row=r, column=1).value == "2C08BT")
+    assert row == last + 1
+    note = out.cell(row=row, column=1).comment
+    assert note is not None and note.text == "check this one"
+    assert out.row_dimensions[row].hidden and not out.row_dimensions[last].hidden

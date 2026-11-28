@@ -285,3 +285,18 @@ def test_batch_with_a_missing_or_repeated_folder_says_so(capsys, tmp_path):
         with pytest.raises(SystemExit) as exc:
             T.main(argv)
         assert exc.value.code == 1 and says in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argv, msg", [
+    (["--old-pack", "a.xlsx", "--new-pack", "b.xlsx", "--days", "MO"], "--days"),
+    (["--old-pack", "a.xlsx", "--new-pack", "b.xlsx", "--fleets", "377"], "--operators and --fleets"),
+    (["--xml", "a.xml", "--trent", "t.docx", "--unit-reports", "washes", "--output", "totals"], "--output"),
+    (["--xml", "a.xml", "--trent", "t.docx", "--mileage-period", "timetable", "--days", "MO"], "--days"),
+    (["--old-xml", "a.xml", "--old-trent", "t.docx", "--xml", "a.xml", "--trent", "t.docx", "--flag-miles", "-5"],
+     "--flag-miles"),
+])
+def test_statspack_options_that_would_be_ignored_are_refused(argv, msg, capsys, tmp_path):
+    import TrainPlanningTools as T
+    with pytest.raises(SystemExit) as exc:
+        T.main(["statspack"] + argv + ["--out", str(tmp_path)])
+    assert exc.value.code == 2 and msg in capsys.readouterr().err

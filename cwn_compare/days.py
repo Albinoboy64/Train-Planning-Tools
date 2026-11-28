@@ -230,3 +230,21 @@ def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str,
             if path not in found:
                 found[path] = _read_here(path, mtime)
     return {path: found[path] for path in paths}
+
+
+def days_of_files(paths) -> set:
+    """Every day the CWNs cover (for the Live View's day tick boxes). The CWNs are taken from the app's store of
+    files read (they were just read for the comparison). A file that cannot be read adds no days (and is logged)."""
+    import traceback
+
+    from rstools import errorlog
+    from rstools.live.adapters import model_of
+    from rstools.timetable.engine import read_jobs
+    days: set = set()
+    for path in paths:
+        try:
+            (model,) = read_jobs([(model_of, path)])
+            days |= set(coverage(model, path)[0])
+        except Exception:
+            errorlog.write(f"The days of a CWN could not be read for the day tickboxes:\n{traceback.format_exc()}")
+    return days

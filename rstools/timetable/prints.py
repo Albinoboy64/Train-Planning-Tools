@@ -297,6 +297,9 @@ def _pdfium_lines(path: str) -> Optional[List[List[str]]]:
     except Exception:
         return None
     ok = False
+    from rstools.pools import tracked
+    keep = tracked(pool)                    # closing the window ends these helpers too (pools.stop_all)
+    keep.__enter__()
     try:
         count, attune = pool.submit(_pdfium_probe, path).result(timeout=120)
         from rstools import limits
@@ -319,6 +322,7 @@ def _pdfium_lines(path: str) -> Optional[List[List[str]]]:
                 except Exception:
                     pass
         pool.shutdown(wait=ok, cancel_futures=True)
+        keep.__exit__(None, None, None)
 
 
 def _pdf_lines(path: str) -> List[List[str]]:
@@ -363,8 +367,9 @@ def _parallel(reader, path: str, count: int, workers: int) -> Optional[List[List
     from concurrent.futures import ProcessPoolExecutor
     from multiprocessing import get_context
     step = -(-count // workers)
+    from rstools.pools import stoppable
     try:
-        with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
+        with stoppable(ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"))) as pool:
             parts = [pool.submit(reader, path, a, min(a + step, count)) for a in range(0, count, step)]
             return [page for part in parts for page in part.result()]
     except Exception:                           # helper processes unavailable: read it here instead

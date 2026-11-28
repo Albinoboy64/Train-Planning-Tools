@@ -404,6 +404,11 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
     if not moved_at and not merges:
         return {}
     lo, hi = (moved_at[0], moved_at[-1]) if moved_at else (0, -1)
+    below = []
+    if removed:                                   # merged cells below the trains move up with their rows: unmerged
+        below = [rng for rng in ws.merged_cells.ranges if rng.min_row > last]     # here, merged again after
+        for rng in below:
+            ws.unmerge_cells(rng.coord)
     snap = {}
     for row in sorted({src for src in sequence[lo:hi + 1] if src is not None}):
         cells = []
@@ -441,10 +446,9 @@ def _rewrite(ws, sm: SheetModel, new_order: List[Optional[Block]],
             ws.row_dimensions.pop(target, None)
         if src != target:
             row_map[src] = target
-    if removed:
-        for rng in list(ws.merged_cells.ranges):  # merged cells below the trains move up with their rows
-            if rng.min_row > last:
-                rng.shift(0, -removed)
+    for rng in below:
+        ws.merge_cells(start_row=rng.min_row - removed, start_column=rng.min_col,
+                       end_row=rng.max_row - removed, end_column=rng.max_col)
     blocks = sm.block_by_key()
     dvs: Dict[tuple, list] = {}
     widths: Dict[int, list] = defaultdict(list)
@@ -536,15 +540,6 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
         if merged:
             warnings.append(f"Tab '{sm.title}' has merged cells among its trains, so it was left as it was.")
             continue
-        formulas = sum(1 for b in sm.blocks for r in range(b.start_row, b.end_row + 1)
-                       for c in range(1, sm.max_col + 1)
-                       if isinstance(ws.cell(row=r, column=c).value, str)
-                       and ws.cell(row=r, column=c).value.startswith("="))
-        if formulas:
-            warnings.append(f"Tab '{sm.title}' has {plural(formulas, 'formula cell')} among its trains, so it was "
-                            "left as "
-                            "it was (moving rows could change what the formulas refer to).")
-            continue
         row_maps[sm.title] = _rewrite(ws, sm, new_order, merges)
         trains += moved
         tabs += 1
@@ -569,9 +564,12 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
     _fix_hyperlinks(wb, row_maps, set())
     _unlink_diagram_cells(wb, model)
     folder = output_folder(out_dir)
-    stem = name.strip() or os.path.splitext(os.path.basename(path))[0] + variants_suffix(by_time, merge)
+    from rstools.fsutil import save_output
+    from rstools.naming import output_stem
+    stem = output_stem(name) or os.path.splitext(os.path.basename(path))[0] + variants_suffix(by_time, merge)
     out = os.path.join(folder, unique_stem(folder, stem, (".xlsx",)) + ".xlsx")
-    save_workbook(wb, out, trim="data", progress=lambda f: progress(0.85 + 0.15 * f, "Saving..."))
+    save_output(lambda: save_workbook(wb, out, trim="data", progress=lambda f: progress(0.85 + 0.15 * f, "Saving...")),
+                out, ReorderError)                     # a plain message if it cannot be saved
     log(f"Saved: {out}")
     progress(1.0, "Done")
     return {"path": out, "trains": trains, "merged": merged_n, "tabs": tabs, "warnings": warnings,

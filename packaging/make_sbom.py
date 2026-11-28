@@ -40,7 +40,24 @@ def runtime_pins(path: str = REQUIREMENTS) -> List[Tuple[str, str]]:
                 pins.append((m.group(1), m.group(2)))
     if not pins:
         raise ValueError(f"No '{APP_SECTION}' packages found in {path}")
-    return pins
+    left_out = excluded_packages()
+    return [(n, v) for n, v in pins if n.lower().replace("-", "_") not in left_out]
+
+
+SPEC = os.path.join(ROOT, "packaging", "TrainPlanningTools.spec")
+
+
+def excluded_packages(path: str = SPEC) -> set:
+    """Top-level packages the spec leaves out of the exe (its EXCLUDES list, read as text: the spec needs
+    PyInstaller to run). A package installed for the build but not bundled is not in the bill of materials."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return set()
+    m = re.search(r"^EXCLUDES = \[(.*?)^\]", text, re.S | re.M)
+    names = re.findall(r'"([A-Za-z0-9_.]+)"', m.group(1)) if m else []
+    return {n.lower() for n in names if "." not in n}
 
 
 def python_version(path: str = WORKFLOW) -> str:

@@ -28,6 +28,12 @@ WIDE_LABEL_CAP = 80.0           # column A's widest, for the 'Other - ...' label
 LONG_DATA_NOTE = 18             # ... and a note in the day columns longer than this (it would spill over the boxes)
 
 
+
+def _clean(value):
+    """Text from a chart or XML put in a cell: never with characters an Excel file cannot hold."""
+    from rstools.fsutil import clean_cell
+    return clean_cell(value)
+
 def _styles():
     from openpyxl.styles import Border, Font, PatternFill, Side
     return Border, Font, PatternFill, Side
@@ -78,7 +84,7 @@ def write(layout: Layout, path: str, cover: Callable[[str], str] = lambda t: t,
         ws.column_dimensions["A"].width = 140
         ws.cell(1, 1, "Notes").font = _font(12, True)
         for i, text in enumerate(notes, start=3):
-            c = ws.cell(i, 1, text)
+            c = ws.cell(i, 1, _clean(text))
             c.font = _font()
             from openpyxl.styles import Alignment
             c.alignment = Alignment(wrap_text=True, vertical="top")
@@ -106,7 +112,7 @@ def _cover(ws, rows: List[CoverRow], rewrite: Callable[[str], str], legend: Sequ
     extra = [line for line in legend if line not in present]   # a chart made by the app already has them
     r += 2 if extra else 0
     for line in extra:
-        ws.cell(r, 3, line).font = _font(10, True)
+        ws.cell(r, 3, _clean(line)).font = _font(10, True)
         r += 1
     for letter, width in (("A", 10), ("B", 10), ("C", 14)):
         ws.column_dimensions[letter].width = width
@@ -197,7 +203,7 @@ def _grid(ws, sheet: GridSheet, widths: Tuple[float, float] = (18.0, 10.0), coun
     hdr = r
     head = [sheet.corner[0] or "Siding", sheet.corner[1] or "Capacity"] + DAY_COLUMNS
     for c, text in enumerate(head, start=1):
-        cell = ws.cell(r, c, text or None)
+        cell = ws.cell(r, c, _clean(text or None))
         cell.font = _font(10, True)
         cell.fill = _fill(SIDING_FILL if c <= 2 else HEADER_FILL)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -344,7 +350,7 @@ def _counts(ws, r: int, name: str, blocks: List[Block]) -> int:
     centre = Alignment(horizontal="center", vertical="center")
     r += 1
     middle = Alignment(vertical="center")
-    head = ws.cell(r, 1, f"{COUNTS_HEAD} – {name}" if name else COUNTS_HEAD)
+    head = ws.cell(r, 1, _clean(f"{COUNTS_HEAD} – {name}" if name else COUNTS_HEAD))
     head.font = _font(10, True)
     head.alignment = middle
     for c in range(1, 19):
@@ -354,10 +360,10 @@ def _counts(ws, r: int, name: str, blocks: List[Block]) -> int:
     rows = sorted(per.items(), key=lambda kv: (kv[0].split()[1], int(kv[0].split()[0])))
     for key, values in rows + [(COUNTS_END, cars)]:
         r += 1
-        label = ws.cell(r, 1, key)
+        label = ws.cell(r, 1, _clean(key))
         label.font, label.alignment = _font(10, True), middle
         if key == COUNTS_END and capacity:
-            cap = ws.cell(r, 2, f"of {capacity}")
+            cap = ws.cell(r, 2, _clean(f"of {capacity}"))
             cap.font, cap.alignment = _font(10, True), Alignment(horizontal="center", vertical="center")
         for c in range(1, 19):
             ws.cell(r, c).fill = _fill(COUNT_FILL)
@@ -375,7 +381,7 @@ def _counts(ws, r: int, name: str, blocks: List[Block]) -> int:
 def _siding(ws, r: int, label: str, capacity: str, side_note: str):
     """A berth's first row in columns A and B: its name, and its capacity (or a note, in red)."""
     from openpyxl.styles import Alignment
-    a = ws.cell(r, 1, label or None)
+    a = ws.cell(r, 1, _clean(label or None))
     a.font = _font(10, True)
     a.fill = _fill(SIDING_FILL)
     a.alignment = Alignment(vertical="center")
@@ -424,7 +430,7 @@ def _depot(ws, sheet: DepotSheet):
     r = 0
     for blk in sheet.blocks:
         r += 1
-        ws.cell(r, 1, blk.title).font = _font(12, True)
+        ws.cell(r, 1, _clean(blk.title)).font = _font(12, True)
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=16)
         r += 1
         ws.cell(r, 1, DEPOT_DAYS[0])

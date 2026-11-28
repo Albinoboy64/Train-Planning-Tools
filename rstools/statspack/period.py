@@ -17,6 +17,7 @@ from .model import build_day
 from .stats import Row, Table, build_tables, weekly_tables
 from .trent import TrentData, TrentDiagram
 from rstools.naming import agree, plural
+from .output import save_sink
 
 MILEAGE_TABS = ["Mileage by Formation", "Mileage by Unit", "Mileage by Vehicle", "Formation Mileage by Service Co",
                 "Unit Mileage by Service Code", "Vehicle Mileage by Service Code"]
@@ -228,5 +229,5 @@ def write(totals: Sequence[Table], by_date: Table, period: Period, fmt: str, pat
         title = {"Formation Mileage by Service Co": "Formation Mileage by Service Code"}.get(t.name, t.name)
         sink.table(t.name, f"{title} - total ({period.label})", t)
     path = path_for(stem, sink.ext)
-    sink.save(path, stem)
+    save_sink(sink, path, stem)
     return path

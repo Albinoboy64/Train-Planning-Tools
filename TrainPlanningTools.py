@@ -294,12 +294,12 @@ def statspack_cli(argv):
     ap.add_argument("--old-pack", help="original stats pack (compare two packs)")
     ap.add_argument("--new-pack", help="updated stats pack (compare two packs)")
     ap.add_argument("--days", default=",".join(DAYS), help="e.g. MO,TO,WO (default: every day)")
-    ap.add_argument("--operators", default="SNGX,TLGN")
+    ap.add_argument("--operators", default="SNGX,TLGN", help="operators whose diagrams count (default: SNGX,TLGN)")
     ap.add_argument("--fleets", default="", help="comma-separated fleets (default: all)")
     ap.add_argument("--output", choices=sorted(OUTPUTS), default="totals_days",
                     help="totals_days: totals + every day (default); totals: totals only; days: a file per day")
-    ap.add_argument("--name", default="")
-    ap.add_argument("--out", default="")
+    ap.add_argument("--name", default="", help="output name (default: made from the plan)")
+    ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--no-summary", action="store_true", help="comparisons: leave out the summary of key figures")
     ap.add_argument("--changed-tabs-only", action="store_true", help="comparisons: only tabs with differences")
     ap.add_argument("--changed-rows-only", action="store_true", help="comparisons: only rows that changed")
@@ -478,6 +478,19 @@ def _statspack_combinations(ap, a, capacity: bool):
         start, _sep, end = (part.strip() for part in a.between.partition("-"))
         if start and start == end:
             ap.error("--between: the two times are the same, so nothing can be in the window")
+    if a.flag_miles is not None and a.flag_miles < 0:
+        ap.error("--flag-miles must be 0 (off) or more")
+    packs = bool(a.old_pack or a.new_pack)
+    from rstools.days import DAYS
+    every_day = {d.strip().upper() for d in a.days.split(",") if d.strip()} == {d.upper() for d in DAYS}
+    if a.output != "totals_days" and (packs or capacity or a.unit_reports or a.mileage_period):
+        ap.error("--output chooses how a stats pack is saved: leave it out of capacity, unit and mileage-period "
+                 "reports and stats pack comparisons")
+    if not every_day and (packs or a.mileage_period):
+        ap.error("--days is not used " + ("when comparing two stats packs (they keep their own days)" if packs else
+                                          "with --mileage-period (every date of the period counts)"))
+    if packs and (a.fleets or a.operators != "SNGX,TLGN"):
+        ap.error("--operators and --fleets are not used when comparing two stats packs (they keep their own)")
 
 
 def _capacity_names(a):
@@ -555,9 +568,9 @@ def timetable_cli(argv):
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--format", choices=["xlsx", "pdf", "docx"], default="xlsx", help="output format")
     argv = list(argv)
-    if "--s4" in argv and "--vs-s4" in argv and not any(x in argv for x in ("--gtr", "--prints", "--lists",
-                                                                             "--base-prints", "--base-list",
-                                                                             "--tpr", "--s4-check")):
+    flags = {x.split("=", 1)[0] for x in argv if x.startswith("--")}      # '--s4 A.pdf' or '--s4=A.pdf'
+    if "--s4" in flags and "--vs-s4" in flags and not flags & {"--gtr", "--prints", "--lists", "--base-prints",
+                                                               "--base-list", "--tpr", "--s4-check"}:
         argv.append("--s4-compare")               # --s4 OLD --vs-s4 NEW: the Section 4 comparison
     g.add_argument("--s4-compare", action="store_true", help=argparse.SUPPRESS)
     a = _local_out(ap, ap.parse_args(argv))
@@ -584,7 +597,7 @@ def timetable_cli(argv):
         if bad:                              # reported as before the section4 subcommand: ERROR, exit code 1
             print("ERROR:", bad)
             sys.exit(1)
-        _section4_cli(a)
+        _run_section4(a)
         return
     if a.s4_compare:
         mode, first, second = "s4docs", a.s4, a.vs_s4
@@ -638,7 +651,7 @@ def section4_cli(argv):
             ap.error(f"this file could not be found: {p}")
     _check_vpts(ap, a)
     a.s4_check, a.s4 = a.xml, a.pdf
-    _section4_cli(a)
+    _run_section4(a)
 
 
 def _other_ok(path: str) -> bool:
@@ -671,22 +684,29 @@ def _s4_files_problem(a) -> str:
 
 def _section4_cli(a):
     """Run the Section 4 check for `section4` and `timetable --s4-check` and print its summary. Both callers
-    have already checked the files; the check's own errors (Section4Error) end the run with an ERROR line."""
+    have already checked the files; the check's own errors (Section4Error, TimetableRunError) are raised for the
+    command to report (_run_section4)."""
     from rstools.fsutil import output_folder
-    from rstools.timetable.engine import TimetableRunError
-    from rstools.timetable.section4 import Section4Error, run_check
-    try:
-        path, res, st, _start = run_check(a.s4_check, a.s4, output_folder(a.out), a.name, a.format, log=print,
-                                          vpt=a.vpt or "", others=a.other_vpt)
-    except (Section4Error, TimetableRunError) as exc:
-        print("ERROR:", exc)
-        sys.exit(1)
+    from rstools.timetable.section4 import run_check
+    path, res, st, _start = run_check(a.s4_check, a.s4, output_folder(a.out), a.name, a.format, log=print,
+                                      vpt=a.vpt or "", others=a.other_vpt)
     for w in st.warnings + res.warnings:
         print("WARNING:", w)
     print(f"{res.trains} train(s) in a possession window; {len(res.clashes)} clash(es), {len(res.exempt)} lifted "
           f"by the remarks, {len(res.skipped)} train(s) not checked"
           + (f"; {res.by_line} settled by the VPT's running lines" if res.by_line else ""))
     print("Saved:", path)
+
+
+def _run_section4(a):
+    """The Section 4 check from a command: its own errors end the run with an ERROR line and exit code 1."""
+    from rstools.timetable.engine import TimetableRunError
+    from rstools.timetable.section4 import Section4Error
+    try:
+        _section4_cli(a)
+    except (Section4Error, TimetableRunError) as exc:
+        print("ERROR:", exc)
+        sys.exit(1)
 
 
 def berthing_cli(argv):

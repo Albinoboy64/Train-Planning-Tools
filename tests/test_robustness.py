@@ -798,6 +798,8 @@ def test_every_xml_reader_refuses_declarations_and_external_entities(tmp_path):
         "long_prolog": b'<?xml version="1.0"?><!--' + b"x" * 70000 + b'--><!DOCTYPE r [<!ENTITY x "y">]><r>&x;</r>',
         "utf16": '﻿<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE r [<!ENTITY x "y">]><r>&x;</r>'.encode(
             "utf-16-le"),
+        "behind_comment": b'<?xml version="1.0"?><!-- <a> --><!DOCTYPE r [<!ENTITY x "y">]><r>&x;</r>',
+        "behind_pi": b'<?xml version="1.0"?><?note <a>?><!DOCTYPE r [<!ENTITY x "y">]><r>&x;</r>',
     }
     _make, _ext, readers = kinds["xml"]
     for label, data in hostile.items():

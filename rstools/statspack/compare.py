@@ -623,5 +623,6 @@ def compare_pack_files(old_path: str, new_path: str, out_path: str,
     n = write_comparison(sink, [(sheet, sheet, t, old.get(sheet)) for sheet, t in new],
                          "Differences between stats packs", opts,
                          summary_rows({k: v for k, v in old.items()}, dict(new)), gone)
-    sink.save(out_path, os.path.splitext(os.path.basename(out_path))[0])
+    from .output import save_sink       # here: output imports this module
+    save_sink(sink, out_path, os.path.splitext(os.path.basename(out_path))[0])
     return n

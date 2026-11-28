@@ -1374,3 +1374,9 @@ def test_train_lists_with_different_headings_pair_by_column_role():
     assert len(cmp.pairs) == 2 and not cmp.added and not cmp.removed
     assert [(h, old, new) for _i, _j, h, old, new in cmp.changes] == [("Destination", "Brighton", "Eastbourne")]
     assert "Headcode / Train ID" in cmp.common and not cmp.only_original and not cmp.only_updated
+
+
+def test_day_codes_without_o_or_x_are_read_and_unreadable_ones_are_not_everywhere():
+    from rstools.timetable.compare import day_set, parse_days
+    assert parse_days("MTWThF") == {0, 1, 2, 3, 4} and parse_days("TTh") == {1, 3}
+    assert parse_days("??") is None and day_set("MTWThF", "OUT SO") == {0, 1, 2, 3, 4}

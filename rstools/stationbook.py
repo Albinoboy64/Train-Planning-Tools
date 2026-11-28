@@ -737,6 +737,10 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     group = book_operator_of(book_operator) if book_operator.strip() else ""
     if book_operator.strip() and not group:
         raise StationBookError(f"'{book_operator}' is not an operator choice: use TLGN, SNGX or GTR.")
+    day_groups = [(dt, days) for dt, days in ((dt, DAY_GROUPS.get(dt) or SINGLE_DAYS.get(dt)) for dt in day_types)
+                  if days]
+    if not day_groups:                          # checked before the XML is read
+        raise StationBookError("Choose at least one day type (SX, SO or Su).")
     if group:
         operator = operator.strip() or BOOK_OPERATORS[group][0]
         services = services.strip() or BOOK_OPERATORS[group][1]
@@ -777,10 +781,6 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
     builder.keep = keep
     unknown = sorted({t.id for vs in plan.trains.values() for t in vs if not t.operator and t.id not in groups
                       and any(c.loc in tips and c.stops for c in t.calls[:-1])}) if group in ("TLGN", "SNGX") else []
-    wanted = [(dt, DAY_GROUPS.get(dt) or SINGLE_DAYS.get(dt)) for dt in day_types]
-    day_groups = [(dt, days) for dt, days in wanted if days]
-    if not day_groups:
-        raise StationBookError("Choose at least one day type (SX, SO or Su).")
     sheets, warnings, total = [], [], 0
     missing_days: Set[int] = set()
     for n, (dt, days) in enumerate(day_groups):
@@ -817,11 +817,24 @@ def make_book(xml: str, station: str, out_dir: str = "", out_name: str = "", ope
                                 + (f" {_plat_label(plats)}" if plats else ""))
     path = os.path.join(folder, unique_stem(folder, stem, (".xlsx",)) + ".xlsx")
     progress(0.88, "Saving...")
-    write_book(path, sheets, header)
+    from rstools.fsutil import save_output
+    save_output(lambda: write_book(path, sheets, header), path, StationBookError)   # plain message if it fails
     log(f"Saved: {path}")
     progress(1.0, "Done")
     summary = f"{plural(total, 'departure row')} on {plural(len(sheets), 'sheet')} for {station.strip()}."
     return path, warnings, summary
+
+
+def xml_summary(xml: str) -> Tuple[List[str], str, List[int], str]:
+    """What the window shows about an XML chosen for a station book: (its stations, its timetable name, the days
+    it has unit diagrams for, its start date). The plan read is kept (_plan_of), so making the book does not read
+    the XML again."""
+    from rstools.statspack.attune import parse_attune_xml
+    from rstools.statspack.engine import cached
+    from rstools.statspack.seats import network_stations
+    plan = _plan_of(xml)
+    stations = network_stations(cached(parse_attune_xml, xml))
+    return stations, timetable_name(plan), sorted(plan.diagram_days), plan.start
 
 
 def _plan_of(xml: str) -> Plan:

@@ -209,19 +209,9 @@ def _target_row(sm: SheetModel, row: NewRow) -> int:
 
 
 def _insert(ws, at: int, n: int):
-    """Rows inserted above `at`; merged cells and row heights below move down with their rows."""
-    moved = [m for m in ws.merged_cells.ranges if m.min_row >= at]
-    for m in moved:
-        ws.merged_cells.remove(m)
-    heights = {r: d.height for r, d in ws.row_dimensions.items() if r >= at and d.height}
-    ws.insert_rows(at, n)
-    for r in heights:
-        ws.row_dimensions[r].height = None
-    for r, h in heights.items():
-        ws.row_dimensions[r + n].height = h
-    for m in moved:
-        m.shift(0, n)
-        ws.merged_cells.add(m)
+    """Rows inserted above `at`; merged cells, row formats and hyperlinks below move down with their rows."""
+    from .sheetrows import insert_rows
+    insert_rows(ws, at, n)
 
 
 def _write_row(ws, r: int, sm: SheetModel, row: NewRow, like: int):
@@ -276,7 +266,7 @@ def add_other_trains(path: str, other_paths: Sequence[str], out_dir: str = "", n
     cover, _assumed = coverage(model, path)
     added, warnings = add_to_workbook(wb, model, plans, cover, log)
     folder = output_folder(out_dir)
-    stem = unique_stem(folder, naming.clip(name or f"{os.path.splitext(os.path.basename(path))[0]} "
+    stem = unique_stem(folder, naming.clip(naming.output_stem(name) or f"{os.path.splitext(os.path.basename(path))[0]} "
                                                    "(other operators added)"))
     out = os.path.join(folder, stem + ".xlsx")
     save_output(lambda: save_workbook(wb, out), out, OtherTrainsError)
@@ -294,6 +284,7 @@ def add_to_workbook(wb, model, plans, cover: Set[int], log: Log = lambda _m: Non
         names.update(p.locations)
     warnings: List[str] = []
     added = 0
+    moved: Dict[str, Dict[int, int]] = {}          # rows each tab's insertions moved: links from other tabs follow
     for sm in model.sheets.values():
         ws = wb[sm.title]
         tiplocs = station_tiplocs(_tab_texts(ws, sm), names)
@@ -311,10 +302,15 @@ def add_to_workbook(wb, model, plans, cover: Set[int], log: Log = lambda _m: Non
         # bottom up, so the rows found for the earlier ones stay where they were
         placed = sorted(((_target_row(sm, r), i, r) for i, r in enumerate(rows)), key=lambda x: (-x[0], -x[1]))
         like = sm.blocks[0].start_row if sm.blocks else 0
+        from .sheetrows import row_map
+        moved[sm.title] = row_map([(at, 1) for at, _i, _r in placed], ws.max_row)
         for at, _i, r in placed:
             _insert(ws, at, 1)
             _write_row(ws, at, sm, r, like + (1 if like >= at else 0))
             like += 1 if like >= at else 0
         added += len(rows)
         log(f"{sm.title.strip()}: {plural(len(rows), 'train')} of other operators added")
+    if moved:
+        from .writer import _fix_hyperlinks
+        _fix_hyperlinks(wb, moved, set())
     return added, warnings

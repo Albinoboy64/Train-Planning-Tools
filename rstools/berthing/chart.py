@@ -27,9 +27,12 @@ TEXT_FIXES = {"ATTATCH": "ATTACH", "Attatch": "Attach", "FUTHER": "FURTHER", "1s
 
 
 def fix_text(text: str) -> str:
+    """Chart text with the known slips corrected, and without the control characters an Excel file cannot hold
+    (a chart or XML read in may carry them, e.g. '_x0001_')."""
+    from rstools.fsutil import clean_cell
     for old, new in TEXT_FIXES.items():
         text = text.replace(old, new)
-    return text
+    return clean_cell(text)
 
 
 @dataclass

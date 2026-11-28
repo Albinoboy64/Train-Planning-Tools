@@ -987,6 +987,7 @@ class StatsPackTab(ttk.Frame):
             v.set(f.upper() != "MAINT" and self.fleet_info.get(f, ("", True))[1])
         for v in self.day_vars:
             v.set(True)
+        self.month_box.configure(values=[])     # the months of the TRENT print that was in the box
         self._save_settings()
 
     def _save_settings(self):

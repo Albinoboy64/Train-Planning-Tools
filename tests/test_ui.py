@@ -36,9 +36,12 @@ def test_every_message_box_opens_over_the_window():
             if not isinstance(fn, ast.FunctionDef) or not fn.args.args or fn.args.args[0].arg != "self":
                 continue
             for n in ast.walk(fn):
-                if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                        and isinstance(n.func.value, ast.Name) and n.func.value.id == "messagebox"
-                        and not any(k.arg == "parent" for k in n.keywords)):
+                if not isinstance(n, ast.Call) or any(k.arg in ("parent", None) for k in n.keywords):
+                    continue                    # parent= given (or passed in **kw)
+                funcs = [n.func.body, n.func.orelse] if isinstance(n.func, ast.IfExp) else [n.func]
+                if any(isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
+                       and f.value.id in ("messagebox", "filedialog", "colorchooser", "simpledialog")
+                       for f in funcs):          # (showwarning if ... else showinfo)(...) counts too
                     missing.append(f"{rel}:{n.lineno}")
     assert not missing, missing
 

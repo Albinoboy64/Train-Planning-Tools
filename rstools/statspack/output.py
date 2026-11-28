@@ -98,3 +98,11 @@ class DocSink:
 
     def save(self, path: str, title: str = ""):
         write_document(path, title or APP_NAME, self.sections)
+
+
+def save_sink(sink, path: str, title: str = "") -> None:
+    """Save an output, a file that cannot be written giving a plain StatsPackError (open in Excel, read-only
+    folder, path too long, name taken meanwhile) instead of an 'Unexpected error'."""
+    from rstools.fsutil import save_output
+    from .engine import StatsPackError
+    save_output(lambda: sink.save(path, title), path, StatsPackError)

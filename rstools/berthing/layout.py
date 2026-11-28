@@ -103,11 +103,13 @@ class Layout:
 
 
 def _text(v) -> str:
+    """A cell's text, without characters an Excel file cannot hold (it is written into the chart again)."""
+    from rstools.fsutil import clean_cell
     if v is None:
         return ""
     if isinstance(v, float) and v.is_integer():
         v = int(v)
-    return " ".join(str(v).split()) if not isinstance(v, str) else v.strip()
+    return clean_cell(" ".join(str(v).split()) if not isinstance(v, str) else v.strip())
 
 
 def _rgb(color) -> str:

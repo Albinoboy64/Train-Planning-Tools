@@ -47,6 +47,18 @@ def stoppable(pool):
             _LIVE.discard(pool)
 
 
+@contextmanager
+def tracked(pool):
+    """Only list the pool so closing the window ends it (stop_all); the caller shuts it down itself."""
+    with _LOCK:
+        _LIVE.add(pool)
+    try:
+        yield pool
+    finally:
+        with _LOCK:
+            _LIVE.discard(pool)
+
+
 def stop_all() -> None:
     """End every pool still running (the window is closing)."""
     with _LOCK:

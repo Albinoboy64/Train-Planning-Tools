@@ -22,6 +22,7 @@ from .trent import FORMAT_HELP, TrentData, TrentFormatError, parse_vehicle_layou
 from .output import sink_for
 from .report_compare import compare_reports
 from rstools.naming import agree, plural
+from .output import save_sink
 
 OUTPUTS = {
     "totals_days": "One workbook: totals for the selected days, then every day's tabs",
@@ -275,7 +276,7 @@ def write_pack(per_day: List[Tuple[int, List[Table]]], opts: PackOptions, plan: 
         for sheet, title, name, key in tabs:
             sink.table(sheet, title, tables[key][name])
         p = unique_path(folder, stem, sink.ext)
-        sink.save(p, stem)
+        save_sink(sink, p, stem)
         paths.append(p)
     return paths
 
@@ -317,7 +318,7 @@ def compare_plans(old: LoadedPlan, new: LoadedPlan, opts: PackOptions, version: 
                                   f"Differences - {label}", opts.compare,
                                   summary_rows(old_t.get(key, {}), new_t[key]))
         p = unique_path(folder, stem, sink.ext)
-        sink.save(p, stem)
+        save_sink(sink, p, stem)
         paths.append(p)
     return paths, warnings, total
 
@@ -419,7 +420,7 @@ def _save_reports(reports, opts: PackOptions, stem: str) -> str:
         sink.report(rep)
     folder = output_folder(opts.output_dir)
     path = unique_path(folder, _safe(stem), sink.ext)
-    sink.save(path, stem)
+    save_sink(sink, path, stem)
     return path
 
 

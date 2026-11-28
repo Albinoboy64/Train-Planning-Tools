@@ -495,10 +495,8 @@ def _write(ws, sm: SheetModel, lay: Layout, day: int, lines: List[Tuple[str, str
                   if any(ws.cell(row=r, column=c).value not in (None, "") for c in range(1, width + 1))), None)
     if below is not None and start + need > below:    # never write over what follows the section
         more = start + need - below + 1
-        ws.insert_rows(below, more)
-        for m in list(ws.merged_cells.ranges):
-            if m.min_row >= below:
-                m.shift(0, more)
+        from .sheetrows import insert_rows
+        insert_rows(ws, below, more)             # merged cells, row formats and links move with their rows
     base = ws.cell(row=sm.blocks[0].start_row if sm.blocks else sm.header_row + 1, column=1).font
     size = base.sz or 11
     bold = Font(name="Arial", size=size, bold=True)
@@ -595,7 +593,7 @@ def add_berthing(path: str, xml_paths: Sequence[str] = (), out_dir: str = "", na
     for day, sm in tabs.items():
         diffs += _write(wb[sm.title], sm, lay, day, sections[day], log)
     folder = output_folder(out_dir)
-    stem = naming.clip(name or f"{os.path.splitext(os.path.basename(path))[0]} (berthing added)")
+    stem = naming.clip(naming.output_stem(name) or f"{os.path.splitext(os.path.basename(path))[0]} (berthing added)")
     stem = unique_stem(folder, stem)
     out = os.path.join(folder, stem + ".xlsx")
     from rstools.fsutil import save_output

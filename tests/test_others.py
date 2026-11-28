@@ -286,3 +286,28 @@ def test_the_window_adds_other_operators_trains(home, monkeypatch):
     assert manager == "grid" and section(on, "MO")["Platform 3"] == "SE for 05 40 TO"
     off, _m = _run_window(home, monkeypatch, "work_berth", [src, "", cif], toggle=False)
     assert "Platform 3" not in section(off, "MO")                        # switched off: the file is left out
+
+
+def test_links_follow_their_rows_when_other_operators_trains_are_added(home):
+    """A headcode link on a row that moves down sits on its own train again, and links from other tabs to it
+    are re-pointed."""
+    import test_compare as tc
+    from openpyxl.worksheet.hyperlink import Hyperlink
+    from cwn_compare.other_trains import add_other_trains
+    cif = F.southeastern_cif(str(home / "se.cif"))
+    tc.make(str(home / "c.xlsx"), tc.BTN_ORIG, tc.VIC_ORIG)
+    wb = openpyxl.load_workbook(str(home / "c.xlsx"))
+    wb["VIC"]["A1"] = "London Victoria"
+    vic = wb["VIC"]
+    last = max(r for r in range(3, vic.max_row + 1) if vic.cell(r, 1).value)
+    vic.cell(last, 1).hyperlink = Hyperlink(ref=vic.cell(last, 1).coordinate, location="'BTN'!A3")
+    wb["BTN"]["A3"].hyperlink = Hyperlink(ref="A3", location=f"'VIC'!A{last}")
+    wb.save(str(home / "c.xlsx"))
+    headcode = vic.cell(last, 1).value
+    r = add_other_trains(str(home / "c.xlsx"), [cif], str(home), "links")
+    out = openpyxl.load_workbook(r.chart)
+    ws = out["VIC"]
+    now = next(rr for rr in range(3, ws.max_row + 1) if ws.cell(rr, 1).value == headcode)
+    assert now > last                                       # trains were added above it
+    assert ws.cell(now, 1).hyperlink is not None and ws.cell(now, 1).hyperlink.location == "'BTN'!A3"
+    assert out["BTN"]["A3"].hyperlink.location == f"'VIC'!A{now}"

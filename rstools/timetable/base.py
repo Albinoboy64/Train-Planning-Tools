@@ -18,7 +18,7 @@ import re
 from collections import defaultdict
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .compare import day_set
+from .compare import day_set, parse_days
 from .parse import Event, Timetable, TTrain, norm_headcode, norm_loc
 from rstools.naming import agree, plural
 
@@ -229,11 +229,15 @@ def build_base(trains: List[TTrain], other: Timetable, path: str, identifier: st
     warnings = list(notes)
     unplaced = []
     relocated = []
+    unread_days = []
     for t in trains:
         placed = False
         placed_in = set()
+        unknown = bool(t.days) and parse_days(t.days) is None       # a day code that cannot be read
+        if unknown:
+            unread_days.append(f"{t.raw_id or t.headcode} ({t.days})")
         for day, day_nums in DAY_TYPES:
-            if not (day_set(t.days, f"OUT {day}") & day_nums) or (t.days == "" and day != "SX"):
+            if not (day_set(t.days, f"OUT {day}") & day_nums) or ((t.days == "" or unknown) and day != "SX"):
                 continue
             scores = {d: _order_score(t, other.locations.get(f"{d} {day}", [])) for d in ("OUT", "RTN")}
             shown = [d for d in scores if scores[d][1]]
@@ -273,6 +277,10 @@ def build_base(trains: List[TTrain], other: Timetable, path: str, identifier: st
             placed = True
         if not placed:
             unplaced.append(t.raw_id or t.headcode)
+    if unread_days:
+        warnings.append(f"{plural(len(unread_days), 'base train')} {agree(len(unread_days), 'has', 'have')} a day "
+                        "code that could not be read, so compared on weekdays (SX) only: "
+                        + "; ".join(unread_days[:10]) + (" ..." if len(unread_days) > 10 else ""))
     if relocated:
         warnings.append("Shown in another section of the timetable (same headcode and times), so compared there: "
                         + "; ".join(relocated[:10]) + (" ..." if len(relocated) > 10 else ""))

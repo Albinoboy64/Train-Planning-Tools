@@ -131,23 +131,28 @@ def workers_for(pairs: List[Tuple[str, str]]) -> int:
     """How many pairs to compare at once: one per CPU core (one core left for the window), and only as
     many as fit in free memory (a CWN being written needs roughly 60x its file size)."""
     cores = max(1, (os.cpu_count() or 1) - 1)
-    need = max((60 * os.path.getsize(u) + 20 * os.path.getsize(o) for o, u in pairs), default=0) / 1e6
+    def size(path: str) -> int:
+        try:
+            return os.path.getsize(path)
+        except OSError:                       # gone since it was listed: its own run reports it
+            return 0
+    need = max((60 * size(u) + 20 * size(o) for o, u in pairs), default=0) / 1e6
     free = available_memory_mb()
     by_memory = int(0.7 * free // max(need, 300)) if free else cores
     return max(1, min(cores, len(pairs), by_memory))
 
 
-def _distinct_names(pairs: List[Tuple[str, str]]) -> List[str]:
-    """Each pair's output name: '' (the usual name) unless two pairs would get the same one, when the later ones
-    get ' (2)', ' (3)'... - pairs compared at the same time must not choose the same file name."""
+def _distinct_names(pairs: List[Tuple[str, str]], folder: str, report_format: str = "xlsx") -> List[str]:
+    """Each pair's output name, chosen here before any is compared: pairs compared at the same time must never
+    choose the same file name, nor one already in the folder (' (2)', ' (3)'... as for a single comparison)."""
+    from rstools.fsutil import unique_stem
+    from .engine import _safe
     from .options import default_name
-    seen: dict = {}
-    out = []
+    from rstools.docexport import ext_for
+    tails = (".xlsx", " - Change Report" + ext_for(report_format))
+    out: List[str] = []
     for o, u in pairs:
-        name = default_name(o, u)
-        key = name.casefold()
-        seen[key] = seen.get(key, 0) + 1
-        out.append("" if seen[key] == 1 else f"{name} ({seen[key]})")
+        out.append(unique_stem(folder, _safe(default_name(o, u)), tails, taken=out))
     return out
 
 
@@ -165,7 +170,7 @@ def run_batch(pairs: List[Tuple[str, str]], base: Options,
         folder = os.path.join(folder, os.path.basename(os.path.dirname(os.path.abspath(pairs[0][1]))) or "CWNs")
         os.makedirs(folder, exist_ok=True)
     jobs = [dataclasses.replace(base, original=o, updated=u, output_name=name, days=[], output_dir=folder)
-            for (o, u), name in zip(pairs, _distinct_names(pairs))]
+            for (o, u), name in zip(pairs, _distinct_names(pairs, folder, base.report_format))]
     results: List[dict] = []
     workers = workers_for(pairs)
     if workers > 1:

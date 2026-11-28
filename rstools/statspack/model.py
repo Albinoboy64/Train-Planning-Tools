@@ -428,6 +428,9 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day, names: Dict[str, st
         i = j
 
 
+SAME_TRAIN_GAP = 2 * 3600       # seconds: a headcode's next move this much later is a separate train that day
+
+
 def _build_trains(included: List[Diagram]) -> List[TrainRun]:
     """Group the included diagrams' moves into trains, split into formation parts."""
     by_train: Dict[str, Dict[Tuple[int, str], Move]] = defaultdict(dict)
@@ -438,10 +441,19 @@ def _build_trains(included: List[Diagram]) -> List[TrainRun]:
             if prev is None or (prev.miles is None and m.miles is not None):
                 by_train[m.headcode][seg] = m
     out = []
+
+    def finish(hc: str, parts: List[Part]):
+        for k, p in enumerate(parts):
+            p.ends = "End of Service" if k == len(parts) - 1 else "Change of Formation"
+        out.append(TrainRun(hc, parts, [leg for p in parts for leg in p.legs]))
+
     for hc, segs in by_train.items():
         moves = sorted(segs.values(), key=lambda m: m.dep)
         parts: List[Part] = []
         for m in moves:
+            if parts and m.dep - parts[-1].arr > SAME_TRAIN_GAP:
+                finish(hc, parts)       # the headcode used again later in the day: another train, not a part
+                parts = []
             if parts and parts[-1].dest == m.origin and set(parts[-1].formation) == set(m.formation) \
                     and parts[-1].arr <= m.dep:
                 p = parts[-1]
@@ -453,9 +465,7 @@ def _build_trains(included: List[Diagram]) -> List[TrainRun]:
                 continue        # overlapping section already covered by another unit
             parts.append(Part(hc, m.origin, m.dest, m.dep, m.arr, m.dep_pub, m.arr_pub, m.miles,
                               m.formation, list(m.legs)))
-        for k, p in enumerate(parts):
-            p.ends = "End of Service" if k == len(parts) - 1 else "Change of Formation"
-        legs = [leg for p in parts for leg in p.legs]
-        out.append(TrainRun(hc, parts, legs))
+        if parts:
+            finish(hc, parts)
     out.sort(key=lambda t: (t.headcode, t.dep))
     return out

@@ -330,10 +330,11 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
         cells = []
         for c in range(1, mc + 1):
             cell = ws.cell(row=r, column=c)
-            cells.append((cell.value, copy(cell._style), cell.hyperlink))
+            cells.append((cell.value, copy(cell._style), cell.hyperlink, copy(cell.comment) if cell.comment else None))
             cell.hyperlink = None
+            cell.comment = None               # comments move with their rows (as in reorder._rewrite)
         dim = ws.row_dimensions.get(r)
-        snap[r] = (cells, dim.height if dim is not None else None)
+        snap[r] = (cells, (dim.height, dim.hidden, dim.outlineLevel) if dim is not None else None)
 
     seq = [("ins", x) for x in inserts.get(hr, [])]
     for r in range(hr + 1, max_row + 1):
@@ -345,8 +346,8 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
     t = hr + 1
     for kind, item in seq:
         if kind == "src":
-            cells, h = snap[item]
-            for c, (v, style, link) in enumerate(cells, start=1):
+            cells, dim = snap[item]
+            for c, (v, style, link, comment) in enumerate(cells, start=1):
                 cell = ws.cell(row=t, column=c)
                 cell.value = v
                 if cell.data_type == "f":      # the CWN is read as values, so this is text: never a live formula
@@ -354,8 +355,11 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
                 cell._style = copy(style)
                 if link is not None:
                     cell.hyperlink = copy(link)
-            if h is not None or t in ws.row_dimensions:
-                ws.row_dimensions[t].height = h
+                if comment is not None:
+                    cell.comment = comment
+            if dim is not None or t in ws.row_dimensions:      # height, and hidden / grouped rows stay hidden
+                d = ws.row_dimensions[t]
+                d.height, d.hidden, d.outlineLevel = dim if dim is not None else (None, False, 0)
             row_map[item] = t
             t += 1
             continue
@@ -377,7 +381,8 @@ def _rebuild(ws, sm: SheetModel, keep: Optional[set], inserts: Dict[int, list],
                     cell.fill = fill
                 else:                                  # (which may have copied a neighbour's highlight)
                     cell.fill = PatternFill(fill_type=None)
-            ws.row_dimensions[t].height = tmpl_h
+            d = ws.row_dimensions[t]
+            d.height, d.hidden, d.outlineLevel = tmpl_h, False, 0     # a put-back train is always shown
             t += 1
 
     for r0, r1, c0, c1 in merged:
