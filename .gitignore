@@ -13,9 +13,20 @@ dist/
 *.[dD][oO][cC]*
 *.[xX][mM][lL]
 *.[pP][dD][fF]
-# train lists exported as CSV; the app's own built-in tables are kept
+# train lists exported as CSV; only the app's own built-in tables (by name) are kept
 *.[cC][sS][vV]
-!rstools/**/*.csv
+!rstools/berthing/berth_locations_default.csv
+!rstools/statspack/depots_default.csv
+!rstools/statspack/fleet_default.csv
+!rstools/statspack/groups_default.csv
+!rstools/statspack/service_groups_default.csv
+!rstools/statspack/trent_names.csv
+!rstools/timetable/tiplocs.csv
+# a CIF can be saved as .txt (the app reads it): text files are ignored too, apart from the app's own
+*.[tT][xX][tT]
+!requirements.txt
+!packaging/*-requirements.txt
+!rstools/assets/THIRD_PARTY_NOTICES.txt
 # Explicitly keep the sample template used by the app.
 !rstools/timetable/template.xlsx
 # a tiny made-up workbook (no real data) for the .xls reader test

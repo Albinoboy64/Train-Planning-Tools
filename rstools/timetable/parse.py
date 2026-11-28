@@ -99,13 +99,18 @@ def norm_time(value) -> Optional[str]:
         return None
     if isinstance(value, (_dt.time, _dt.datetime)):
         return f"{value.hour:02d}{value.minute:02d}" + (HALF if value.second >= 30 else "")
-    if isinstance(value, float) and 0 <= value < 1:           # an Excel time stored as a fraction of a day
+    if isinstance(value, float) and 0 <= value < 2 and (value < 1 or value != int(value) or value == 1):
+        # an Excel time stored as a fraction of a day; 1 to 2 is an [h]:mm time from 24:00 (after midnight)
         halves = round(value * 2880)
         minutes = halves // 2
         return f"{minutes // 60 % 24:02d}{minutes % 60:02d}" + (HALF if halves % 2 else "")
     if isinstance(value, (int, float)):
         value = f"{int(value):04d}"
     text = str(value)
+    hms = re.fullmatch(r"\s*(\d{1,2})[:.](\d{2})[:.](\d{2})\s*", text)      # typed with seconds: 06:34:30
+    if hms:
+        hh, mm, ss = (int(x) for x in hms.groups())
+        return f"{hh:02d}{mm:02d}" + (HALF if ss >= 30 else "") if hh <= 23 and mm <= 59 and ss <= 59 else None
     half = HALF in text or bool(re.search(r"\d\s*[Hh]\s*$", text))
     digits = re.sub(r"\D", "", text)
     if len(digits) != 4:

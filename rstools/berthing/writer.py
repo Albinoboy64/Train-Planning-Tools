@@ -485,7 +485,7 @@ def cover_rewriter(issue: str = "", start: str = "", end: str = "",
 
     def short(iso: str) -> str:
         try:
-            return datetime.date.fromisoformat(iso).strftime("%d/%m/%y")
+            return datetime.date.fromisoformat(iso[:10]).strftime("%d/%m/%y")
         except ValueError:
             return ""
     dates = f"{short(start)} - {short(end)}" if short(start) and short(end) else ""

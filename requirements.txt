@@ -1,7 +1,7 @@
 openpyxl>=3.1.2
 xlrd>=2.0.1
 pyxlsb>=1.0.10
-tkinterdnd2>=0.4.2
+tkinterdnd2>=0.7.0
 reportlab>=5.1
 pypdf>=7.1
 pypdfium2>=5.0

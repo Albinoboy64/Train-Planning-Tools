@@ -247,10 +247,18 @@ def add_section4_set(name: str, pdfs: Sequence[str], log=lambda m: None) -> dict
     if name == BUILT_IN_S4:
         name = name.replace("(built in)", "(added)")
     data, summary = _read_set(name, pdfs, log)
-    fname = _safe(name) + ".json.gz"
+    idx = _load_index()
+    replaced = next((s for s in idx.get("section4", []) if s.get("name") == name), None)
+    if replaced and replaced.get("file"):
+        fname = replaced["file"]                   # the same set again: its own file is written anew
+    else:                                          # another set's name can make the same file name ('A/B', 'A-B')
+        others = {str(s.get("file", "")).casefold() for s in idx.get("section4", [])}
+        fname, n = _safe(name) + ".json.gz", 1
+        while fname.casefold() in others:
+            n += 1
+            fname = f"{_safe(name)} ({n}).json.gz"
     _write_gz(os.path.join(_dir(), fname), data)
     info = dict(summary, name=name, file=fname, files=data["files"], added=datetime.now().isoformat(timespec="seconds"))
-    idx = _load_index()
     idx["section4"] = [s for s in idx.get("section4", []) if s.get("name") != name] + [info]
     idx["active_section4"] = name
     _save_index(idx)
@@ -318,7 +326,12 @@ def _load(d: dict):
         start, end = parse_date(x.get("start", "")), parse_date(x.get("end", ""))
         if start is not None and end is not None:       # a damaged rule set: periods without dates are left out
             periods.append(Period(x.get("name", ""), start, end))
-    windows = [Window(int(w["start"]), int(w["end"]), w["text"]) for w in d.get("windows", [])]
+    windows = []
+    for w in d.get("windows", []):                      # a damaged window entry is left out, not a crash
+        try:
+            windows.append(Window(int(w["start"]), int(w["end"]), str(w.get("text", ""))))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
     return Possession(d.get("route", ""), d.get("section", ""), d.get("number", ""), tuple(d.get("ends", [])),
                       d.get("night", ""), periods, windows, d.get("blocked", ""), d.get("remarks", ""),
                       d.get("source", ""))

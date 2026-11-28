@@ -133,6 +133,8 @@ class Options:
                                   if isinstance(k, str) and isinstance(v, list)})
             if o.berth_operator not in ("SNGX", "TLGN"):
                 o.berth_operator = "SNGX"
+            o.days = sorted({x for x in o.days if isinstance(x, int) and not isinstance(x, bool) and 0 <= x <= 6})
+            o.book_days = [x for x in o.book_days if isinstance(x, str)] or list(defaults.book_days)
             o.saved = {k: v for k, v in o.saved.items() if isinstance(k, str) and isinstance(v, dict)
                        and isinstance(v.get("tab"), int) and isinstance(v.get("state"), dict)}
             cats = default_categories()

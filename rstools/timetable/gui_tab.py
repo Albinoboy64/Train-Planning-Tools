@@ -720,12 +720,9 @@ class TimetableTab(ttk.Frame):
             self.q.put(("done", res))
         except TimetableRunError as exc:
             self.q.put(("error", str(exc)))
-        except Exception as exc:                    # parse errors carry a readable message
-            known = type(exc).__name__ in ("TimetableError", "PrintError", "TrainListError")
-            if known:
-                self.q.put(("error", str(exc)))
-                return
-            self.q.put(("error", errorlog.describe(exc)))
+        except Exception as exc:                    # the readers' errors carry a readable message
+            from rstools.errors import user_errors
+            self.q.put(("error", str(exc) if isinstance(exc, user_errors()) else errorlog.describe(exc)))
 
     def stop_run(self, _event=None):
         """Stop the running task at its next step (Stop button or Esc)."""
@@ -799,7 +796,7 @@ class TimetableTab(ttk.Frame):
                 elif item[0] == "error":
                     self._finish(False)
                     self._append("ERROR: " + item[1], "error")
-                    self.app.notify_done("Timing Tools failed", item[1].splitlines()[0], False)
+                    self.app.notify_done("Timing Tools failed", (item[1].splitlines() or ["Failed"])[0], False)
                     messagebox.showerror(TITLE, item[1][:1500], parent=self)
         except queue.Empty:
             pass

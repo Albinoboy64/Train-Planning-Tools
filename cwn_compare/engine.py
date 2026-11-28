@@ -130,7 +130,8 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
     for path in (opts.original, opts.updated):
         if not os.path.isfile(path):
             raise RunError(f"This file could not be found:\n{path}")
-    if os.path.abspath(opts.original) == os.path.abspath(opts.updated):
+    from rstools.fsutil import same_file
+    if same_file(opts.original, opts.updated):
         raise RunError("The two files selected are the same file.")
     if is_comparison_output(opts.updated):
         raise RunError("The updated file is a comparison output produced by this app.\n"

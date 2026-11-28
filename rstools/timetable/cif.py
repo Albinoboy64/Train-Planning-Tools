@@ -72,7 +72,7 @@ def read_plan(path: str):
     from rstools import limits
     name = os.path.basename(path)
     try:
-        limits.check_size(path, "XML_MAX_BYTES", "CIF file")
+        limits.check_size(path, "CIF_MAX_BYTES", "CIF file")
         fh = open(path, encoding="latin-1")
     except OSError as exc:
         raise CifError(f"'{name}' could not be opened: {exc}")

@@ -32,6 +32,8 @@ DEFAULTS: Dict[str, int] = {
     "BERTH_NOTES_MAX_BYTES": 16 * MB,   # the berthing chart notes edited in the app (real ones are a few KB)
     "BERTH_NOTE_CHARS": 1000,           # one berthing chart note (the longest in a real chart is ~200 characters)
     "BERTH_SET_MAX_BYTES": 16 * MB,     # a berthing location set saved in the app (real ones are well under 1 MB)
+    "CIF_MAX_BYTES": 2 * GB,            # a Network Rail CIF / MCA file (a full weekly extract is ~600 MB)
+    "UPDATE_MAX_BYTES": 1 * GB,         # an update download when GitHub gives no size (the real exe is ~25 MB)
 }
 FILE_NAME = "limits.json"
 

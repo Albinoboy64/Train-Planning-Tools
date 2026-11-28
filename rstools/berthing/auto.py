@@ -59,7 +59,7 @@ def operator_fleets(operator: str, table) -> Optional[Set[str]]:
 def timetable_name(start: str) -> str:
     """'December 2026' for an XML starting 13/12/2026; '' when the date cannot be read."""
     try:
-        d = datetime.date.fromisoformat(start)
+        d = datetime.date.fromisoformat(start[:10])     # a date, even with a time after it
     except (TypeError, ValueError):
         return ""
     return f"{d:%B %Y}"

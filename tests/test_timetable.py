@@ -1380,3 +1380,11 @@ def test_day_codes_without_o_or_x_are_read_and_unreadable_ones_are_not_everywher
     from rstools.timetable.compare import day_set, parse_days
     assert parse_days("MTWThF") == {0, 1, 2, 3, 4} and parse_days("TTh") == {1, 3}
     assert parse_days("??") is None and day_set("MTWThF", "OUT SO") == {0, 1, 2, 3, 4}
+
+
+def test_times_past_midnight_and_with_seconds_are_read():
+    from rstools.timetable.parse import norm_time
+    assert norm_time(1.25) == "0600"                 # an Excel [h]:mm 30:00 (06:00 the next morning)
+    assert norm_time(1.0) == "0000" and norm_time(634.0) == "0634"
+    assert norm_time("06:34:30") == "0634½" and norm_time("06:34:10") == "0634"
+    assert norm_time("25:10:00") is None

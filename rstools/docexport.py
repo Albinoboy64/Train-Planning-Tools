@@ -221,8 +221,8 @@ def write_pdf(path: str, title: str, sections: Sequence[Section]):
                 story.append(_Deferred(lambda part=part: _pdf_table(part, width, colors, LongTable, TableStyle,
                                                                      Paragraph, ParagraphStyle)))
             story.append(Spacer(1, 4))
-    from .fsutil import atomic_path
-    with atomic_path(path) as tmp:              # the PDF replaces an older one only once complete
+    from .fsutil import atomic_new_path
+    with atomic_new_path(path) as tmp:          # saved in full first; never written over an existing file
         SimpleDocTemplate(tmp, pagesize=page, leftMargin=margin, rightMargin=margin, topMargin=margin,
                           bottomMargin=12 * mm, title=title, author=APP_NAME).build(
             story, onFirstPage=footer, onLaterPages=footer)

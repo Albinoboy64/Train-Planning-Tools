@@ -72,6 +72,8 @@ def write_zip(path: str, items: Iterable[Tuple[str, object]]):
     dos_t, dos_d = _dos_time()
     from .fsutil import long_path, move_new, temp_path
     tmp, final = long_path(temp_path(path)), long_path(path)
+    if len(parts) > 0xFFFF:                  # the zip format (without its 64-bit extension) holds no more
+        raise ValueError("Workbook too large (over 65,535 parts).")
     try:
         with open(tmp, "xb") as fh:          # a new file only: never one already there
             central = []
@@ -92,6 +94,8 @@ def write_zip(path: str, items: Iterable[Tuple[str, object]]):
             for entry in central:
                 fh.write(entry)
             size = fh.tell() - start
+            if max(start, size, fh.tell()) >= 0xFFFFFFFF:
+                raise ValueError("Workbook too large (over 4 GB).")
             fh.write(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(central), len(central), size, start, 0))
         move_new(tmp, final)                 # never over a file already there
     except BaseException:

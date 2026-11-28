@@ -15,6 +15,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from rstools.days import DAY_CODES, DAY_LABELS, TOKEN_DAY as _TOKEN_DAY  # noqa: F401  (DAY_* used by others)
 
+from .loader import LoadError
 from .model import CWNModel, SheetModel, _day_tokens
 
 WEEKDAYS = frozenset(range(5))
@@ -222,6 +223,8 @@ def read_days_cached(paths: Sequence[str], cache: Dict[str, tuple]) -> Dict[str,
                     try:
                         days, assumed = job.result()
                         found[path] = (mtime, days, assumed)
+                    except (LoadError, OSError):
+                        pass                                    # an unreadable file: read below, which says why
                     except Exception:
                         _note_failure()                         # read below, here
         except Exception:

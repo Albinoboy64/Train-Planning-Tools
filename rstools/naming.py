@@ -51,16 +51,24 @@ def compare_name(first: str, second: str) -> str:
 
 
 def timetable_of(start_dates: Iterable[str]) -> str:
-    """Timetable name from diagram start dates ('14/12/2026' ...) -> 'DEC26' (the most common)."""
+    """Timetable name from diagram start dates ('14/12/2026' ...) -> 'DEC26': the timetable (from the real May and
+    December change dates, rstools.rules.timetable_of) that most of the dates fall in, so a diagram starting in
+    January still names the December timetable."""
+    import datetime
+
+    from rstools.rules import timetable_of as timetable_at
     seen: Counter = Counter()
     for d in start_dates:
         m = re.match(r"\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", d or "")
-        if m and 1 <= int(m.group(2)) <= 12:
-            seen[(int(m.group(3)) % 100, int(m.group(2)))] += 1
-    if not seen:
-        return ""
-    yy, mm = seen.most_common(1)[0][0]
-    return f"{MONTHS[mm - 1]}{yy:02d}"
+        if not m:
+            continue
+        year = int(m.group(3))
+        try:
+            day = datetime.date(year + 2000 if year < 100 else year, int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            continue
+        seen[timetable_at(day)] += 1
+    return seen.most_common(1)[0][0] if seen else ""
 
 
 def pick_vs(*pairs) -> Optional[str]:

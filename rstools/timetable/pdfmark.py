@@ -84,7 +84,7 @@ def _annotate(src: str, dest: str, pages: Dict[int, List[Mark]]) -> int:
 
 def highlight_pdfs(cmp: DocComparison, out_dir: str, log: Callable[[str], None] = lambda m: None) -> List[str]:
     """Write the highlighted copies; returns their paths."""
-    from rstools.fsutil import atomic_path, unique_stem
+    from rstools.fsutil import atomic_new_path, unique_stem
     old, new, lost = marks_by_file(cmp)
     out: List[str] = []
     for label, files, marks in (("original", cmp.first, old), ("updated", cmp.second, new)):
@@ -97,7 +97,7 @@ def highlight_pdfs(cmp: DocComparison, out_dir: str, log: Callable[[str], None] 
             stem = unique_stem(out_dir, f"{base} - highlighted", (".pdf",))
             dest = os.path.join(out_dir, stem + ".pdf")
             try:
-                with atomic_path(dest) as tmp:
+                with atomic_new_path(dest) as tmp:
                     n = _annotate(src, tmp, pages)
             except Exception as exc:
                 log(f"WARNING: could not highlight {os.path.basename(src)} ({exc}).")

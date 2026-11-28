@@ -28,7 +28,6 @@ API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 ASSET = "TrainPlanningTools.exe"
 TIMEOUT = 20
-MAX_DOWNLOAD = 1024 * 1024 * 1024        # a hard cap when GitHub gives no size (the real exe is ~60 MB)
 
 
 class UpdateError(Exception):
@@ -142,6 +141,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def download(rel: Release, dest: str, token: str = "", progress: Callable[[float], None] = lambda f: None) -> str:
     """Download the release's exe to `dest`, verifying its size and SHA-256 digest."""
     opener = urllib.request.build_opener(_NoRedirect)
+    from rstools import limits
     req = _request(rel.asset_api, token, accept="application/octet-stream")
     fd, tmp = tempfile.mkstemp(prefix="~tptdl", suffix=".part", dir=os.path.dirname(os.path.abspath(dest)))
     os.close(fd)                             # a new, unique file: nothing already there is overwritten
@@ -167,7 +167,7 @@ def download(rel: Release, dest: str, token: str = "", progress: Callable[[float
                 fh.write(chunk)
                 sha.update(chunk)
                 done += len(chunk)
-                if done > (rel.asset_size or MAX_DOWNLOAD):
+                if done > (rel.asset_size or limits.get("UPDATE_MAX_BYTES")):
                     raise UpdateError("The download was larger than expected, so it was not used.")
                 if rel.asset_size:
                     progress(min(done / rel.asset_size, 1.0))
@@ -198,7 +198,11 @@ def download(rel: Release, dest: str, token: str = "", progress: Callable[[float
     if signature_state(tmp) == "bad":
         os.remove(tmp)
         raise UpdateError("The download has a digital signature that Windows does not accept, so it was not used.")
-    os.replace(tmp, dest)
+    if dest.endswith(".new"):
+        os.replace(tmp, dest)                  # beside the exe: a half-used '.new' from an earlier try is replaced
+    else:
+        from rstools.fsutil import move_new
+        move_new(tmp, dest)                    # in Downloads: never over a file already there
     return dest
 
 
@@ -354,14 +358,23 @@ def _install_with_script(new_exe: str, exe: str):
     new_exe, exe = _cmd_path(new_exe), _cmd_path(exe)
     fd, script = tempfile.mkstemp(prefix="tpt_update_", suffix=".cmd")     # unique, only this user can write
     os.close(fd)
-    with open(script, "w", encoding="mbcs") as fh:
-        fh.write("@echo off\r\nset /a tries=0\r\n"                # waits for the app to close (2 minutes at most)
-                 f":wait\r\ntasklist /FI \"PID eq {os.getpid()}\" | find \"{os.getpid()}\" >nul || goto swap\r\n"
-                 "set /a tries+=1\r\nif %tries% geq 120 goto end\r\n"
-                 "timeout /t 1 /nobreak >nul\r\ngoto wait\r\n:swap\r\n"
-                 f"move /y \"{new_exe}\" \"{exe}\" >nul\r\n"
-                 f"start \"\" \"{exe}\"\r\n"
-                 ":end\r\ndel \"%~f0\"\r\n")
+    text = ("@echo off\r\nset /a tries=0\r\n"                     # waits for the app to close (2 minutes at most)
+            f":wait\r\ntasklist /FI \"PID eq {os.getpid()}\" | find \"{os.getpid()}\" >nul || goto swap\r\n"
+            "set /a tries+=1\r\nif %tries% geq 120 goto end\r\n"
+            "timeout /t 1 /nobreak >nul\r\ngoto wait\r\n"
+            ":swap\r\n"                                              # the exe can stay locked a moment after the
+            f"move /y \"{new_exe}\" \"{exe}\" >nul && goto start\r\n"  # app ends: tried again for a while
+            "set /a tries+=1\r\nif %tries% geq 150 goto end\r\n"
+            "timeout /t 1 /nobreak >nul\r\ngoto swap\r\n"
+            f":start\r\nstart \"\" \"{exe}\"\r\n"
+            ":end\r\ndel \"%~f0\"\r\n")
+    try:
+        with open(script, "w", encoding="mbcs") as fh:
+            fh.write(text)
+    except (UnicodeError, LookupError) as exc:              # a folder name Windows' code page cannot write
+        os.remove(script)
+        raise UpdateError("The app's folder name cannot be used by the updater - download the new version "
+                          f"from the release page instead. ({exc})")
     subprocess.Popen(["cmd.exe", "/c", script], env=_fresh_env(), creationflags=_FLAGS, close_fds=True)
 
 

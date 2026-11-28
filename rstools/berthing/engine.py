@@ -369,7 +369,8 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
     """The newer chart, tidied, with every cell that differs from the older one filled in `colour` (its own
     earlier highlights kept), and a change report."""
     _check_paths([old_path, new_path], "two berthing charts")
-    if os.path.abspath(old_path) == os.path.abspath(new_path):
+    from rstools.fsutil import same_file
+    if same_file(old_path, new_path):
         raise BerthingError("The two charts selected are the same file.")
     locations = load_locations()
     log(f"Reading {os.path.basename(old_path)}")
@@ -437,7 +438,7 @@ def _timetable(xmls) -> str:
     if not starts:
         return ""
     try:
-        d = datetime.date.fromisoformat(starts[-1])
+        d = datetime.date.fromisoformat(starts[-1][:10])     # a date, even with a time after it
     except ValueError:
         return ""
     return f"{naming.MONTHS[d.month - 1].title()} {d:%y}"

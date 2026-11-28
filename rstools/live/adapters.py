@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from typing import Callable, Dict, List, Optional, Sequence, cast
 
 from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, LiveRow
+from rstools.errors import LiveError
 
 MODE_GROUPS = [        # the Task list: a group for each tab, its tasks in the order of that tab's own list
     ("Stock Tools", [("cwn", "Compare two CWNs or platform workings"), ("berthing", "Compare two berthing charts")]),
@@ -74,7 +75,7 @@ def model_of(path: str):
     if is_comparison_output(path):
         meta = read_meta_file(path) or {}
         if "baseline" not in meta:
-            raise ValueError(f"'{os.path.basename(path)}' is a comparison CWN without its stored data, so it cannot "
+            raise LiveError(f"'{os.path.basename(path)}' is a comparison CWN without its stored data, so it cannot "
                              "be compared here. Compare the original CWNs instead.")
         return model_from_dict(meta["baseline"])
     return load_model(path)
@@ -120,13 +121,13 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
     warnings = list(m_old.warnings) + list(m_new.warnings)
     for label, m, path in (("original", m_old, orig), ("updated", m_new, upd)):
         if not m.sheets:
-            raise ValueError(f"No CWN location tabs (with an ID / TIME heading row) were found in the {label} CWN, "
+            raise LiveError(f"No CWN location tabs (with an ID / TIME heading row) were found in the {label} CWN, "
                              f"{os.path.basename(path)}.")
     m_old, m_new, unread = leave_out_unread(m_old, m_new)
     warnings += unread
     if not m_old.sheets or not m_new.sheets:
         from cwn_compare.engine import NOTHING_LEFT
-        raise ValueError(NOTHING_LEFT)
+        raise LiveError(NOTHING_LEFT)
     full_old = full_new = None
     if days:
         b_old, b_new = coverage(m_old, orig)[0], coverage(m_new, upd)[0]
@@ -451,7 +452,7 @@ def stats_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) ->
     new = load_plan(PlanInputs(xml_b, trent_b), log)
     days = sorted(set(old.trent.days()) & set(new.trent.days()))
     if not days:
-        raise ValueError("The two TRENT prints have no diagram days in common.")
+        raise LiveError("The two TRENT prints have no diagram days in common.")
     opts = PackOptions(days=days, operators=set(OPERATORS), fleets=None)
     log("Building both plans' stats...")
     old_pd, w_old = build_pack(old, opts, __version__)
@@ -529,7 +530,7 @@ def section4_check(xml: str, pdfs: Sequence[str], log: Log, vpt: str = "",
     else:
         stored = rules.load_set() if rules.active_set_info() else None
         if stored is None:
-            raise ValueError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Settings > "
+            raise LiveError("Choose the Section 4 PDF(s), or add a Section 4 rule set in Settings > "
                              "Rules.")
         statement = stored
     log(f"Reading {os.path.basename(xml)}")
@@ -583,8 +584,9 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
     from rstools.berthing.compare import ADDED as B_ADDED, CHANGED as B_CHANGED, REMOVED as B_REMOVED, diff, same_cells
     from rstools.berthing.layout import read_chart
     from rstools.berthing.mapping import load as load_locations, norm
-    if os.path.abspath(old_path) == os.path.abspath(new_path):
-        raise ValueError("The two charts selected are the same file.")
+    from rstools.fsutil import same_file
+    if same_file(old_path, new_path):
+        raise LiveError("The two charts selected are the same file.")
     locations = load_locations()
     log(f"Reading {os.path.basename(old_path)} and {os.path.basename(new_path)}")
     old, new = _chart(read_chart, old_path, locations), _chart(read_chart, new_path, locations)
@@ -625,7 +627,7 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
     new = load_plan(PlanInputs(xml_b, trent_b), log, xml_optional=True)
     days = sorted(set(old.trent.days()) & set(new.trent.days()))
     if not days:
-        raise ValueError("The two TRENT prints have no diagram days in common.")
+        raise LiveError("The two TRENT prints have no diagram days in common.")
     opts = PackOptions(days=days, operators=set(OPERATORS), fleets=None)
     which = ["washes", "cets", "depots", "captive", "fuel"]
     log("Following units in both plans...")

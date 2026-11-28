@@ -104,11 +104,20 @@ def diff(old: Layout, new: Layout) -> Tuple[List[Change], Dict[Key, set]]:
     # a sheet renamed slightly between issues ('RDH Up Tonb Goods Loop' / 'RDH Up Tonb Sdg') is the same sheet
     old_sheets = {norm(sh.name) for sh in old.sheets}
     new_sheets = {norm(sh.name) for sh in new.sheets}
+    # ... but only when most of its berths are the same too: 'Three Bridges Up Yard' gone and 'Three Bridges Down
+    # Sidings' added are two sheets, one removed and one added
+    berths_a: Dict[str, set] = {}
+    berths_b: Dict[str, set] = {}
+    for cells_of, berths in ((a, berths_a), (b, berths_b)):
+        for k in cells_of:
+            berths.setdefault(k[0], set()).add(k[1])
     rename = {}
     for n in new_sheets - old_sheets:
         match = [o for o in old_sheets - new_sheets if o.split()[:2] == n.split()[:2]]
         if len(match) == 1:
-            rename[match[0]] = n
+            ob, nb = berths_a.get(match[0], set()), berths_b.get(n, set())
+            if not ob or not nb or len(ob & nb) * 2 >= max(len(ob), len(nb)):
+                rename[match[0]] = n
     if rename:
         a = {(rename.get(k[0], k[0]),) + k[1:]: v for k, v in a.items()}
         old_sheets = {rename.get(o, o) for o in old_sheets}

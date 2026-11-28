@@ -104,18 +104,19 @@ def safe_stem(stem: str) -> str:
     return stem.strip(".") or "output"
 
 
-def fit_stem(folder: str, stem: str, tails=(".xlsx",), reserve: int = 4) -> str:
+def fit_stem(folder: str, stem: str, tails=(".xlsx",), reserve: int = 5) -> str:
     """`stem` shortened (at a word break where possible) so that folder + stem + each tail stays within
-    the length Excel can open, keeping `reserve` characters for a ' (2)' added to make it unique."""
+    the length Excel can open, keeping `reserve` characters for a ' (2)' ... ' (99)' added to make it unique."""
     stem = safe_stem(stem)
     room = EXCEL_MAX_PATH - len(os.path.abspath(folder or ".")) - 1 - max(len(t) for t in tails) - reserve
     if len(stem) <= room:
         return stem
     if room < MIN_STEM:              # the folder itself is too deep: keep the full name (see excel_warning)
         return stem
-    cut = stem[:room]
-    if " " in cut[MIN_STEM // 2:]:
-        cut = cut[:cut.rstrip().rfind(" ")]
+    cut = stem[:room].rstrip()
+    space = cut.rfind(" ")
+    if space >= MIN_STEM // 2:       # a word break, but never one that leaves only a few characters
+        cut = cut[:space]
     return cut.rstrip(" -.,(") or stem[:room]
 
 
@@ -166,6 +167,30 @@ def move_new(tmp: str, final: str):
         os.replace(tmp, final)
         return
     os.remove(tmp)
+
+
+def same_file(a: str, b: str) -> bool:
+    """True when two paths name the same file (Windows paths ignore letter case: C:\\A.xlsx is c:\\a.xlsx)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+@contextmanager
+def atomic_new_path(path: str):
+    """Like atomic_path, for a new output: the finished file is moved to `path` only if nothing is there yet
+    (FileExistsError otherwise), so an output that appeared meanwhile is never written over."""
+    tmp = long_path(temp_path(path))
+    try:
+        yield tmp
+        move_new(tmp, long_path(path))
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 @contextmanager

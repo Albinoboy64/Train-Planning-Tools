@@ -36,7 +36,8 @@ def write(text: str) -> str:
             with open(path, "rb") as fh:
                 fh.seek(-LOG_LIMIT // 2, os.SEEK_END)
                 tail = fh.read()
-            with open(path, "wb") as fh:
+            from .fsutil import atomic_path
+            with atomic_path(path) as tmp, open(tmp, "wb") as fh:     # the old log stays until the new one is whole
                 fh.write(b"(older entries removed)\n" + tail[tail.find(b"\n=====") + 1:])
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(f"\n===== {datetime.datetime.now():%d/%m/%Y %H:%M:%S}  v{__version__} =====\n"
@@ -196,13 +197,13 @@ def redact(text: str, paths: bool = True, user: bool = True, content: bool = Tru
 def export(text: str, folder: str = "") -> str:
     """Save `text` (the redacted log) as 'error log YYYY-MM-DD.txt' in `folder` (this PC only; default
     Downloads), next to and never over an existing file. Returns the path."""
-    from .fsutil import atomic_path, is_network_path, output_folder, unique_stem
+    from .fsutil import atomic_new_path, is_network_path, output_folder, unique_stem
     if folder and is_network_path(folder):
         raise OSError("The error log is saved on this PC only: choose a local folder.")
     folder = output_folder(folder)
     stem = unique_stem(folder, f"error log {datetime.date.today():%Y-%m-%d}", (".txt",))
     path = os.path.join(folder, stem + ".txt")
-    with atomic_path(path) as tmp:
+    with atomic_new_path(path) as tmp:
         with open(tmp, "w", encoding="utf-8", newline="\r\n") as fh:
             fh.write(text)
     return path

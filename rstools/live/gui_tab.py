@@ -759,7 +759,7 @@ class LiveTab(ttk.Frame):
         extra = dict(passenger_only=mode in PASSENGER_MODES and self.pax_var.get(),
                      header=self.hdr_var.get() or mode not in CHECK_MODES,
                      timing=self.tim_var.get() or mode not in CHECK_MODES,
-                     loose=bool(getattr(self.app.opts, "ignore_spacing", True)))
+                     loose=self._ignore_spacing())
         self.app.pump.start(self._work, mode, files, days, refresh, stamps, extra)
         self.app.pump.kick()
 
@@ -777,15 +777,18 @@ class LiveTab(ttk.Frame):
             res = compute(mode, files, days, log=lambda m: self.q.put(("step", m)), **(extra or {}))
             known = self._learn_days(files) if mode == "cwn" and not self._days_known else None
             self.q.put(("done", mode, res, refresh, stamps, known, files))
-        except Exception as exc:                  # readable messages from the readers; details logged
-            known_types = ("RunError", "LoadError", "TimetableError", "TimetableRunError", "PrintError",
-                           "TrainListError", "StatsPackError", "PackReadError", "TrentFormatError", "ValueError",
-                           "Section4Error", "TPRError", "BerthingError", "StationBookError")
-            if type(exc).__name__ in known_types:
-                msg = str(exc)
-            else:
-                msg = errorlog.describe(exc)
+        except Exception as exc:                  # readable messages from the readers; anything else logged
+            from rstools.errors import user_errors
+            msg = str(exc) if isinstance(exc, user_errors()) else errorlog.describe(exc)
             self.q.put(("error", msg, refresh, stamps))
+
+    def _ignore_spacing(self) -> bool:
+        """Stock Tools' 'Ignore spacing' tick box as it is shown now (not only as last saved by a run)."""
+        var = getattr(self.app, "loose_var", None)
+        try:
+            return bool(var.get()) if var is not None else bool(getattr(self.app.opts, "ignore_spacing", True))
+        except Exception:                          # the window is closing
+            return bool(getattr(self.app.opts, "ignore_spacing", True))
 
     def stop_run(self, _event=None):
         """Stop the running task at its next step (Stop button or Esc)."""
@@ -1353,11 +1356,12 @@ class LiveTab(ttk.Frame):
                     if refresh:                          # e.g. a file saved while half-written: try later
                         self.watch.update(stamps)
                         self._keep_watching()
-                        self.status.configure(text=f"Refresh failed at {time.strftime('%H:%M:%S')}: "
-                                                   f"{msg.splitlines()[0]} - will try again when the file is saved.")
+                        first = (msg.splitlines() or ["Failed"])[0]
+                        self.status.configure(text=f"Refresh failed at {time.strftime('%H:%M:%S')}: {first} - "
+                                                   "will try again when the file is saved.")
                     else:
                         self.status.configure(text=FAILED)
-                        self.app.notify_done("Live View failed", msg.splitlines()[0], False)
+                        self.app.notify_done("Live View failed", (msg.splitlines() or ["Failed"])[0], False)
                         messagebox.showerror(TITLE, msg[:1500], parent=self)
         except queue.Empty:
             pass

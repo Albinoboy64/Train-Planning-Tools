@@ -1295,7 +1295,7 @@ class StatsPackTab(ttk.Frame):
                 elif kind == "error":
                     self._finish(False)
                     self._append("ERROR: " + item[1], "error")
-                    self.app.notify_done("Stats Pack failed", item[1].splitlines()[0], False)
+                    self.app.notify_done("Stats Pack failed", (item[1].splitlines() or ["Failed"])[0], False)
                     messagebox.showerror(TITLE, item[1][:1500], parent=self)
         except queue.Empty:
             pass

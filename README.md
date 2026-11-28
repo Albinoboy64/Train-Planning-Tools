@@ -425,7 +425,7 @@ Choose the **Task** at the top (the list is grouped: *Timetable checks*, *Train 
 * **Stopping a run**: press **Stop** beside the progress bar (or **Esc**) to stop a long run at its next step. Nothing is saved from a stopped run.
 * **Help on every control**: rest the mouse on any option, button or box for a short explanation.
 * **Help > Error log...**: the log of unexpected errors, to send with a support request. It opens as a preview with **file paths**, your **user and computer names** (and any email address) and **text quoted from your files** hidden; untick any of these to show it. Only what the preview shows is copied (**Copy**) or saved (**Export...**, as *error log YYYY-MM-DD.txt* on this PC, never over an existing file). **Clear log** empties it. The log only ever holds error details, never the contents of your XML, workbook or PDF files: a line long enough to be file contents is cut short when it is written.
-* **File size limits**: to stop a damaged or hostile file filling the PC's memory, the app refuses files far larger than any real one: an Attune XML over 4 GB, a VPT over 1 GB, a PDF over 500 MB or 20,000 pages, an Office file that unpacks to over 2 GB (or 512 MB in one part). XML with a document type declaration (`<!DOCTYPE` / `<!ENTITY`, never in Attune or Office files) is refused too, so it cannot expand or pull in other files. If a genuine file is ever refused, raise its limit in **limits.json** in the data folder, e.g. `{"XML_MAX_BYTES": 8589934592}`: the names are `XML_MAX_BYTES`, `XML_PART_MAX_BYTES`, `VPT_MAX_BYTES`, `PDF_MAX_BYTES`, `PDF_MAX_PAGES`, `XLS_MAX_BYTES`, `CSV_MAX_BYTES`, `ZIP_PART_LIMIT`, `ZIP_TOTAL_LIMIT`, `ZIP_RATIO_LIMIT`, `ZIP_RATIO_FROM`, `META_MAX_BYTES` (the comparison data kept inside a comparison CWN), `SETTINGS_CSV_MAX_BYTES` (fleet, depot, corridor and berth lists) and `PROGRESS_MAX_BYTES` (Live View progress files) (whole numbers; anything else is ignored).
+* **File size limits**: to stop a damaged or hostile file filling the PC's memory, the app refuses files far larger than any real one: an Attune XML over 4 GB, a VPT over 1 GB, a Network Rail CIF over 2 GB, a PDF over 500 MB or 20,000 pages, an Office file that unpacks to over 2 GB (or 512 MB in one part). XML with a document type declaration (`<!DOCTYPE` / `<!ENTITY`, never in Attune or Office files) is refused too, so it cannot expand or pull in other files. If a genuine file is ever refused, raise its limit in **Settings > File limits** (sizes in MB); *Back to default* undoes it. The limits are kept in **limits.json** in the data folder, which can also be edited by hand, e.g. `{"XML_MAX_BYTES": 8589934592}`: the names are `XML_MAX_BYTES`, `XML_PART_MAX_BYTES`, `VPT_MAX_BYTES`, `CIF_MAX_BYTES`, `PDF_MAX_BYTES`, `PDF_MAX_PAGES`, `XLS_MAX_BYTES`, `CSV_MAX_BYTES`, `ZIP_PART_LIMIT`, `ZIP_TOTAL_LIMIT`, `ZIP_RATIO_LIMIT`, `ZIP_RATIO_FROM`, `META_MAX_BYTES` (the comparison data kept inside a comparison CWN), `SETTINGS_CSV_MAX_BYTES` (fleet, depot, corridor and berth lists), `PROGRESS_MAX_BYTES` (Live View progress files), `BERTH_NOTES_MAX_BYTES` and `BERTH_NOTE_CHARS` (berthing chart notes), `BERTH_SET_MAX_BYTES` (berthing location sets) and `UPDATE_MAX_BYTES` (an update download) (whole numbers; anything else is ignored).
 
 ## Live View
 
@@ -453,7 +453,7 @@ The **Live View** tab shows any comparison in the app inside the window: CWNs, s
 
 **Export...** saves the trains currently listed (with the filter and search applied) to Excel, PDF or Word: a *What Was Compared* sheet, a *Trains Listed* sheet (each train's result and differences in words) and a *Differences in Detail* sheet (each differing call or field, coloured as on screen).
 
-The Live View uses exactly the same reading and matching as the other tabs, so it always agrees with their reports. For CWNs it has the same day tickboxes as the Stock Tools tab. It only reads the files; nothing is written.
+The Live View uses exactly the same reading and matching as the other tabs, so it always agrees with their reports. For CWNs it has the same day tickboxes (and the same *Ignore spacing* choice) as the Stock Tools tab. It never changes the files it compares: what it saves is your ticks (kept automatically in the data folder), progress files you save with **Save progress...**, and the lists you **Export...**.
 
 ## Licence
 
@@ -1117,7 +1117,7 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ```
 TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx [--acwn] [--name NAME] [--out FOLDER]
-               [--colour FFFF00] [--highlight-only] [--exclude PLATFORM,BERTHING] [--no-report] [--keep-links]
+               [--colour Yellow|RRGGBB] [--highlight-only] [--exclude PLATFORM,BERTHING] [--no-report] [--keep-links]
                [--exact-text] [--report-format xlsx|pdf|docx]
 TrainPlanningTools.exe --previous EARLIER_COMPARISON.xlsx --updated NEWEST.xlsx --colour 92D050
 TrainPlanningTools.exe --original OLD.xlsx --updated NEW.xlsx --days MO,FO        (Monday and Friday trains only)
@@ -1155,13 +1155,14 @@ TrainPlanningTools.exe timetable --s4-check PLAN.xml [--s4 SECTION4.pdf ...]    
 TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--book-operator TLGN|SNGX|GTR]
                [--platforms 10-15] [--sheets SX,SO,Su] [--label NAME] [--operator TITLE] [--timetable Dec26]
                [--services TEXT] [--merge OTHER_OPERATOR.xml|.vpt|.cif|F3.pdf ...] [--other-operators XC,SE]
+               (--merge-xml is another name for --merge)
 TrainPlanningTools.exe stationbook --xml PLAN.xml --station "Cambridge; London Bridge [10-15]"   (a book each, on several cores)
 TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] [--layout CHART.xlsx] [--counts] [--no-notes] [--issue "Proof 2"]
                [--operator SNGX|TLGN] [--leave-out SHEET ...] [--add LOCATION ...] [--others OTHER.cif ...]
                [--name NAME] [--out FOLDER]                                         (make a berthing chart)
 TrainPlanningTools.exe berthing --blank [--xml LTP.xml] [--operator SNGX|TLGN] [--add LOCATION ...]
                [--timetable "May 2027"] [--from 2027-05-16 --to 2027-12-11]          (a blank chart to fill in)
-TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour Green|RRGGBB]
+TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"|RRGGBB]
                [--issue "Proof 3"] [--counts]                                        (add a round of changes)
 TrainPlanningTools.exe berthing --compare OLD_CHART.xlsx NEW_CHART.xlsx [--colour Yellow|RRGGBB]  (compare two charts)
 TrainPlanningTools.exe workings-berthing --workings WORKINGS.xlsx [--xml PLAN.xml ...] [--others OTHER.cif ...] [--out FOLDER] [--name NAME]   (berthing arrangements for platform workings)

@@ -320,11 +320,24 @@ class BerthingPage(ttk.Frame):
             self.app._berth_operator_changed()
 
     def _operator(self):
-        if self.editor.dirty and messagebox.askyesno(TITLE, "Save the changes to the other chart's locations first?",
-                                                     parent=self):
-            other = "TLGN" if self.op.get() == "SNGX" else "SNGX"
-            from rstools.berthing import sets
-            sets.save_rows(other, self.editor.rows, "edited in Settings")
+        other = "TLGN" if self.op.get() == "SNGX" else "SNGX"          # the chart type whose rows are shown
+        if self.editor.dirty:
+            answer = messagebox.askyesnocancel(TITLE, f"Save the changes to the {other} locations first?\n\n"
+                                                      "Yes saves them, No leaves them out, Cancel stays on "
+                                                      f"{other}.", parent=self)
+            if answer is None:                       # Cancel: back to the chart type being edited, edits kept
+                self.op.set(other)
+                return
+            if answer:
+                from rstools.berthing import sets
+                if not sets.save_rows(other, self.editor.rows, "edited in Settings"):
+                    messagebox.showerror(TITLE, f"The {other} locations could not be saved (is the data folder "
+                                                "read-only?). Your changes are still on screen.", parent=self)
+                    self.op.set(other)
+                    return
+                refresh = getattr(self.app, "_berth_operator_changed", None)
+                if refresh:
+                    refresh()                        # Stock Tools' 'Locations:' line
         self.editor.reload()
         self._describe()
 
@@ -489,7 +502,8 @@ def _limit_label(name: str) -> str:
             "ZIP_RATIO_FROM": "Part size the ratio is checked from", "META_MAX_BYTES": "Comparison data in an output",
             "SETTINGS_CSV_MAX_BYTES": "Settings list (fleet, depots...)", "PROGRESS_MAX_BYTES": "Live View progress",
             "BERTH_NOTES_MAX_BYTES": "Berthing notes", "BERTH_NOTE_CHARS": "Characters in one berthing note",
-            "BERTH_SET_MAX_BYTES": "Berthing location set"}.get(name, name)
+            "BERTH_SET_MAX_BYTES": "Berthing location set", "CIF_MAX_BYTES": "Network Rail CIF",
+            "UPDATE_MAX_BYTES": "Update download"}.get(name, name)
 
 
 def parse_limit(name: str, text: str) -> Optional[int]:

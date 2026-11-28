@@ -149,7 +149,7 @@ class ColourPicker(ttk.Frame):
 
 
 class MenuBar(ttk.Frame):
-    """A menu bar of themed labels that open drop-down menus (Alt+O / Alt+H, or a click)."""
+    """A menu bar of themed labels that open drop-down menus (Alt+S / Alt+L / Alt+H, or a click)."""
 
     def __init__(self, master):
         super().__init__(master, style="Bar.TFrame", padding=(2, 1))
@@ -868,7 +868,7 @@ class App(tk.Tk):
 
     def recent(self, kind: str, exts: tuple = ()) -> list:
         """The recently used files of this kind (of these types, if given), as suggestions: by file name (or full path,
-        as chosen in Options), with files no longer there marked. Whether a file exists is remembered for half a
+        as chosen in Settings), with files no longer there marked. Whether a file exists is remembered for half a
         minute, so typing in a box never waits on a slow or offline drive."""
         from rstools.autocomplete import recent_choices
         now = time.monotonic()
@@ -954,7 +954,7 @@ class App(tk.Tk):
 
     def file_box(self, master, var: tk.StringVar, kind: str, exts=None) -> ttk.Combobox:
         """A file box that lists the recently used files of this kind (by name, or with their whole paths when
-        chosen in Options) when its drop-down arrow is clicked, when it is clicked while empty, or as a path is
+        chosen in Settings) when its drop-down arrow is clicked, when it is clicked while empty, or as a path is
         typed. `exts()`, if given, gives the file types the box takes now."""
         from rstools.autocomplete import Suggest
         box = ttk.Combobox(master, textvariable=var)
@@ -1956,11 +1956,11 @@ class App(tk.Tk):
             title="Other operators' files (Attune XML preferred; VPT, CIF or F3 print)",
             filetypes=filetypes(("Attune XML", ".xml"), ("Attune VPT export", ".vpt"),
                                 ("Network Rail CIF", ".cif", ".mca"), ("Attune F3 print", ".pdf", ".docx")),
-                                parent=self)
+            parent=self)
         if not paths:
             return
-        current = [e.strip() for e in self.book_vars["merge"].get().split(";") if e.strip()]
-        current += [p for p in paths if p not in current]
+        current = [os.path.normpath(e.strip()) for e in self.book_vars["merge"].get().split(";") if e.strip()]
+        current += [p for p in (os.path.normpath(x) for x in paths) if p not in current]     # each file once
         self.book_vars["merge"].set("; ".join(current))
 
     def _add_book_station(self):
@@ -2931,7 +2931,7 @@ class App(tk.Tk):
                 elif kind == "error":
                     self._finish("failed")
                     self._append_log("ERROR: " + item[1])
-                    self.notify_done(f"{self._task_name()} failed", item[1].splitlines()[0], False)
+                    self.notify_done(f"{self._task_name()} failed", (item[1].splitlines() or ["Failed"])[0], False)
                     messagebox.showerror(APP_NAME, item[1][:1500], parent=self)
         except queue.Empty:
             pass

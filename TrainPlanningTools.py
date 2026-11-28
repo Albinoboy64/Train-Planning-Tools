@@ -8,7 +8,7 @@ Command-line use:
     TrainPlanningTools.exe --original-folder OLD_FOLDER --updated NEW_FOLDER    (every pair of CWNs)
     TrainPlanningTools.exe stationbook --xml PLAN.xml --station "London Kings Cross" [--platforms 10-15]
                                        [--sheets SX,SO,Su] [--book-operator TLGN|SNGX|GTR]
-                                       [--merge OTHER_OPERATOR.xml|.vpt|F3.pdf ...] [--other-operators XC,SE]
+                                       [--merge OTHER_OPERATOR.xml|.vpt|.cif|F3.pdf ...] [--other-operators XC,SE]
     TrainPlanningTools.exe reorder CWN.xlsx [--by-time] [--merge ...] [--name NAME] [--out DIR]  (day variants in order)
     TrainPlanningTools.exe berthing --xml LTP.xml [STP.xml] --layout CHART.xlsx [--issue "Proof 1"]
     TrainPlanningTools.exe berthing --chart CHART.xlsx --original OLD.xml --updated NEW.xml [--colour "Light green"]
@@ -65,7 +65,8 @@ def cli(argv):
     g.add_argument("--original-folder", help="folder of original CWNs (batch: compared with --updated as a folder)")
     ap.add_argument("--updated", required=True, help="updated CWN (or, with --original-folder, folder of updated CWNs)")
     ap.add_argument("--acwn", action="store_true", help="output amended trains only")
-    ap.add_argument("--colour", default=None, help="highlight colour as hex, e.g. FFFF00")
+    ap.add_argument("--colour", default=None, help="highlight colour: a name (Yellow, \"Light green\", Orange...) "
+                                                   "or hex RRGGBB, e.g. FFFF00")
     ap.add_argument("--name", default="", help="output name (default: today's date)")
     ap.add_argument("--out", default="", help="output folder on this PC (default: Downloads)")
     ap.add_argument("--no-report", action="store_true")
@@ -81,8 +82,12 @@ def cli(argv):
     ap.add_argument("--days", default="", help="check and output only trains running on these days, e.g. MO,FO")
     a = _local_out(ap, ap.parse_args(argv))
     import re
+    if a.colour:                             # a preset name (as in the window) or RRGGBB
+        from cwn_compare.options import PRESET_COLOURS
+        a.colour = {k.lower(): v for k, v in PRESET_COLOURS.items()}.get(a.colour.strip().lower(), a.colour)
     if a.colour and not re.fullmatch(r"#?[0-9A-Fa-f]{6}", a.colour):
-        ap.error(f"--colour must be a hex colour such as FFFF00, not '{a.colour}'")
+        ap.error(f"--colour must be a colour name ({', '.join(PRESET_COLOURS)}) or a hex colour such as FFFF00, "
+                 f"not '{a.colour}'")
     if a.acwn and a.highlight_only:
         ap.error("--acwn and --highlight-only cannot be used together (an ACWN has only the changed trains)")
     if a.original_folder:
@@ -179,7 +184,8 @@ def stationbook_cli(argv):
     ap.add_argument("--sheets", default="SX,SO,Su", help="day sheets, any of SX,SO,Su (or MO, TO ... for one day)")
     ap.add_argument("--merge", "--merge-xml", nargs="+", default=[], metavar="FILE",
                     help="other operators' files whose trains are merged into the book: Attune XML (preferred, "
-                         "gives the stock), VPT or Attune Single Train Report (F3) print (.pdf / .docx)")
+                         "gives the stock), VPT, Network Rail CIF or Attune Single Train Report (F3) print "
+                         "(.pdf / .docx)")
     ap.add_argument("--other-operators", default=None, metavar="OPS",
                     help="only these merged operators, e.g. XC,SE (default: all of them); needs --merge")
     ap.add_argument("--name", default="", help="output name")

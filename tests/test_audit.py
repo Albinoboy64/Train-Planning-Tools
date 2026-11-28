@@ -77,7 +77,8 @@ def test_batch_pairs_with_the_same_name_get_distinct_names(tmp_path):
     assert again[0] == f"{first[0]} (2)" and again[1] == f"{first[0]} (3)" and again[2] == first[2]
 
 
-@pytest.mark.parametrize("text", ["null", "[]", '"x"', '{"categories": [1, 2]}', '{"categories": {"A": 3}}'])
+@pytest.mark.parametrize("text", ["null", "[]", '"x"', '{"categories": [1, 2]}', '{"categories": {"A": 3}}',
+                                  '{"days": ["MO", 9, 2]}', '{"book_days": [1, null]}'])
 def test_options_load_survives_odd_settings(tmp_path, monkeypatch, text):
     from cwn_compare.options import Options
     p = tmp_path / "settings.json"
@@ -85,6 +86,8 @@ def test_options_load_survives_odd_settings(tmp_path, monkeypatch, text):
     monkeypatch.setattr(Options, "settings_path", staticmethod(lambda: str(p)))
     opts = Options.load()
     assert isinstance(opts, Options) and isinstance(opts.categories, dict)
+    assert all(isinstance(d, int) and 0 <= d <= 6 for d in opts.days) and opts.book_days
+    assert all(isinstance(d, str) for d in opts.book_days)
 
 
 def test_live_confirmation_survives_a_view_option_change():
@@ -200,8 +203,11 @@ def test_gitignore_covers_planning_data_in_any_letter_case():
         return subprocess.run(["git", "check-ignore", "-q", "--no-index", path], cwd=root).returncode == 0
     for path in ("a.xml", "deep/x/b.XML", "c.XLSX", "d.xltx", "e.xlsm", "f.docx", "g.DOCM", "h.pdf", "i.PDF",
                  "j.vpt", "k.CIF", "trains.csv", "nested/list.CSV", "TrainPlanningTools-data/settings.json",
-                 "x/TrainPlanningTools-data/error.log"):
+                 "x/TrainPlanningTools-data/error.log", "cif_saved_as.txt", "deep/x/CIF.TXT",
+                 "rstools/statspack/real_trains.csv", "rstools/timetable/deep/list.csv"):
         assert ignored(path), path
     for path in ("rstools/statspack/fleet_default.csv", "rstools/timetable/template.xlsx",
-                 "tests/fixtures/synthetic_cwn.xls", "packaging/TrainPlanningTools.spec", "README.md"):
+                 "tests/fixtures/synthetic_cwn.xls", "packaging/TrainPlanningTools.spec", "README.md",
+                 "requirements.txt", "packaging/build-requirements.txt", "rstools/assets/THIRD_PARTY_NOTICES.txt",
+                 "rstools/timetable/tiplocs.csv", "rstools/berthing/berth_locations_default.csv"):
         assert not ignored(path), path

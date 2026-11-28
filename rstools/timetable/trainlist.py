@@ -81,7 +81,7 @@ def _text(value, timeish: bool) -> str:
     if isinstance(value, _dt.time):
         return f"{value.hour:02d}{value.minute:02d}" + ("½" if value.second >= 30 else "")
     if isinstance(value, float):
-        if timeish and 0 <= value < 1:
+        if timeish and 0 <= value < 2 and (value < 1 or value != int(value) or value == 1):   # [h]:mm past 24:00
             minutes = round(value * 1440 * 2) / 2
             return f"{int(minutes) // 60 % 24:02d}{int(minutes) % 60:02d}" + ("½" if minutes % 1 else "")
         return f"{value:g}" if value != int(value) else str(int(value))

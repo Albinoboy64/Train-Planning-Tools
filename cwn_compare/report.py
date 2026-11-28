@@ -211,7 +211,4 @@ def write_report(path: str, changes: List[Change], rounds: List[dict], info: dic
         from rstools.docexport import sections_from_workbook, write_document
         write_document(path, "Carriage Working Notice - Change Report", sections_from_workbook(wb))
     else:
-        from rstools.fsutil import plain_text
-        for ws in wb.worksheets:
-            plain_text(ws)               # text from the CWNs is never stored as a formula
-        save_workbook(wb, path)
+        save_workbook(wb, path)          # stores text from the CWNs as text, never as a formula
