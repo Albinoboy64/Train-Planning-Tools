@@ -467,6 +467,14 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.39.1** - Three new Live View checks, and the rest of the full check
+* **Live View** can now also show **a new round on a comparison CWN** (only what changed since that comparison), **a berthing chart filled from two timetables** (berth by berth, as *Add changes to a chart* highlights them) and **the capacity report of two plans** (for the group, corridor or stations and time window chosen on the Stats Pack tab). Each uses exactly the same comparison as its report.
+* **One way of reading unit diagrams**: the Stats Pack, station books and berthing charts now read an Attune XML's unit diagrams in one shared way, so they always agree on depots, coupled units and notes.
+* **Station books** match a unit's move at 23:55 with a departure at 00:05 (ten minutes apart, not 23 hours).
+* **Location codes** learnt from prints keep names with commas and are added only once.
+* **Plain messages** instead of *Unexpected error* for a damaged timetable workbook or a comparison CWN that cannot be opened safely; an output whose name is taken while saving is saved under the next free name.
+* **Typing in a file box** never waits on a slow or offline drive to show recent files.
+
 **3.39.0** - A full check of the app: stabling locations, quicker start, many fixes
 * **Depots and stabling locations**: *Settings > Depots* now lists only depots. Sidings, yards and stations where units stable overnight (such as Littlehampton and Streatham Hill) are in the new **Settings > Stabling locations**, and never count as a depot. When a unit report or berthing chart finds units stabling somewhere new, it is added there automatically and the run log says so. A depot list from an earlier version is sorted out the first time it is used.
 * **Quicker to open**: a *Starting...* picture appears as soon as the app is opened, the app itself is smaller and loads faster, and the fonts are looked up once.
