@@ -431,7 +431,7 @@ Choose the **Task** at the top (the list is grouped: *Timetable checks*, *Train 
 
 ## Live View
 
-The **Live View** tab shows any comparison in the app inside the window: CWNs, stats pack plans or files, GTR vs Network Rail timetables, train prints or an Attune list against a timetable, two sets of train prints or Attune lists, **two sets of Section 4 documents or TPRs**, the **Section 4 check** (watching the XML as you correct it), **two berthing charts** and the **unit reports of two plans**.
+The **Live View** tab shows any comparison in the app inside the window: CWNs, stats pack plans or files, GTR vs Network Rail timetables, train prints or an Attune list against a timetable, two sets of train prints or Attune lists, **two sets of Section 4 documents or TPRs**, the **Section 4 check** (watching the XML as you correct it), **two berthing charts**, a berthing chart filled from **two timetables** (as *Add changes to a chart* highlights them), the **unit reports of two plans**, the **capacity report of two plans** (for the group, corridor or stations and time window chosen on the Stats Pack tab) and **a new round** on an earlier comparison CWN (only what changed since that comparison).
 
 1. Choose what to compare and the files (or drag them onto the tab), then press **Compare** (F5).
 2. Every train (or stats row) is listed on the left. *Show* filters it (differences only, all, changed, issues, added, removed / missing, unchanged, or updated by the last refresh) and *Find* searches it.

@@ -14,9 +14,13 @@ from .model import ADDED, CHANGED, ISSUE, REMOVED, SAME, LiveItem, LiveResult, L
 from rstools.errors import LiveError
 
 MODE_GROUPS = [        # the Task list: a group for each tab, its tasks in the order of that tab's own list
-    ("Stock Tools", [("cwn", "Compare two CWNs or platform workings"), ("berthing", "Compare two berthing charts")]),
+    ("Stock Tools", [("cwn", "Compare two CWNs or platform workings"),
+                     ("cwn_round", "Add a new round to a comparison CWN"),
+                     ("berthing", "Compare two berthing charts"),
+                     ("berth_round", "Add changes to a berthing chart (two timetables)")]),
     ("Stats Pack", [("sp_plans", "Compare two plans (XML + TRENT print each)"),
-                    ("sp_packs", "Compare two stats pack files"), ("units", "Compare the unit reports of two plans")]),
+                    ("sp_packs", "Compare two stats pack files"), ("units", "Compare the unit reports of two plans"),
+                    ("capacity", "Compare the capacity report of two plans")]),
     ("Timing Tools", [("timetables", "Check the GTR timetable against Network Rail"),
                       ("print_tt", "Check a timetable against train prints"),
                       ("list_tt", "Check a timetable against an Attune train list"),
@@ -31,13 +35,18 @@ Log = Callable[[str], None]
 
 def compute(mode: str, files: Dict[str, List[str]], days: Optional[Sequence[int]] = None,
             log: Log = lambda m: None, passenger_only: bool = False, loose: bool = True,
-            header: bool = True, timing: bool = True) -> LiveResult:
+            header: bool = True, timing: bool = True, seats: Optional[dict] = None) -> LiveResult:
     """files: box key -> paths (see the Live tab's FILES). passenger_only: leave out passing times and times shown
     in one file only (intermediate timing points). loose: CWN text compared ignoring spacing and punctuation, as
     the Stock Tools option 'Ignore spacing' (on by default). header / timing: whether train header differences and
     timing differences are checked (train prints and timetables)."""
-    if mode == "cwn":
-        return cwn(files["a"][0], files["b"][0], days, log, passenger_only, loose)
+    if mode in ("cwn", "cwn_round"):
+        return cwn(files["a"][0], files["b"][0], days, log, passenger_only, loose, previous=mode == "cwn_round")
+    if mode == "berth_round":
+        return berthing_round(files["a"][0], files["xa"], files["xb"], files.get("tb", []), log)
+    if mode == "capacity":
+        return capacity_plans(files["xa"][0], " ; ".join(files["ta"]), files["xb"][0], " ; ".join(files["tb"]),
+                              seats or {}, log)
     if mode == "sp_packs":
         return stats_packs(files["a"][0], files["b"][0], log)
     if mode == "sp_plans":
@@ -108,15 +117,32 @@ def _passes(blk) -> bool:
     return blk is None or str(blk.raw.get("loc", "") or "").strip().lower().startswith("p")
 
 
+def baseline_of(path: str):
+    """The clean CWN stored inside a comparison CWN made by this app (what its last round compared against), as
+    'Add a new round' uses it."""
+    from cwn_compare.engine import RunError, _baseline
+    from cwn_compare.meta import read_meta_file
+    meta = read_meta_file(path)
+    if not meta:
+        raise LiveError(f"'{os.path.basename(path)}' is not a comparison CWN made by this app: choose the output of "
+                        "an earlier comparison (Stock Tools tab).")
+    try:
+        return _baseline(meta, path)
+    except RunError as exc:
+        raise LiveError(str(exc))
+
+
 def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_only: bool = False,
-        loose: bool = True) -> LiveResult:
+        loose: bool = True, previous: bool = False) -> LiveResult:
+    """Two CWNs train by train; with `previous`, `orig` is an earlier comparison CWN and the new round's changes
+    (against the clean CWN kept inside it) are shown, as 'Add a new round' highlights them."""
     from cwn_compare.compare import compare_models, match_blocks
     from cwn_compare.days import coverage, filter_model, label as day_label
     from cwn_compare.model import FIELD_LABELS
     from rstools.timetable.engine import read_jobs
 
     log(f"Reading {os.path.basename(orig)} and {os.path.basename(upd)}")
-    m_old, m_new = read_jobs([(model_of, orig), (model_of, upd)])
+    m_old, m_new = read_jobs([(baseline_of if previous else model_of, orig), (model_of, upd)])
     from cwn_compare.model import leave_out_unread
     warnings = list(m_old.warnings) + list(m_new.warnings)
     for label, m, path in (("original", m_old, orig), ("updated", m_new, upd)):
@@ -581,15 +607,38 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
     difference is one item; its rows are its cells side by side - [column, older chart, newer chart] - with the
     changed, added and removed cells marked, and the berth's unchanged cells (state 'same') between them in column
     order, so a change is seen in context. Berths with no difference are not listed."""
-    from rstools.berthing.compare import ADDED as B_ADDED, CHANGED as B_CHANGED, REMOVED as B_REMOVED, diff, same_cells
     from rstools.berthing.layout import read_chart
-    from rstools.berthing.mapping import load as load_locations, norm
+    from rstools.berthing.mapping import load as load_locations
     from rstools.fsutil import same_file
     if same_file(old_path, new_path):
         raise LiveError("The two charts selected are the same file.")
     locations = load_locations()
     log(f"Reading {os.path.basename(old_path)} and {os.path.basename(new_path)}")
     old, new = _chart(read_chart, old_path, locations), _chart(read_chart, new_path, locations)
+    return _berth_result(old, new, f"{os.path.basename(old_path)} vs {os.path.basename(new_path)}",
+                         ["Column", "Original chart", "Updated chart"], "No differences between the charts.")
+
+
+def berthing_round(chart: str, original: Sequence[str], updated: Sequence[str], others: Sequence[str],
+                   log: Log) -> LiveResult:
+    """'Add changes to a berthing chart' berth by berth: the chart filled from the original XML(s) against the
+    chart filled from the updated XML(s) - the same filling and comparison as the chart that task saves."""
+    from rstools.berthing.engine import round_layouts
+    from rstools.berthing.xmlread import BerthingError
+    try:
+        _c, _x, before, after, warnings = round_layouts(chart, original, updated, others, log)
+    except BerthingError as exc:
+        raise LiveError(str(exc))
+    res = _berth_result(before, after, f"{os.path.basename(chart)}: "
+                        f"{', '.join(map(os.path.basename, original))} vs {', '.join(map(os.path.basename, updated))}",
+                        ["Column", "Original XML", "Updated XML"], "No differences between the two timetables.")
+    res.warnings = list(warnings) + list(res.warnings)
+    return res
+
+
+def _berth_result(old, new, title: str, columns: List[str], none: str) -> LiveResult:
+    from rstools.berthing.compare import ADDED as B_ADDED, CHANGED as B_CHANGED, REMOVED as B_REMOVED, diff, same_cells
+    from rstools.berthing.mapping import norm
     changes, _marked = diff(old, new)
     unchanged = same_cells(old, new)
     by_berth: Dict[tuple, list] = defaultdict(list)
@@ -611,9 +660,7 @@ def berthing_charts(old_path: str, new_path: str, log: Log) -> LiveResult:
                               f"{status} cell(s)", [r for _o, _k, r in sorted(rows, key=lambda t: (t[0], t[1]))],
                               [f"{c.column}: {c.kind.lower()} ({c.old or '-'} -> {c.new or '-'})" for c in cs],
                               len(items)))
-    return LiveResult(f"{os.path.basename(old_path)} vs {os.path.basename(new_path)}",
-                      ["Column", "Original chart", "Updated chart"], items,
-                      [] if items else ["No differences between the charts."])
+    return LiveResult(title, columns, items, [] if items else [none])
 
 
 # --------------------------------------------------------------------------- unit reports
@@ -622,7 +669,6 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
     the unit report comparison."""
     from rstools.statspack.engine import PackOptions, PlanInputs, _unit_report_list, load_plan
     from rstools.statspack.model import OPERATORS
-    from rstools.statspack.report_compare import SKIP, SPEC, _keyed
     old = load_plan(PlanInputs(xml_a, trent_a), log, xml_optional=True)
     new = load_plan(PlanInputs(xml_b, trent_b), log, xml_optional=True)
     days = sorted(set(old.trent.days()) & set(new.trent.days()))
@@ -633,6 +679,53 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
     log("Following units in both plans...")
     old_reps, w_old = _unit_report_list(old, opts, which, True)
     new_reps, w_new = _unit_report_list(new, opts, which, True)
+    return LiveResult(f"Unit reports: {os.path.basename(trent_a)} vs {os.path.basename(trent_b)}",
+                      ["Figure", "Original", "Updated"], _report_items(old_reps, new_reps),
+                      [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])
+
+
+def capacity_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, seats: dict, log: Log) -> LiveResult:
+    """The capacity report of two plans, row by row, for the group, corridor or journey (and time window, seating /
+    standing choice) chosen on the Stats Pack tab - the same trains and figures as its 'compare two timetables'
+    capacity report."""
+    from rstools.statspack.engine import (PackOptions, PlanInputs, StatsPackError, _seats_list, load_plan,
+                                          seats_group)
+    from rstools.statspack.model import OPERATORS
+    if not seats:
+        raise LiveError("Choose the capacity report's group, corridor or stations on the Stats Pack tab first.")
+    kind = seats.get("kind", "")
+    try:
+        group = seats_group(kind, seats.get("groups", {}).get(kind, ""), seats.get("corridor_dir", "both"),
+                            tuple(seats.get("journey", ("", ""))))
+    except StatsPackError as exc:
+        raise LiveError(str(exc))
+    window = (seats.get("station", ""), seats.get("from", ""), seats.get("to", "")) if seats.get("window") else None
+    direction = seats.get("direction", "both")
+    if window and kind == "Station to station":
+        window, direction = (seats.get("journey", ("", ""))[0], window[1], window[2]), "departing"
+    old = load_plan(PlanInputs(xml_a, trent_a), log)
+    new = load_plan(PlanInputs(xml_b, trent_b), log)
+    days = sorted(set(old.trent.days()) & set(new.trent.days()))
+    if not days:
+        raise LiveError("The two TRENT prints have no diagram days in common.")
+    opts = PackOptions(days=days, operators=set(OPERATORS), fleets=None)
+    args = (bool(seats.get("week", True)), window, direction, lambda f, m: None, log,
+            bool(seats.get("seating", True)), bool(seats.get("standing", True)))
+    try:
+        log("Counting capacity in both plans...")
+        old_reps, _f0, w_old, _g0, _w0 = _seats_list(old, opts, group, *args)
+        new_reps, _f1, w_new, grp, _w1 = _seats_list(new, opts, group, *args)
+    except StatsPackError as exc:
+        raise LiveError(str(exc))
+    return LiveResult(f"Capacity ({grp.label}): {os.path.basename(trent_a)} vs {os.path.basename(trent_b)}",
+                      ["Figure", "Original", "Updated"], _report_items(old_reps, new_reps),
+                      [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])
+
+
+def _report_items(old_reps, new_reps) -> List[LiveItem]:
+    """Each row of each report of two plans, matched by its key columns as the report comparison does
+    (rstools.statspack.report_compare), as one item with its figures side by side."""
+    from rstools.statspack.report_compare import SKIP, SPEC, _keyed
     by_old = {r.name: r for r in old_reps}
     items: List[LiveItem] = []
     for rep in new_reps:
@@ -662,6 +755,4 @@ def unit_plans(xml_a: str, trent_a: str, xml_b: str, trent_b: str, log: Log) -> 
                 state, ", ".join(diff) + " changed")
             label = " / ".join(str(x) for x in k[:nkeys] if x not in (None, "")) or "(row)"
             items.append(LiveItem(f"{rep.name}|{k}", rep.name, label, state, status, rows, [], len(items)))
-    return LiveResult(f"Unit reports: {os.path.basename(trent_a)} vs {os.path.basename(trent_b)}",
-                      ["Figure", "Original", "Updated"], items,
-                      [f"Original plan - {w}" for w in w_old] + [f"Updated plan - {w}" for w in w_new])
+    return items

@@ -33,6 +33,14 @@ _TYPE_NAMES = {".xlsx": "Excel", ".xlsm": "Excel", ".xls": "Excel", ".xlsb": "Ex
                ".vpt": "Attune VPT export"}
 FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, label, file types, several?
     "cwn": [("a", "Original CWN:", _CWN, False), ("b", "Updated CWN:", _CWN, False)],
+    "cwn_round": [("a", "Previous comparison CWN:", _CWN, False), ("b", "Newest updated CWN:", _CWN, False)],
+    "berth_round": [("a", "Berthing chart:", _XL, False), ("xa", "Original Attune XML(s):", (".xml",), True),
+                    ("xb", "Updated Attune XML(s):", (".xml",), True),
+                    ("tb", "Other operators (optional):", (".xml", ".vpt", ".cif", ".mca", ".txt"), True)],
+    "capacity": [("xa", "Original Attune XML:", (".xml",), False),
+                 ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
+                 ("xb", "Updated Attune XML:", (".xml",), False),
+                 ("tb", "Updated TRENT VL29 print(s):", (".docx",), True)],
     "sp_plans": [("xa", "Original Attune XML:", (".xml",), False),
                  ("ta", "Original TRENT VL29 print(s):", (".docx",), True),
                  ("xb", "Updated Attune XML:", (".xml",), False),
@@ -59,8 +67,8 @@ FILES: Dict[str, List[Tuple[str, str, Tuple[str, ...], bool]]] = {   # box key, 
 PREFERRED = {("s4check", "tb")}           # boxes taking several kinds, the first preferred (marked in the dialog)
 DROP_EXTS = {("s4check", "tb"): (".vpt",)}   # ...where a dropped PDF belongs in another box (the Section 4 PDFs)
 OPTIONAL = {("s4check", "a"), ("s4check", "xb"), ("s4check", "tb"),          # boxes that may be left blank
-            ("units", "xa"), ("units", "xb")}
-PASSENGER_MODES = ("cwn", "timetables", "print_tt", "list_tt", "prints")     # where 'passenger times only' applies
+            ("units", "xa"), ("units", "xb"), ("berth_round", "tb")}
+PASSENGER_MODES = ("cwn", "cwn_round", "timetables", "print_tt", "list_tt", "prints")  # "passenger times only"
 CHECK_MODES = ("timetables", "print_tt", "list_tt", "prints")      # where header / timing differences can be switched
 FILTERS = {"Differences only": DIFF_STATES, "All": None,                      # then by result, then by progress, A-Z
            "Added": (ADDED,), "Changed": (CHANGED,), "Issues": (ISSUE,), "Paired (check by eye)": (PAIRED,),
@@ -760,6 +768,9 @@ class LiveTab(ttk.Frame):
                      header=self.hdr_var.get() or mode not in CHECK_MODES,
                      timing=self.tim_var.get() or mode not in CHECK_MODES,
                      loose=self._ignore_spacing())
+        if mode == "capacity":                       # the group / corridor / window chosen on the Stats Pack tab
+            tab = getattr(self.app, "stats_tab", None)
+            extra["seats"] = tab._seat_state() if tab is not None and hasattr(tab, "_seat_state") else {}
         self.app.pump.start(self._work, mode, files, days, refresh, stamps, extra)
         self.app.pump.kick()
 

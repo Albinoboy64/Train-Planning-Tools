@@ -332,6 +332,24 @@ def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str
     return Result(path, "", f"Blank chart with {plural(len(layout.sheets), 'location sheet')}.", warnings)
 
 
+def round_layouts(chart_path: str, original: Sequence[str], updated: Sequence[str], others: Sequence[str] = (),
+                  log: Log = lambda m: None, progress: Callable[[float, str], None] = lambda f, m: None):
+    """A chart filled from the original XML(s) and again from the updated XML(s), as 'Add changes to a chart'
+    compares them (and the Live View shows them): (chart, updated xmls, before, after, warnings)."""
+    log(f"Reading {os.path.basename(chart_path)}")
+    progress(0.03, "Reading the chart...")
+    chart = read_chart(chart_path, load_locations())
+    fleets = auto.operator_fleets(_operator_of(chart), _table())
+    log("Original timetable:")
+    progress(0.15, "Reading the original timetable...")
+    extra = _others(others, log)            # the same on both sides: only the chart's own trains are compared
+    _x0, before, _w0 = _fill(chart, original, log, fleets, extra=extra)
+    log("Updated timetable:")
+    progress(0.4, "Reading the updated timetable...")
+    xmls, after, warnings = _fill(chart, updated, log, fleets, extra=extra)
+    return chart, xmls, before, after, warnings
+
+
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",
               name: str = "", issue: str = "", log: Log = lambda m: None, counts: bool = False,
               progress: Callable[[float, str], None] = lambda f, m: None, others: Sequence[str] = (),
@@ -342,18 +360,8 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     _check_paths([chart_path], "berthing chart to add the changes to")
     _check_paths(list(original), "original Attune XML")
     _check_paths(list(updated), "updated Attune XML")
-    log(f"Reading {os.path.basename(chart_path)}")
-    progress(0.03, "Reading the chart...")
-    chart = read_chart(chart_path, load_locations())
+    chart, xmls, before, after, warnings = round_layouts(chart_path, original, updated, others, log, progress)
     operator = _operator_of(chart)
-    fleets = auto.operator_fleets(operator, _table())
-    log("Original timetable:")
-    progress(0.15, "Reading the original timetable...")
-    extra = _others(others, log)            # the same on both sides: only the chart's own trains are compared
-    _x0, before, _w0 = _fill(chart, original, log, fleets, extra=extra)
-    log("Updated timetable:")
-    progress(0.4, "Reading the updated timetable...")
-    xmls, after, warnings = _fill(chart, updated, log, fleets, extra=extra)
     progress(0.65, "Finding the changes...")
     changes, marked = diff(before, after)
     highlight(after, marked, colour.upper())

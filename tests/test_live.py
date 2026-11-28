@@ -591,3 +591,63 @@ def test_live_window_geometry_needs_a_real_monitor():
     default = fit_geometry("", desk, (1366, 768), monitors)
     assert fit_geometry("1000x700+100+-300", desk, (1366, 768), monitors) == default     # above the laptop
     assert fit_geometry("1000x700+1500+-300", desk, (1366, 768), monitors) == "1000x700+1500+-300"
+
+
+def test_live_new_round_on_a_comparison_cwn():
+    """'Add a new round': only what changed since the earlier comparison's updated CWN is shown."""
+    import test_compare as t
+    from cwn_compare.engine import run
+    from cwn_compare.options import Options
+    from rstools.live.adapters import compute
+    d = tempfile.mkdtemp()
+    a, b, c = (os.path.join(d, n) for n in ("a.xlsx", "b.xlsx", "c.xlsx"))
+    t.make(a, t.BTN_ORIG, t.VIC_ORIG)
+    btn, vic = t._upd_rows()
+    t.make(b, btn, vic)
+    first = run(Options(original=a, updated=b, output_dir=d, output_name="round1"))
+    btn2 = [list(r) for r in btn]
+    btn2[0][3] = "5"                                     # 1A01BT platform changed in round 2 only
+    t.make(c, btn2, vic)
+    res = compute("cwn_round", {"a": [first["cwn"]], "b": [c]})
+    changed = {i.label for i in res.items if i.state != "same"}
+    assert changed == {"1A01BT"}, changed                # round 1's changes are not shown again
+    import pytest
+    from rstools.errors import LiveError
+    with pytest.raises(LiveError, match="not a comparison CWN"):
+        compute("cwn_round", {"a": [a], "b": [c]})
+
+
+def test_live_berthing_round_and_capacity(tmp_path, monkeypatch):
+    import copy
+    import test_berthing as tb
+    import test_statspack as ts
+    from rstools.berthing import engine
+    from rstools.live.adapters import compute
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    trains, diagrams = tb.base_plan()
+    (tmp_path / "plan.xml").write_text(tb.xml(trains, diagrams))
+    trains, diagrams = tb.base_plan(arrive="02:10:00")
+    (tmp_path / "plan2.xml").write_text(tb.xml(trains, diagrams))
+    tb.make_chart(str(tmp_path / "chart.xlsx"))
+    first = engine.generate([str(tmp_path / "plan.xml")], str(tmp_path / "chart.xlsx"), str(tmp_path))
+    res = compute("berth_round", {"a": [first.chart], "xa": [str(tmp_path / "plan.xml")],
+                                  "xb": [str(tmp_path / "plan2.xml")]})
+    assert [i.key for i in res.items] == ["Brighton|Plat 1"]             # the berth add_round highlights
+    assert any(r.cells[2] == "4 387 02+10" for r in res.items[0].rows)
+    same = compute("berth_round", {"a": [first.chart], "xa": [str(tmp_path / "plan.xml")],
+                                   "xb": [str(tmp_path / "plan.xml")]})
+    assert not same.items
+
+    new = ts.setup_plan(str(tmp_path))
+    old = copy.deepcopy(new)
+    old.trent.diagrams = [x for x in old.trent.diagrams if not (x.depot == "BI" and 0 in x.days)]
+    from rstools.statspack import engine as sp
+    monkeypatch.setattr(sp, "load_plan", lambda inputs, log=None, **k: old if inputs.xml == "old.xml" else new)
+    seats = {"kind": "Corridor", "groups": {"Corridor": "Brighton Main Line (East Croydon - Brighton)"},
+             "corridor_dir": "both", "journey": ["", ""], "week": True, "window": False, "from": "07:00",
+             "to": "10:00", "station": "", "direction": "both", "seating": True, "standing": True}
+    cap = compute("capacity", {"xa": ["old.xml"], "ta": ["old.docx"], "xb": ["new.xml"], "tb": ["new.docx"]},
+                  seats=seats)
+    assert any(i.state == "added" and "1A02BI" in i.label for i in cap.items), [(i.group, i.label, i.state)
+                                                                                for i in cap.items]
