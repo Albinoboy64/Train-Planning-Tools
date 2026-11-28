@@ -255,6 +255,7 @@ class App(tk.Tk):
         self.bind_class("TPTMain", "<Configure>", self._moved)
         self.bindtags(("TPTMain",) + self.bindtags())
         self.update_idletasks()
+        _close_splash()                                          # the packaged exe's 'Starting...' picture
         self.deiconify()
         theme.title_bar(self, self.palette["name"] != "light")      # dark title bar before the first paint
 
@@ -2936,6 +2937,16 @@ class App(tk.Tk):
                     messagebox.showerror(APP_NAME, item[1][:1500], parent=self)
         except queue.Empty:
             pass
+
+
+def _close_splash():
+    """Close the picture the packaged exe shows while it starts (see TrainPlanningTools.close_splash)."""
+    try:
+        import pyi_splash  # type: ignore[import-not-found]
+        pyi_splash.close()
+    except Exception:
+        pass
+    os.environ["PYINSTALLER_SUPPRESS_SPLASH_SCREEN"] = "1"    # helper processes never show it
 
 
 def main():

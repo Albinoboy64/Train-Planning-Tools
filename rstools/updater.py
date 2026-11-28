@@ -290,6 +290,7 @@ def _fresh_env() -> dict:
     unpacked files, which are removed when it closes)."""
     env = dict(os.environ)
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    env.pop("PYINSTALLER_SUPPRESS_SPLASH_SCREEN", None)     # the new version shows its 'Starting...' picture
     return env
 
 

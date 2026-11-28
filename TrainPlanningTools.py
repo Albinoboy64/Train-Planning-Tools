@@ -929,8 +929,21 @@ COMMANDS = ("stationbook", "reorder", "statspack", "timetable", "section4", "ber
             "other-trains", "selftest")
 
 
+def close_splash():
+    """Close the 'Starting...' picture the packaged exe shows while it unpacks (nothing to do from source). Helper
+    processes and later restarts started from here never show it again."""
+    try:
+        import pyi_splash  # type: ignore[import-not-found]
+        pyi_splash.close()
+    except Exception:                  # running from source, or already closed
+        pass
+    os.environ["PYINSTALLER_SUPPRESS_SPLASH_SCREEN"] = "1"
+
+
 def main(argv):
     """Open the window (no arguments), run a subcommand, or compare two CWNs (arguments starting with --)."""
+    if argv:
+        close_splash()                 # a command: no picture while it runs (the window closes it when shown)
     first = argv[0].lower() if argv else ""
     runners = {"statspack": statspack_cli, "stationbook": stationbook_cli, "reorder": reorder_cli,
                "timetable": timetable_cli, "section4": section4_cli, "berthing": berthing_cli,
@@ -957,6 +970,7 @@ def _open_window():
     except Exception as exc:
         import traceback
         from rstools import errorlog
+        close_splash()
         errorlog.write(traceback.format_exc())
         try:
             import tkinter as tk

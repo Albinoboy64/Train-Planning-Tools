@@ -467,6 +467,20 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.39.0** - A full check of the app: stabling locations, quicker start, many fixes
+* **Depots and stabling locations**: *Settings > Depots* now lists only depots. Sidings, yards and stations where units stable overnight (such as Littlehampton and Streatham Hill) are in the new **Settings > Stabling locations**, and never count as a depot. When a unit report or berthing chart finds units stabling somewhere new, it is added there automatically and the run log says so. A depot list from an earlier version is sorted out the first time it is used.
+* **Quicker to open**: a *Starting...* picture appears as soon as the app is opened, the app itself is smaller and loads faster, and the fonts are looked up once.
+* **Comparisons**: added notes are highlighted again with *Ignore spacing* on; a CWN saved as an Excel template gives an output Excel opens; comments and hidden rows stay with their trains; links follow their rows when other operators' trains are added; putting variants in order no longer stops on merged cells below the trains or text starting with '='. Pairs compared from two folders never clash with each other's or earlier outputs' names.
+* **Live View**: no longer shows false changes after a damaged tab is repaired and re-read; follows the *Ignore spacing* tick box as shown.
+* **Stats Pack**: a headcode used twice in a day counts as two trains; place names stay the same from run to run; saves that fail give a plain message.
+* **Timing Tools**: train lists with differently named columns (*Headcode* / *Train ID*) are paired correctly; day codes such as *MTWThF* are read, and an unreadable one no longer puts a train in every section; times past 24:00 or with seconds are read.
+* **Station books**: one station that cannot be made no longer makes every book again; the day sheets are checked before the XML is read.
+* **Berthing charts**: a left-over change report never stops a chart being saved; text that Excel cannot hold is dropped instead of stopping the save; a sheet only counts as renamed when its berths match.
+* **Safety and saving**: outputs are never written over, even when a file appears while saving; XML with a hidden document type declaration is refused; plain messages for a name taken while saving, a missing folder, too long a path or too large a workbook; helper processes stop with Stop or when the app closes.
+* **Window**: every message opens over the app; dark mode covers lists, dialogs and grey hints; *Clear remembered inputs* also clears the notes about old files; Settings > Berthing locations asks before leaving unsaved changes; the update window warns when a run has started and keeps a download for later.
+* **Command line**: a mistyped `--out` folder is refused instead of saving to Downloads; options a run would ignore are refused; `--colour` takes colour names; damaged files give an `ERROR:` line.
+* **Settings > File limits** also covers Network Rail CIF files and update downloads.
+
 **3.38.10** - Updating no longer stops on an error
 * **Installing an update works again**: after *Help > Check for updates > Install*, the old version could refuse to close with *Unexpected error: Error -3 while decompressing data: incorrect header check*. The new version was put in place before the old one had finished closing, and the old one then tried to read part of its own program from the new file. Now the app closes first (saving your settings and Live View progress and stopping any helpers), and only then is the new version put in place and started. If it cannot be put in place, a message says so and the current version is left as it was.
 

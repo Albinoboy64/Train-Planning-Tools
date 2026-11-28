@@ -103,6 +103,7 @@ a = Analysis(
                    + ["xlrd", "pyxlsb", "tkinterdnd2"]),
     excludes=EXCLUDES,
     noarchive=False,
+    optimize=2,         # bytecode without docstrings or asserts: a smaller exe that loads faster (nothing reads them)
 )
 
 # drop excluded Tcl/Tk data and any tkdnd binaries for other platforms picked up by hooks
@@ -114,9 +115,31 @@ a.pure = [t for t in a.pure if not ("ImagePlugin" in t[0] and t[0].startswith("P
 
 pyz = PYZ(a.pure)
 
+
+def _splash_image() -> str:
+    """The picture shown the moment the exe is opened, while Windows unpacks it (the logo on a light panel; the
+    text is drawn by the splash screen itself)."""
+    from PIL import Image
+    out = os.path.join(ROOT, "build", "splash.png")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    panel = Image.new("RGB", (360, 110), (243, 243, 243))
+    logo = Image.open(os.path.join(ROOT, "rstools", "assets", "logo.png")).convert("RGBA")
+    panel.paste(logo, (22, 23), logo)
+    panel.save(out)
+    return out
+
+
+# shown at once when the app is opened (closed by the app when its window appears, or at once for a command):
+# a single-file app takes a moment to unpack before Python starts, and this shows it is starting
+splash = Splash(_splash_image(), binaries=a.binaries, datas=a.datas, text_pos=(102, 62), text_size=11,
+                text_color="#1B1B1B", text_default="Starting Train Planning Tools...", minify_script=True,
+                always_on_top=False)
+
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
+    splash.binaries,
     a.binaries,
     a.datas,
     [],

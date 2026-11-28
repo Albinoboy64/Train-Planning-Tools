@@ -69,7 +69,7 @@ python -c "from rstools.docexport import Section as S, write_pdf, write_docx; h=
 python -c "import sys; sys.path.insert(0, 'tests'); import test_timetable as t; t.write_attune_pdf('smoke/attune.pdf'); t._gtr_from(t.ATTUNE[:1], 'smoke/tt_check.xlsx')" || goto :failed
 python -c "import sys, os; sys.path.insert(0, 'tests'); import test_compare as t; [os.makedirs('smoke/' + d, exist_ok=True) for d in ('bo', 'bu', 'bout')]; b, v = t._upd_rows(); [t.make('smoke/bo/' + n + ' Proof 1.xlsx', t.BTN_ORIG, t.VIC_ORIG) or t.make('smoke/bu/' + n + ' Proof 2.xlsx', b, v) for n in ('BTN', 'VIC')]" || goto :failed
 python -c "import sys; sys.path.insert(0, 'tests'); import test_compare as t; t.make_multi_day('smoke/multi.xlsx')" || goto :failed
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml berth_tlgn berth_places wk_others wk_berth_others berth_others berth_blank berth_blank_tlgn sp_tt sp_month sp_custom swb_sngx s4check_f3 berth_nonotes sp_cmp reordered_merged berth_blank_xml s4builtin) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml berth_tlgn berth_places wk_others wk_berth_others berth_others berth_blank berth_blank_tlgn sp_tt sp_month sp_custom swb_sngx s4check_f3 berth_nonotes sp_cmp reordered_merged berth_blank_xml s4builtin reordered_time cmp_pdf) do if exist smoke\%%f.xlsx del smoke\%%f.xlsx
 if exist "smoke\wk_cmp - Change Report.xlsx" del "smoke\wk_cmp - Change Report.xlsx"
 if exist "smoke\cumulative - Change Report.xlsx" del "smoke\cumulative - Change Report.xlsx"
 for %%f in (sp.pdf units.docx berth_cmp.xlsx) do if exist smoke\%%f del smoke\%%f
@@ -126,6 +126,12 @@ if exist smoke\s4cmp_docx.docx del smoke\s4cmp_docx.docx
 if exist smoke\books rmdir /s /q smoke\books
 call :run statspack --xml smoke\sp.xml --trent smoke\sp.docx --old-xml smoke\sp.xml --old-trent smoke\sp.docx --days MO,TO --out smoke --name sp_cmp || goto :failed
 call :run reorder smoke\multi.xlsx --merge --out smoke --name reordered_merged || goto :failed
+call :run reorder smoke\multi.xlsx --by-time --out smoke --name reordered_time || goto :failed
+call :run --original smoke\a.xlsx --updated smoke\b.xlsx --days MO,FO --report-format pdf --out smoke --name cmp_pdf || goto :failed
+if not exist "smoke\cmp_pdf - Change Report.pdf" (
+    echo The exe did not save a PDF change report.
+    goto :failed
+)
 call :run berthing --blank --xml smoke\berth.xml --out smoke --name berth_blank_xml || goto :failed
 call :run section4 --xml smoke\s4plan.xml --out smoke --name s4builtin || goto :failed
 call :run section4 --xml smoke\s4plan.xml --pdf smoke\s4_old.pdf --format pdf --out smoke --name s4pdf || goto :failed
@@ -141,7 +147,7 @@ if not errorlevel 1 (
     echo The built exe accepted --acwn with --highlight-only.
     goto :failed
 )
-for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml berth_tlgn berth_places wk_others wk_berth_others berth_others berth_blank berth_blank_tlgn sp_tt sp_month sp_custom swb_sngx s4check_f3 berth_nonotes sp_cmp reordered_merged berth_blank_xml s4builtin) do if not exist smoke\%%f.xlsx (
+for %%f in (sp seats swb prints prints_pax print_tt reordered berth_default units_cmp units_week wk_berth lists base_list cumulative sp_mo packs cap_group cap_ft berth_round wk_xml berth_tlgn berth_places wk_others wk_berth_others berth_others berth_blank berth_blank_tlgn sp_tt sp_month sp_custom swb_sngx s4check_f3 berth_nonotes sp_cmp reordered_merged berth_blank_xml s4builtin reordered_time cmp_pdf) do if not exist smoke\%%f.xlsx (
     echo The built exe did not produce smoke\%%f.xlsx.
     goto :failed
 )

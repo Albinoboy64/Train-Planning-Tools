@@ -51,10 +51,16 @@ FONT = "TkDefaultFont"          # family name, set by setup_fonts()
 MONO = ""                       # fixed-width family, set by setup_fonts()
 
 
+_FAMILIES: Dict[str, str] = {}          # the installed font families (casefolded -> name), listed once
+
+
 def _first_family(root, wanted) -> str:
+    """The first of `wanted` that is installed. Tk lists every installed font, which takes a noticeable moment on
+    a PC with many fonts, so the list is made once for the whole session."""
     from tkinter import font
-    have = {f.casefold(): f for f in font.families(root)}
-    return next((have[w.casefold()] for w in wanted if w.casefold() in have), "")
+    if not _FAMILIES:
+        _FAMILIES.update({f.casefold(): f for f in font.families(root)})
+    return next((_FAMILIES[w.casefold()] for w in wanted if w.casefold() in _FAMILIES), "")
 
 
 def setup_fonts(root: tk.Tk, size: str = "normal"):
