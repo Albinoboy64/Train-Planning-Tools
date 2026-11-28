@@ -528,7 +528,84 @@ def test_install_puts_the_new_version_in_place_and_starts_it(install):
     (exe.parent / (exe.name + ".old")).write_bytes(b"left from an earlier update")
     updater.install_and_restart(str(new))
     assert exe.read_bytes() == b"new version" and (exe.parent / (exe.name + ".old")).read_bytes() == b"old version"
-    assert not new.exists() and started == [[str(exe)]] and icons == [str(exe)] and scripts == []
+    assert not new.exists() and started == [[str(exe)]] and scripts == []
+    assert icons == []              # the new version refreshes the icons when it starts: nothing runs after the swap
+
+
+class _Exited(Exception):
+    pass
+
+
+def test_install_after_close_swaps_starts_and_ends_the_old_process_at_once(install, monkeypatch):
+    """The packaged app loads modules from the archive inside its exe, by path: once the new exe is there, the old
+    process must run nothing more (that gave 'Error -3 while decompressing data: incorrect header check')."""
+    from rstools import updater
+    exe, new, started, icons, scripts = install
+    codes = []
+
+    def exit_now(code):
+        codes.append(code)
+        raise _Exited
+    monkeypatch.setattr(updater.os, "_exit", exit_now)
+    with pytest.raises(_Exited):
+        updater.install_after_close(str(new))
+    assert exe.read_bytes() == b"new version" and started == [[str(exe)]] and codes == [0]
+
+
+def test_install_after_close_that_fails_keeps_the_current_version_and_does_not_exit(install, monkeypatch):
+    from rstools import updater
+    exe, new, started, icons, scripts = install
+    monkeypatch.setattr(updater.os, "_exit", lambda code: (_ for _ in ()).throw(AssertionError("exited")))
+    real = os.replace
+
+    def locked(src, dst):
+        if str(src) == str(new):
+            raise PermissionError("locked")
+        return real(src, dst)
+    monkeypatch.setattr(updater.os, "replace", locked)
+    with pytest.raises(updater.UpdateError, match="unchanged"):
+        updater.install_after_close(str(new))
+    assert exe.read_bytes() == b"old version" and started == []
+
+
+def test_update_dialog_closes_the_app_before_the_new_exe_is_put_in_place(install, monkeypatch):
+    """Closing saves Live View progress and stops helpers: that must happen while the old exe is still in place,
+    and the files are swapped only once the window has closed (gui.finish_update)."""
+    from types import SimpleNamespace
+
+    pytest.importorskip("tkinter")
+    from cwn_compare import gui
+    from rstools import update_dialog, updater
+    exe, new, started, icons, scripts = install
+    events = []
+    monkeypatch.setattr(updater, "can_replace_in_place", lambda: True)
+    monkeypatch.setattr(updater, "download_target", lambda rel: str(new))
+    monkeypatch.setattr(update_dialog.messagebox, "askokcancel", lambda *a, **k: True)
+    monkeypatch.setattr(updater, "install_after_close", lambda path: events.append(("install", exe.read_bytes())))
+    app = SimpleNamespace(pending_update=None, save_app_settings=lambda: events.append(("save", exe.read_bytes())),
+                          _on_close=lambda ask=True: events.append(("close", exe.read_bytes())))
+    rel = updater.Release("99.0.0", "v99.0.0", "", "", "", 1, "")
+    dlg = SimpleNamespace(prog=SimpleNamespace(configure=lambda **k: None), release=rel, app=app)
+    update_dialog.UpdateDialog._downloaded(dlg, str(new))                 # type: ignore[arg-type]
+    assert app.pending_update == str(new)
+    assert events == [("save", b"old version"), ("close", b"old version")]     # nothing swapped yet
+    gui.finish_update(app.pending_update)
+    assert events[-1][0] == "install"
+    gui.finish_update(None)                                               # no update: nothing happens
+    assert len(events) == 3
+
+
+def test_an_update_that_cannot_be_installed_after_closing_is_reported(install, monkeypatch):
+    pytest.importorskip("tkinter")
+    from cwn_compare import gui
+    from rstools import updater
+    shown = []
+    monkeypatch.setattr(updater, "install_after_close",
+                        lambda path: (_ for _ in ()).throw(updater.UpdateError("The current version is unchanged.")))
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda title, text, **k: shown.append(text))
+    monkeypatch.setattr(gui.errorlog, "write", lambda text: "")
+    gui.finish_update("x.exe.new")
+    assert shown and "could not be installed" in shown[0] and "unchanged" in shown[0]
 
 
 def test_a_failed_install_puts_the_current_version_back(install, monkeypatch):

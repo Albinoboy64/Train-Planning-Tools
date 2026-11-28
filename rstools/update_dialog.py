@@ -114,12 +114,10 @@ class UpdateDialog(tk.Toplevel):
             if messagebox.askokcancel(TITLE, f"Version {self.release.version} is ready.\n\n"
                                       f"{APP_NAME} will close, update and reopen.", parent=self):
                 self.app.save_app_settings()            # before the new version starts and reads them
-                try:
-                    updater.install_and_restart(path)
-                except (updater.UpdateError, OSError) as exc:
-                    messagebox.showerror(TITLE, str(exc), parent=self)
-                    return
-                closing = getattr(self.app, "_on_close", None)     # saves Live View progress, stops helpers
+                # the files are swapped only after the window has closed (see updater.install_after_close):
+                # closing first saves Live View progress and stops helpers while this version's exe is in place
+                self.app.pending_update = path
+                closing = getattr(self.app, "_on_close", None)
                 if closing:
                     closing(ask=False)
                 else:

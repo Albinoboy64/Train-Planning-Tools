@@ -293,12 +293,19 @@ _FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETAC
 
 
 def install_and_restart(new_exe: str):
-    """Put the downloaded exe in place and start it. The caller must quit the app straight after.
+    """Put the downloaded exe in place and start it. Call it only after the window has closed and everything
+    is saved, and quit straight after (`install_after_close` does both).
 
     Windows lets a running exe be renamed (not replaced), so the running copy is renamed to '.old',
     the new one moved into its place and started; the '.old' copy is deleted on the next start.
     Where renaming is refused (some network shares), a small script swaps the files after this app
-    has closed instead."""
+    has closed instead.
+
+    Once the new exe is in place this copy must run no more of its own code that is not loaded yet: the
+    packaged app reads each module the first time it is used from the archive inside the exe, found by its
+    path, and that path is now the new version's file (reading it gave 'Error -3 while decompressing data:
+    incorrect header check'). So nothing here imports after the swap, and the icons are refreshed by the
+    new version when it starts (`after_start`)."""
     exe = running_exe()
     if not exe or not sys.platform.startswith("win"):
         raise UpdateError("Updating in place only works for the Windows exe.")
@@ -315,8 +322,24 @@ def install_and_restart(new_exe: str):
         os.replace(old, exe)                       # put the running version back
         raise UpdateError(f"The new version could not be put in place ({exc}). The current version is "
                           "unchanged.")
-    refresh_icons(exe)                             # Explorer, shortcuts and the taskbar show the new logo
     subprocess.Popen([exe], env=_fresh_env(), creationflags=_FLAGS, close_fds=True, cwd=os.path.dirname(exe))
+
+
+def install_after_close(new_exe: str):
+    """Install the downloaded update once the app's window has closed (settings, Live View progress and
+    helper processes already dealt with), start the new version and end this process at once, so no
+    clean-up code of the old version runs from the replaced exe. Raises UpdateError / OSError (with the
+    current version left in place) if the update could not be installed."""
+    import logging
+    logging.shutdown()                             # flush the logs while this version's code can still load
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream:
+                stream.flush()
+        except (OSError, ValueError):
+            pass
+    install_and_restart(new_exe)
+    os._exit(0)
 
 
 def _cmd_path(path: str) -> str:

@@ -465,6 +465,9 @@ Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyx
 
 ## Version history
 
+**3.38.10** - Updating no longer stops on an error
+* **Installing an update works again**: after *Help > Check for updates > Install*, the old version could refuse to close with *Unexpected error: Error -3 while decompressing data: incorrect header check*. The new version was put in place before the old one had finished closing, and the old one then tried to read part of its own program from the new file. Now the app closes first (saving your settings and Live View progress and stopping any helpers), and only then is the new version put in place and started. If it cannot be put in place, a message says so and the current version is left as it was.
+
 **3.38.9** - Depot list: every SNGX and TLGN depot, and only depots
 * **All of GTR's depots** are in *Settings > Depots*, each with its operator: SNGX's Lovers Walk, Selhurst, **St Leonards** (new) and Stewarts Lane; TLGN's Hornsey (now with its down reversing sidings), Three Bridges (with its depot and sidings' entry points), Bedford Cauldwell (now with its wash road and sidings) and **Cricklewood** (new). They count as depots in the unit reports and stay off automatic berthing location lists.
 * **Littlehampton and Streatham Hill are no longer depots**: they are stabling sidings, so they appear in berthing location lists and count as sidings in depot returns / swaps and captive units, although their names say *Shed*.

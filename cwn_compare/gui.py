@@ -186,6 +186,7 @@ class App(tk.Tk):
         self.q: "queue.Queue" = StopQueue()
         self.pump = QueuePump(self)          # reads every tab's worker queue (often only while work runs)
         self.running = False
+        self.pending_update: str | None = None     # a downloaded update, installed once the window has closed
         self.result = None
         self.prev_info_token = 0
         self._dnd = self._load_dnd()          # before the tabs are built, so both can take drops
@@ -2909,3 +2910,17 @@ def main():
     theme.enable_dpi_awareness()          # sharp on every display, at each one's own scaling
     app = App()
     app.mainloop()
+    finish_update(getattr(app, "pending_update", None))
+
+
+def finish_update(path):
+    """After the window has closed: install a downloaded update and start it (this process then ends at once),
+    or say why it could not be installed; the current version is then left as it was."""
+    if not path:
+        return
+    try:
+        updater.install_after_close(path)
+    except (updater.UpdateError, OSError) as exc:
+        errorlog.write(f"Update not installed: {exc}")
+        messagebox.showerror(APP_NAME, f"The update could not be installed:\n\n{exc}\n\n"
+                             f"Open {APP_NAME} again to carry on with the current version.")
