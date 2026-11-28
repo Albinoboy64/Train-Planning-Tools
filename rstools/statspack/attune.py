@@ -93,10 +93,19 @@ def parse_attune_xml(path: str) -> AttuneData:
     meta = {}
     cur_train: Optional[Train] = None
     units: List[UnitDiagram] = []
-    cur_unit: Optional[UnitDiagram] = None
-    in_coupled = 0
+    reader = AX.UnitDiagramParser()         # the unit diagrams, read as every Attune reader reads them
     try:
         for event, tag, el in AX.walk(path):
+            raw = reader.feed(event, tag, el)
+            if raw is not None:
+                days = days_of_mask(raw.days_mask)
+                diagram_days |= days
+                units.append(UnitDiagram(raw.depot, raw.number, days, list(raw.notes),
+                                         {a: n for a, n in raw.activities.items() if a in ("WASH", "CET", "FUEL")},
+                                         plan=raw.type))
+                continue
+            if reader.inside:
+                continue
             if event == "start":
                 if tag == "diagramExchange":
                     meta = dict(el.attrib)
@@ -104,12 +113,6 @@ def parse_attune_xml(path: str) -> AttuneData:
                     a = el.attrib
                     cur_train = Train(id=a.get("id", ""), days=days_of_mask(a.get("daysRun", "")),
                                       plan=AX.plan_type(a))
-                elif tag == "unitDiagram":
-                    days = days_of_mask(el.get("daysrun", ""))
-                    diagram_days |= days
-                    cur_unit = UnitDiagram("", el.get("id", "").strip(), days, plan=el.get("type", ""))
-                elif tag == "coupled":
-                    in_coupled += 1
                 continue
             # end events
             if tag == "leg" and cur_train is not None:
@@ -136,21 +139,6 @@ def parse_attune_xml(path: str) -> AttuneData:
                 loc = AX.location(el)
                 if loc:
                     locations[loc[0]] = loc[1]
-                el.clear()
-            elif tag == "coupled":
-                in_coupled -= 1
-            elif cur_unit is not None and tag == "depot" and not in_coupled and not cur_unit.depot:
-                cur_unit.depot = el.get("id", "").strip()
-            elif cur_unit is not None and tag == "text" and not in_coupled and (el.text or "").strip():
-                cur_unit.notes.append((el.text or "").strip())
-            elif cur_unit is not None and tag == "activity" and not in_coupled \
-                    and el.get("id", "").strip() in ("WASH", "CET", "FUEL"):
-                act = el.get("id", "").strip()
-                cur_unit.activities[act] = cur_unit.activities.get(act, 0) + 1
-            elif tag == "unitDiagram":
-                if cur_unit is not None:
-                    units.append(cur_unit)
-                cur_unit = None
                 el.clear()
     except ET.ParseError as exc:
         raise AttuneError(f"The XML file could not be read ({exc}). Check it is a complete Attune export.")

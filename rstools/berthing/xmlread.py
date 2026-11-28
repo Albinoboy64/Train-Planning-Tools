@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 from rstools.days import days_of_mask
-from rstools.stationbook import Call, _calls, _secs, _unroll
+from rstools.stationbook import Call, _calls, _unroll
 
 
 class BerthingError(Exception):
@@ -69,15 +69,23 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
     meta: dict = {}
     cur_train: Optional[dict] = None
     legs: List[dict] = []
-    cur: Optional[UnitDiagram] = None
-    depot = number = ""
-    move: Optional[dict] = None
-    coupled: List[Tuple[int, str]] = []
-    cpos: Optional[int] = None
-    cdepot = cnum = ""
-    in_static = False
+    units = AX.UnitDiagramParser()          # the unit diagrams, read as every Attune reader reads them
     try:
         for event, tag, el in AX.walk(path):
+            raw = units.feed(event, tag, el)
+            if raw is not None:
+                cur = UnitDiagram(raw.key, raw.fleet, days_of_mask(raw.days_mask), raw.type, source,
+                                  notes=list(raw.static_notes), static_loc=raw.static_loc)
+                cur.moves = [Move(m.train, m.key, m.origin, m.dest, m.dep, m.arr, m.coupled) for m in raw.moves
+                             if m.dep is not None and m.arr is not None]
+                times = _unroll([t for m in cur.moves for t in (m.dep, m.arr)])
+                for i, m in enumerate(cur.moves):
+                    m.dep, m.arr = int(times[2 * i] or 0), int(times[2 * i + 1] or 0)
+                if cur.key and cur.days:
+                    diagrams.append(cur)
+                continue
+            if units.inside:
+                continue
             if event == "start":
                 if tag == "diagramExchange":
                     meta = dict(el.attrib)
@@ -85,18 +93,6 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
                     cur_train = {"id": el.get("id", ""), "key": el.get("trainKey", ""), "plan": AX.plan_type(el.attrib),
                                  "days": days_of_mask(el.get("daysRun", ""))}
                     legs = []
-                elif tag == "unitDiagram":
-                    cur = UnitDiagram("", "", days_of_mask(el.get("daysrun", "")), el.get("type", ""), source)
-                    number, depot = el.get("id", "").strip(), ""
-                elif tag == "journey" and cur is not None:
-                    move = dict(el.attrib)
-                    move["train"] = move["key"] = ""
-                    coupled = []
-                elif tag == "coupled":
-                    cpos, cdepot, cnum = int(el.get("position", "0") or 0), "", ""
-                elif tag == "diagStatic" and cur is not None:
-                    in_static = True
-                    cur.static_loc = el.get("loc", "") or cur.static_loc
                 continue
             # end events
             if tag == "leg" and cur_train is not None:
@@ -112,40 +108,6 @@ def read_xml(path: str, source: int = 0) -> BerthXML:
                 if loc:
                     locations[loc[0]] = loc[1]
                 el.clear()
-            elif cur is not None:
-                if tag == "depot":
-                    if cpos is not None:
-                        cdepot = el.get("id", "").strip()
-                    elif not depot:
-                        depot = el.get("id", "").strip()
-                elif tag == "res" and not cur.fleet:
-                    cur.fleet = el.get("id", "").strip()
-                elif tag == "diagram" and cpos is not None:
-                    cnum = el.get("id", "").strip()
-                elif tag == "coupled":
-                    coupled.append((cpos or 0, cdepot + cnum))
-                    cpos = None
-                elif tag == "activity" and move is not None and el.get("trainid"):
-                    move["train"], move["key"] = el.get("trainid", ""), el.get("trainKey", "")
-                elif tag == "text" and in_static and el.text and el.text.strip():
-                    cur.notes.append(el.text.strip())
-                elif tag == "diagStatic":
-                    in_static = False
-                elif tag == "journey" and move is not None:
-                    dep, arr = _secs(move.get("dep")), _secs(move.get("arr"))
-                    if dep is not None and arr is not None:
-                        cur.moves.append(Move(move["train"], move["key"], move.get("origin", ""),
-                                              move.get("dest", ""), dep, arr, [k for _p, k in sorted(coupled)]))
-                    move = None
-                elif tag == "unitDiagram":
-                    cur.key = depot + number
-                    times = _unroll([t for m in cur.moves for t in (m.dep, m.arr)])
-                    for i, m in enumerate(cur.moves):
-                        m.dep, m.arr = int(times[2 * i] or 0), int(times[2 * i + 1] or 0)
-                    if cur.key and cur.days:
-                        diagrams.append(cur)
-                    cur = None
-                    el.clear()
     except ET.ParseError as exc:
         raise BerthingError(f"'{name}' could not be read as XML ({exc}). Check it is a complete Attune export.")
     except OSError as exc:
