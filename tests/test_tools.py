@@ -137,7 +137,7 @@ def test_every_module_imports():
             if not have_tk and (name.endswith(("gui", "gui_tab", "theme", "widgets", "icons", "help_text", "notify",
                                                "update_dialog", "autocomplete", "rules_dialog",
                                                "locations_dialog", "notes_dialog", "settings_dialog",
-                                               "table_editor"))):
+                                               "table_editor", "trackmap.window"))):
                 continue
             importlib.import_module(name)
 

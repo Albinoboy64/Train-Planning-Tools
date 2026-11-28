@@ -265,6 +265,10 @@ class LiveTab(ttk.Frame):
         self.top_cb = ttk.Checkbutton(win, text="Always on top", command=lambda: self.window and
                                       self.window.set_on_top())
         self.top_cb.grid(row=0, column=2, padx=(4, 0))
+        self.map_btn = ttk.Button(win, text="Track map view...", command=self._track_map)
+        self.map_btn.grid(row=0, column=3, padx=(8, 0))
+        Tooltip(self.map_btn, "The units at a station or siding drawn on a track diagram, at any time of the day: "
+                              "drag the time, step train by train or play the day.")
         self.full_btn.grid_remove()
         self.top_cb.grid_remove()
         Tooltip(self.pop_btn, "Show only the results (train list and details) in a window of their own "
@@ -695,6 +699,10 @@ class LiveTab(ttk.Frame):
 
     # ------------------------------------------------------------------ comparing
     # ------------------------------------------------------------------ own window
+    def _track_map(self):
+        from rstools.trackmap.window import open_view
+        open_view(self.app)
+
     def toggle_window(self):
         if self.window is not None:
             self.window.toggle()

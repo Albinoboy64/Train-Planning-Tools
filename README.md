@@ -457,6 +457,17 @@ The **Live View** tab shows any comparison in the app inside the window: CWNs, s
 
 The Live View uses exactly the same reading and matching as the other tabs, so it always agrees with their reports. For CWNs it has the same day tickboxes (and the same *Ignore spacing* choice) as the Stock Tools tab. It never changes the files it compares: what it saves is your ticks (kept automatically in the data folder), progress files you save with **Save progress...**, and the lists you **Export...**.
 
+### Track map view
+
+**Track map view...** (on the Live View tab) shows the units at a station or siding on a track diagram, at any time of the day.
+
+1. **Add track map PDF...** once: choose a route track diagram PDF (vector drawings, such as Network Rail's route track diagrams). The app reads only the track layout from it - the tracks, platforms, road names and page names - and keeps that (a few hundred KB) in the data folder. The PDF itself is not copied, shipped or sent anywhere, so each user adds their own copy.
+2. Choose the **Attune XML**, type the **station or siding** (e.g. *Brighton*) and press **Find pages**: the page where it is the heading comes first (e.g. *Sussex 25 - BRIGHTON*).
+3. Choose the **day** (or leave *(busiest)* for the day with most diagrams) and press **Show**.
+4. Drag the **time slider**, step from one arrival or departure to the next (**<<** / **>>**, or the arrow keys), or press **Play** (Space) at 1, 5 or 15 minutes a second.
+
+Each unit is drawn on its platform or road from the buffer stop end, in the order units stand (the first to arrive nearest the stop, a train's units front first), with its fleet and diagram and the headcodes it arrived as and leaves as. A unit that comes in after midnight and forms another diagram the same morning is drawn once. Click a unit for its details. Platforms are matched by their labels (*Plat 7*; *7F* / *7R* are its front and rear parts); sidings by their names (*Brighton Wall Siding* is the *WALL SIDING* road, each road of it on its own track). Places the page does not show (e.g. a siding on the next page) are listed beside the map, never guessed. Units longer than the road as drawn are shown in red.
+
 ## Licence
 
 Train Planning Tools is free software under the [GNU General Public License v3.0](LICENSE): you may use, share and change it under the terms of that licence. It comes with no warranty; always check its results before relying on them.
@@ -466,6 +477,9 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.40.0** - Track map view
+* **Track map view** (Live View tab): the units at a station or siding drawn on a route track diagram, in their formations with their headcodes, at any time of the day - drag the time, step train by train or play the day. Add the track diagram PDF once; only its track layout is kept on this PC. See [Track map view](#track-map-view).
 
 **3.39.1** - Three new Live View checks, and the rest of the full check
 * **Live View** can now also show **a new round on a comparison CWN** (only what changed since that comparison), **a berthing chart filled from two timetables** (berth by berth, as *Add changes to a chart* highlights them) and **the capacity report of two plans** (for the group, corridor or stations and time window chosen on the Stats Pack tab). Each uses exactly the same comparison as its report.
