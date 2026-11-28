@@ -341,4 +341,4 @@ def test_stationbook_cli_operator_flags(tmp_path, monkeypatch):
     _depots_xml(x)
     code, text = run("--xml", x, "--station", "Alpha", "--sheets", "MO", "--book-operator", "tlgn", "--out",
                      str(tmp_path), "--name", "tl")
-    assert code == 0 and "1 departure row(s)" in text
+    assert code == 0 and "1 departure row on 1 sheet" in text

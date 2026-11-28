@@ -496,7 +496,7 @@ def test_seats_report(monkeypatch):
         paths, _w, summary = seats_report(plan, opts(d, [0]), "Corridor",
                                           "Brighton Main Line (East Croydon - Brighton)",
                                           True, ("East Croydon", "06:00", "07:00"), "both")
-        assert os.path.isfile(paths[0]) and summary.startswith("1 train(s), 388 total capacity")
+        assert os.path.isfile(paths[0]) and summary.startswith("1 train, 388 total capacity")
         assert openpyxl.load_workbook(paths[0]).sheetnames == ["Capacity Summary", "Capacity by Hour",
                                                                "Capacity by Train", "Notes"]
 
@@ -514,7 +514,7 @@ def test_unit_and_seats_reports_compare_two_timetables(monkeypatch):
         old.trent.diagrams = [x for x in old.trent.diagrams if not (x.depot == "BI" and 0 in x.days)]  # no MO 377/4
         paths, _w, summary = seats_report(new, opts(d, [0]), "Corridor",
                                           "Brighton Main Line (East Croydon - Brighton)", True, old=old)
-        assert summary.endswith("0 -> 1 train(s), 0 -> 388 total capacity (+388).")
+        assert summary.endswith("0 -> 1 train, 0 -> 388 total capacity (+388).")
         wb = openpyxl.load_workbook(paths[0])
         assert wb.sheetnames == ["Comparison Summary", "Capacity Summary", "Capacity by Hour", "Capacity by Train",
                                  "Notes"]
@@ -564,10 +564,10 @@ def test_seats_headcode_groups_directions_and_station_to_station(monkeypatch):
         assert trips("Haywards Heath", "London Victoria", Window("", 6 * 3600, 6 * 3600 + 600)) == []
         paths, _w, summary = seats_report(plan, opts(d, [0]), "Station to station", "", True,
                                           ("", "05:00", "06:00"), journey=("Haywards Heath", "London Victoria"))
-        assert summary.startswith("1 train(s), 388 total capacity - Haywards Heath to London Victoria, 05:00-06:00 "
+        assert summary.startswith("1 train, 388 total capacity - Haywards Heath to London Victoria, 05:00-06:00 "
                                   "departing")
         paths, _w, summary = seats_report(plan, opts(d, [0]), "Service group", "1B   anything", True)
-        assert summary.startswith("1 train(s), 1,202 total capacity - Service group: 1B")
+        assert summary.startswith("1 train, 1,202 total capacity - Service group: 1B")
 
 
 def test_fuel_check_48_hours():
@@ -582,7 +582,7 @@ def test_fuel_check_48_hours():
     res = {r[0]: (r[4], r[5], r[9]) for r in rep.rows}
     assert set(res) == {"MO SU801", "MO SU802", "MO SU803"}                # the 377/4 is not checked
     assert res["MO SU801"] == (4, "48:00", "OK")                           # Su 23:00 -> TO 23:00 is exactly 48 h
-    assert res["MO SU802"] == (2, "96:00", "Over 48 hours (2 gap(s))")      # MO -> FO and FO -> next MO
+    assert res["MO SU802"] == (2, "96:00", "Over 48 hours (2 gaps)")      # MO -> FO and FO -> next MO
     assert res["MO SU803"][2] == "No fuel"
     assert rep.rows[-1][9] == "OK"                                         # problems listed first
 
@@ -602,8 +602,8 @@ def test_capacity_report_seating_and_standing_toggles(monkeypatch):
         assert heads(both[0])[-1] == "Total capacity (seats + standing)" and "Standing" in heads(both[0])
         assert "Standing" not in heads(seats[0]) and "Total seats" in heads(seats[0])
         assert "Total seats" not in heads(stand[0]) and "Standing" in heads(stand[0])
-        assert s_seat.startswith("1 train(s), 243 seats") and s_stand.startswith("1 train(s), 145 standing room")
-        assert s_both.startswith("1 train(s), 388 total capacity")
+        assert s_seat.startswith("1 train, 243 seats") and s_stand.startswith("1 train, 145 standing room")
+        assert s_both.startswith("1 train, 388 total capacity")
         assert os.path.basename(both[0]).startswith("Capacity 1A")
         with pytest.raises(StatsPackError):
             seats_report(plan, opts(d, [0]), "Service group", "1A", True, seating=False, standing=False)
@@ -936,7 +936,7 @@ def test_wash_and_cet_tabs_period_inferred_reasons_and_the_three_day_rule():
         assert set(reps) == {"Washes by Unit", "Washes by Fleet", "CETs by Unit", "CETs by Fleet", "Inferred Links"}
         rule = {r[0]: r[6] for r in reps["Washes by Unit"].rows}
         assert rule["MO SX10"].startswith("More than 3") and rule["MO SX20"] == "OK"
-        assert "1 unit(s) do" in reps["Washes by Unit"].note
+        assert "1 unit does" in reps["Washes by Unit"].note
         assert len(reps["Inferred Links"].rows) == 8
         # each day separately: the fleets for every day, with day totals and a total for all the days
         days = {r.name: r for r in wash_cet_reports(units, per_day, "days")}

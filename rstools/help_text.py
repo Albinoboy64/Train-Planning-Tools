@@ -10,6 +10,10 @@ from .widgets import TaskBox, Tooltip
 
 TIPS = {
     # ---------------------------------------------------------------- shared
+    "Clear remembered inputs...": "Empty every box the app filled in from earlier runs, on every tab: files, "
+        "recent-file lists, output folders and names, stations, platforms, berthing locations left out or added, "
+        "service groups, corridors and dates. Colours, options, operator choices, saved settings (Load/Save) and "
+        "everything in Settings are kept.",
     "Add...": "Add files to this box. Files already in it are kept, so files from different folders can be used "
               "together.",
     "Leave out trains only in the first file (the original or reference)": "Leave out trains (or rows) found "
@@ -81,7 +85,7 @@ TIPS = {
     "Reset to defaults": "Switch every change type back on.",
     "Highlight only (no previous values)": "Mark changes without showing the previous values struck through.",
     # ---------------------------------------------------------------- berthing charts
-    "Create a berthing chart from an Attune XML": "Where each unit berths every night at the out-berth platforms and "
+    "Create a berthing chart from an Attune XML": "Where each unit berths every night at the outberth platforms and "
         "sidings: SNGX in the built-in layout (or like a chart you choose), TLGN laid out from the XML. A new chart "
         "has no highlights.",
     "Add a round of changes to a berthing chart": "Remakes the chart from the updated XML. Cells that differ from the "

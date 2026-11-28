@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .compare import day_set
 from .parse import Event, Timetable, TTrain, norm_headcode, norm_loc
+from rstools.naming import agree, plural
 
 DAY_TYPES = (("SX", {0, 1, 2, 3, 4}), ("SO", {5}), ("SuO", {6}))
 TIPLOCS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiplocs.csv")
@@ -47,8 +48,10 @@ def trains_from_prints(atrains, working: bool = False) -> Tuple[List[TTrain], Li
                     t.rows[0].name if t.rows else "", t.rows[-1].name if t.rows else "")
         out.append(tt)
     if no_public:
-        notes.append(f"{len(no_public)} train(s) in the print have no public times (empty stock or "
-                     f"non-passenger) and are not compared: {', '.join(no_public[:12])}"
+        notes.append(f"{plural(len(no_public), 'train')} in the print {agree(len(no_public), 'has', 'have')} no "
+                     "public times (empty stock or "
+                     f"non-passenger) and {agree(len(no_public), 'is', 'are')} not compared: "
+                     f"{', '.join(no_public[:12])}"
                      + (" ..." if len(no_public) > 12 else ""))
     return out, notes
 
@@ -144,11 +147,13 @@ def trains_from_list(lst, working: bool = False) -> Tuple[List[TTrain], List[str
         out.append(TTrain("", hc, raw, op if op in ("SN", "TL", "GX", "GN", "LO") else "", days, "", r, events,
                           events[0].name, events[-1].name))
     if skipped:
-        notes.append(f"{len(skipped)} empty-stock / non-passenger train(s) in the list are not compared (a public "
+        notes.append(f"{plural(len(skipped), 'empty-stock / non-passenger train')} in the list "
+                     f"{agree(len(skipped), 'is', 'are')} not compared (a public "
                      f"timetable does not show them): {', '.join(skipped[:12])}"
                      + (" ..." if len(skipped) > 12 else ""))
     if unknown:
-        notes.append(f"{len(unknown)} location code(s) in the train list have no known station name, so trains "
+        notes.append(f"{plural(len(unknown), 'location code')} in the train list "
+                     f"{agree(len(unknown), 'has', 'have')} no known station name, so trains "
                      f"there can only match where the timetable uses the same code: {', '.join(sorted(unknown)[:15])}")
     return out, notes
 
@@ -272,7 +277,8 @@ def build_base(trains: List[TTrain], other: Timetable, path: str, identifier: st
         warnings.append("Shown in another section of the timetable (same headcode and times), so compared there: "
                         + "; ".join(relocated[:10]) + (" ..." if len(relocated) > 10 else ""))
     if unplaced:
-        warnings.append(f"{len(unplaced)} base train(s) do not call at any station shown in the timetable, so "
+        warnings.append(f"{plural(len(unplaced), 'base train')} {agree(len(unplaced), 'does', 'do')} not call at "
+                        "any station shown in the timetable, so "
                         f"there is nothing to compare: {', '.join(unplaced[:12])}" + (" ..." if len(unplaced) > 12
                                                                                     else ""))
     for sec in sections:                                        # timetable order: by first time

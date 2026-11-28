@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 from .layout import NIGHTS, Block, Cell, DepotBlock, DepotSheet, GridSheet, Layout
 from .mapping import ANY, Berth, Locations
 from .stays import Berthing, End, Stay, Visit
+from rstools.naming import agree, plural
 
 GX_387 = "FF0000"               # Gatwick Express 387/2: red text
 SN_387 = "00B050"               # Southern 387/3: green text
@@ -152,18 +153,21 @@ def place(layout: Layout, berthing: Berthing, locations: Locations, units: Units
             sheet.blocks.append(blk)
             sheet.sections = list(sheet.sections) + [blk.label]
             _assign(sheet, [len(sheet.blocks) - 1], stays, units)
-            warnings.append(f"{sheet.name}: {len(stays)} unit(s) berth at {loc} "
+            warnings.append(f"{sheet.name}: {plural(len(stays), 'unit')} {agree(len(stays), 'berths', 'berth')} at "
+                            f"{loc} "
                             f"{'platform/road ' + plat if plat else 'with no platform in the XML'}, which is not a "
                             "berth on this sheet; they are listed at the bottom of the sheet. Add the berth to the "
                             "chart or to the berth list.")
     shown = [s for s in charted if s.loc in placed_locs]
     open_ended = sum(1 for s in shown if s.depart is None)
     if open_ended:
-        warnings.append(f"{open_ended} unit(s) on the chart end a diagram without a next-day working in the XML "
+        warnings.append(f"{plural(open_ended, 'unit')} on the chart {agree(open_ended, 'ends', 'end')} a diagram "
+                        "without a next-day working in the XML "
                         "(e.g. 'Stabld'), so only their arrival is shown.")
     if no_location:
-        warnings.append(f"{len(no_location)} berth(s) have no XML location in the berth list, so they are left "
-                        f"empty (e.g. {', '.join(no_location[:5])}). Edit berth locations to add them.")
+        warnings.append(f"{plural(len(no_location), 'berth')} {agree(len(no_location), 'has', 'have')} no XML "
+                        "location in the berth list, so they are left "
+                        f"empty (e.g. {', '.join(no_location[:5])}). Add them in Settings > Berthing locations.")
     if units.unknown:
         warnings.append("No car count in the fleet data for " + ", ".join(sorted(units.unknown)) + "; only the class "
                         "is shown. Add it in Settings > Fleet data.")

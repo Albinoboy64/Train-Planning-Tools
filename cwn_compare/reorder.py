@@ -27,6 +27,7 @@ from rstools.days import DAY_LETTERS as _DAY_TOKENS
 
 from .days import coverage, code_days
 from .model import Block, SheetModel, cell_text
+from rstools.naming import agree, plural
 
 
 class ReorderError(Exception):
@@ -540,7 +541,8 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
                        if isinstance(ws.cell(row=r, column=c).value, str)
                        and ws.cell(row=r, column=c).value.startswith("="))
         if formulas:
-            warnings.append(f"Tab '{sm.title}' has {formulas} formula cell(s) among its trains, so it was left as "
+            warnings.append(f"Tab '{sm.title}' has {plural(formulas, 'formula cell')} among its trains, so it was "
+                            "left as "
                             "it was (moving rows could change what the formulas refer to).")
             continue
         row_maps[sm.title] = _rewrite(ws, sm, new_order, merges)
@@ -548,10 +550,11 @@ def reorder_cwn(path: str, out_dir: str = "", name: str = "", by_time: bool = Fa
         tabs += 1
         gone = sum(len(g) for _c, g, _cells in merges.values())
         merged_n += gone
-        log(f"{sm.title}: {moved} train(s) with variants put in order"
-            + (f", {gone} variant(s) merged into another the same apart from its days" if gone else ""))
+        log(f"{sm.title}: {plural(moved, 'train')} with variants put in order"
+            + (f", {plural(gone, 'variant')} merged into another the same apart from its days" if gone else ""))
     if merge and apart_all:
-        log(f"{len(apart_all)} variant(s) differ on their tab, so they were kept apart:")
+        log(f"{plural(len(apart_all), 'variant')} {agree(len(apart_all), 'differs', 'differ')} on their tab, so "
+            "they were kept apart:")
         for a in apart_all[:APART_SHOWN]:
             log("  " + a)
         if len(apart_all) > APART_SHOWN:

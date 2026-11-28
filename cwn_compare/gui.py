@@ -15,7 +15,7 @@ from functools import partial
 from typing import Callable, Dict, List, Optional
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
-from rstools import errorlog, theme, updater
+from rstools import errorlog, theme, updater, widgets
 from rstools.naming import plural
 from rstools.autocomplete import Suggest
 from rstools.branding import APP_NAME
@@ -315,6 +315,7 @@ class App(tk.Tk):
         settles (a moment later). Moving within a display only reads its scaling - one quick system call."""
         if event.widget is not self:
             return
+        widgets.close_popups()                  # a suggestion list or tip would stay where the window was
         if self._dpi_after:
             self.after_cancel(self._dpi_after)
             self._dpi_after = None
@@ -498,6 +499,7 @@ class App(tk.Tk):
         opt.add_separator()
         opt.add_command(label="Open settings folder", command=lambda: _open_path(
             os.path.dirname(Options.settings_path())))
+        opt.add_command(label="Clear remembered inputs...", command=self.clear_remembered)
         self.notify_var = tk.BooleanVar(value=self.opts.notify_done)
         self.full_path_var = tk.BooleanVar(value=self.opts.recent_full_path)
         self.auto_update_var = tk.BooleanVar(value=self.opts.check_updates)
@@ -537,7 +539,7 @@ class App(tk.Tk):
                             "\n".join(f"{k}:  {what}" for k, what in keys)
                             + "\n\nDrag and drop: drop files anywhere on a tab and each goes to the box it belongs "
                               "in (the older of two CWNs becomes the original); drop one on a box to replace what it "
-                              "holds. An Attune XML dropped on Stock Tools makes a station working book, a VPT adds "
+                              "holds. An Attune XML dropped on Stock Tools makes a station working book; a VPT adds "
                               "another operator's trains.", parent=self)
 
     def notify_done(self, title: str, message: str, ok: bool = True):
@@ -660,6 +662,7 @@ class App(tk.Tk):
         self.save_app_settings()
 
     def _load_saved(self, key: str, run: bool):
+        widgets.close_popups()
         entry = self.opts.saved.get(key)
         if not isinstance(entry, dict) or not isinstance(entry.get("state"), dict):
             return
@@ -883,6 +886,43 @@ class App(tk.Tk):
         lst = [p for p in self.opts.recent.get(kind, []) if p not in paths]
         self.opts.recent[kind] = ([os.path.normpath(p) for p in paths if p] + lst)[:8]
 
+    def clear_remembered(self, ask: bool = True) -> bool:
+        """Settings > Clear remembered inputs: every tab's boxes filled from earlier runs are emptied (files, folders,
+        names, stations, locations, recent files); colours, options, operator choices and saved settings are kept
+        (see rstools.remembered). False if a run is going on or the question is answered No."""
+        from rstools import remembered
+        if self.running or self.stats_tab.running or self.tt_tab.running or self.live_tab.running:
+            messagebox.showinfo(APP_NAME, "Wait for the run to finish (or stop it) before clearing.", parent=self)
+            return False
+        if ask and not messagebox.askyesno(APP_NAME, remembered.question(), parent=self):
+            return False
+        widgets.close_popups()
+        remembered.clear_options(self.opts)
+        for tab in (self, self.stats_tab, self.tt_tab, self.live_tab):
+            try:
+                tab.clear_inputs()
+            except Exception:                   # one tab's failure must not stop the others being cleared
+                errorlog.write(traceback.format_exc())
+        self.__dict__.pop("_exists", None)          # the recent files no longer listed
+        self.save_app_settings()
+        self._set_status("Remembered inputs cleared")
+        return True
+
+    def clear_inputs(self):
+        """Stock Tools' boxes back to empty (and the station book's day sheets to all three), options kept."""
+        for var in (self.orig, self.upd, self.util, self.out_name, self.out_dir, self.berth_issue,
+                    self.berth_timetable, *self.book_vars.values()):
+            var.set("")
+        for vars_ in self.berth_vars.values():
+            for var in vars_:
+                var.set("")
+        self.berth_leave_out, self.berth_add = {}, {}
+        self.book_hidden_ops = []
+        for v in self.book_day_vars.values():
+            v.set(True)
+        self._pending_days = None
+        self._run_when_days_known = False
+
     def save_app_settings(self):
         self.opts.open_when_done = self.open_var.get()
         try:
@@ -1096,6 +1136,7 @@ class App(tk.Tk):
         from rstools.live.popout import LiveWindow
         self.live_window = self.live_tab.window = LiveWindow(self, self.live_tab.out_holder, self.live_tab)
         self.notebook.add(live_page, text="Live View")
+        self.notebook.bind("<<NotebookTabChanged>>", lambda _e: widgets.close_popups(), add="+")
         from rstools import icons
         for page, name in ((cwn_page, "stock"), (stats_page, "stats"), (tt_page, "timing"), (live_page, "live")):
             self.notebook.tab(page, image=(icons.image(self, name, "muted"), "selected", icons.image(self, name)),
@@ -1257,7 +1298,7 @@ class App(tk.Tk):
         merge_cb.grid(row=3, column=0, sticky="w", pady=(4, 0))
         Tooltip(merge_cb, "Variants of a train with the same times, units, workings and notes on a tab become "
                           "one with both days (MO and FO become MFO). Different AM / PM berths still merge: the "
-                          "cell shows the most common with a \u25be, click it for each day's. The log says why any "
+                          "cell shows the most common with a \u25be; click it for each day's. The log says why any "
                           "variants were kept apart.")
         self.merge_diag_var = tk.BooleanVar(value=False)
         self.merge_berth_var = tk.BooleanVar(value=False)
@@ -1455,7 +1496,7 @@ class App(tk.Tk):
             bf, text="Show unit counts for each siding location", variable=self.berth_counts)
         counts_cb.grid(row=9, column=0, columnspan=3, sticky="w", pady=(4, 0))
         Tooltip(counts_cb, "Under each siding location (e.g. Brighton platforms, Brighton Wall Siding): how many "
-                           "units of each type are there at each night's FINISH and START, and how many cars, in red "
+                           "units of each type there are at each night's FINISH and START, and how many cars, in red "
                            "where that is more than the location holds.")
         self.berth_timetable = tk.StringVar()
         self.berth_tt_lbl = ttk.Label(bf, text="Timetable on cover:")
@@ -1478,8 +1519,8 @@ class App(tk.Tk):
             var.trace_add("write", lambda *_a: self._update_name_hint())
 
     def _show_berth_rows(self, mode: str):
-        for m, widgets in self.berth_rows.items():
-            for w in (x for row in widgets for x in row):
+        for m, mode_rows in self.berth_rows.items():
+            for w in (x for row in mode_rows for x in row):
                 (w.grid if m == mode else w.grid_remove)()
         on = mode in ("berth_make", "berth_round", "berth_blank")
         for w in (self.berth_issue_lbl, self.berth_issue_entry):
@@ -2062,6 +2103,7 @@ class App(tk.Tk):
             self._mode_changed()
 
     def _mode_changed(self):
+        widgets.close_popups()                  # lists and tips of the last task's boxes
         mode = self.mode.get()
         batch = mode == "batch"
         if (mode != self._last_mode) and (batch or self._last_mode == "batch"):
@@ -2150,8 +2192,8 @@ class App(tk.Tk):
         for box, var in ((self.orig_entry, self.orig), (self.upd_entry, self.upd), (self.util_entry, self.util)):
             for w in self._row_of(box):
                 rows[w] = var
-        for mode, widgets in self.berth_rows.items():
-            for i, row in enumerate(widgets):
+        for mode, mode_rows in self.berth_rows.items():
+            for i, row in enumerate(mode_rows):
                 for w in row:
                     rows[w] = self.berth_vars[mode][i]
 

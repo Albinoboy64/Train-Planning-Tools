@@ -8,6 +8,7 @@ from tkinter import messagebox, ttk
 from typing import Dict, List, Optional
 
 from rstools.branding import APP_NAME
+from rstools.naming import plural
 from rstools.theme import px
 
 from . import notes
@@ -128,8 +129,8 @@ class NotesPanel(ttk.Frame):
         elif e.get("removed"):
             state = f"Notes removed for {label}."
         else:
-            state = f"Changed for {label}."
-        self.state_lbl.configure(text=f"{state} {changed} location(s) changed for {label}.")
+            state = "Changed."
+        self.state_lbl.configure(text=f"{state} {plural(changed, 'location')} changed for {label}.")
 
     def _store(self, e: Optional[dict]):
         berth = self._berth()

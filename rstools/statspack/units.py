@@ -20,6 +20,7 @@ from rstools.days import DAYS, DAY_NAMES, days_of_code
 from .fleet import user_fleet_path
 from .model import _pick_diagrams
 from .trent import TrentData
+from rstools.naming import agree, plural
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DEPOTS = os.path.join(HERE, "depots_default.csv")
@@ -395,7 +396,8 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
         else:
             unresolved.append(f"{DAYS[src[0]]} {src[1]} -> {DAYS[target[0]]} {target[1]}")
     if unresolved:
-        warnings.append(f"{len(unresolved)} next-day working(s) in the XML form a diagram another unit already "
+        warnings.append(f"{plural(len(unresolved), 'next-day working')} in the XML "
+                        f"{agree(len(unresolved), 'forms', 'form')} a diagram another unit already "
                         f"forms (e.g. {', '.join(unresolved[:6])}) - the unit from the nearer day was followed; "
                         "check the plan.")
     # the TLGN print names the diagram the units form the next day ('Forms (Next Day) 316')
@@ -414,7 +416,8 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                 covered.add(d)
                 trent_links += 1
     if missing:
-        warnings.append(f"{len(missing)} next-day working(s) in the XML point to a diagram that is not in the TRENT "
+        warnings.append(f"{plural(len(missing), 'next-day working')} in the XML "
+                        f"{agree(len(missing), 'points', 'point')} to a diagram that is not in the TRENT "
                         f"print (e.g. {', '.join(missing[:6])}) - those units are not followed further.")
     # days (or diagrams) without an XML link: match where the unit stabled to where a diagram starts. The next-day
     # number is missing there, so a link is only made where one diagram could be formed; when several could be
@@ -482,12 +485,14 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                               + " - not followed further, check"}
     if ambiguous:
         eg = ", ".join(f"{v['day']} {v['diagram']}" for v in list(ambiguous.values())[:6])
-        warnings.append(f"{len(ambiguous)} unit(s) have no next-day number and could form more than one diagram, or "
+        warnings.append(f"{plural(len(ambiguous), 'unit')} {agree(len(ambiguous), 'has', 'have')} no next-day "
+                        "number and could form more than one diagram, or "
                         f"the same one as another unit (e.g. {eg}): they are not followed further - see the "
                         "Next-Day Checks tab.")
     lacking = [DAY_NAMES[d] for d in days[:-1] if d not in covered]
     if lacking and not trent_links and not (attune is not None and attune.path):
-        warnings.append(f"{inferred} link(s) were inferred: without an XML, units are followed by matching where "
+        warnings.append(f"{plural(inferred, 'link')} {agree(inferred, 'was', 'were')} inferred: without an XML, "
+                        "units are followed by matching where "
                         "they stabled to where a diagram starts, where only one diagram can be formed (marked "
                         "'inferred'). Add the Attune XML for exact next-day workings.")
     elif lacking and not trent_links:
@@ -496,7 +501,8 @@ def follow_units(trent: TrentData, attune: Optional[AttuneData], days: Sequence[
                         "can be formed (marked 'inferred'). Use an Attune export covering every day for exact "
                         "next-day workings.")
     elif inferred:
-        warnings.append(f"{inferred} link(s) were inferred from stabling locations (diagrams ending 'Stabld' or "
+        warnings.append(f"{plural(inferred, 'link')} {agree(inferred, 'was', 'were')} inferred from stabling "
+                        "locations (diagrams ending 'Stabld' or "
                         "without a next-day working in the XML or TRENT print).")
     units = []
     for d in days:
@@ -629,7 +635,7 @@ def _by_unit(units: List[UnitWeek], kind: str, possible: bool = False) -> Report
         note = ("Each unit followed through the week with the next-day workings ('>' from the XML or TRENT print, "
                 "'>?' inferred: see Inferred Links). A unit should not go more than "
                 f"{WASH_LIMIT} days without a wash"
-                + (f": {len(late)} unit(s) do." if late else ": none do."))
+                + (f": {plural(len(late), 'unit')} {agree(len(late), 'does', 'do')}." if late else ": none do."))
         return Report("Washes by Unit", "Washes per unit",
                       ["Unit (first diagram)", "Fleet", "Days", "Washes", "Fuel", "Days without a wash (most)",
                        f"Wash every {WASH_LIMIT} days"] + extra + ["Diagrams worked", "Linked by"], rows,
@@ -642,7 +648,8 @@ def _by_unit(units: List[UnitWeek], kind: str, possible: bool = False) -> Report
                   "Each unit followed through the week with the next-day workings ('>' from the XML or TRENT print, "
                   "'>?' inferred: see Inferred Links). Only days in passenger service count towards the limit: a "
                   f"unit should not go {CET_LIMIT} days in service without a CET"
-                  + (f": {len(late_cet)} unit(s) do." if late_cet else ": none do."))
+                  + (f": {plural(len(late_cet), 'unit')} "
+                     f"{agree(len(late_cet), 'does', 'do')}." if late_cet else ": none do."))
 
 
 def inferred_links(units: List[UnitWeek]) -> Report:
@@ -858,7 +865,7 @@ def fuel_reports(units: List[UnitWeek], diesel: Collection[str], days: Sequence[
         fuels, gaps, whole, over, real = fuel_state(u, days)
         worst = max(gaps)
         result = ("No fuel all week" if not fuels and whole and real else "No fuel" if not fuels and real else
-                  f"Over 48 hours ({len(real)} gap(s))" if real else
+                  f"Over 48 hours ({plural(len(real), 'gap')})" if real else
                   "Over 48 hours, but mostly stationary" if over else "OK")
         rows.append([first.label, first.fleet, len(u.diagrams), "Whole week" if whole else "Part week", len(fuels),
                      f"{worst[0] // 60}:{worst[0] % 60:02d}", _running_days(u, worst), _when(worst[1]),
@@ -866,8 +873,10 @@ def fuel_reports(units: List[UnitWeek], diesel: Collection[str], days: Sequence[
         kinds.append("body")
     rows.sort(key=lambda r: (r[9] == "OK", r[1], r[0]))      # problems first
     bad = sum(1 for r in rows if r[9] != "OK")
-    return [Report("Fuel Check (171s)", f"Diesel units fuelled at least every 48 hours - {bad} of {len(rows)} "
-                   "unit(s) need checking" if rows else "Diesel units fuelled at least every 48 hours",
+    title = "Diesel units fuelled at least every 48 hours"
+    if rows:
+        title += f" - {bad} of {plural(len(rows), 'unit')} {agree(bad, 'needs', 'need')} checking"
+    return [Report("Fuel Check (171s)", title,
                    ["Unit (first diagram)", "Fleet", "Days", "Followed for", "Fuels", "Longest gap (h:mm)",
                     "Days running in the gap", "Gap from", "Gap to", "Result"]
                    + (["Could be added at"] if possible else []) + ["Diagrams worked"], rows, kinds,

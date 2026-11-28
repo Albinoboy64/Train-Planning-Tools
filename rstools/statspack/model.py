@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Set, Tuple, cast
 from .attune import AttuneData, Leg, Train
 from .fleet import FleetTable
 from .trent import TrentData, TrentDiagram, is_empty_headcode
+from rstools.naming import agree, plural
 
 OPERATOR_DEPOTS = {"SNGX": ("BI", "SU", "SL"), "TLGN": ("HE", "TB")}
 OTHER = "Other"
@@ -149,7 +150,8 @@ def _pick_diagrams(trent: TrentData, day: int) -> Tuple[List[TrentDiagram], List
             replaced.add(d.key)
         if old is None or PLAN_PRIORITY.get(d.plan.upper(), 0) > PLAN_PRIORITY.get(old.plan.upper(), 0):
             best[d.key] = d
-    notes = [f"{len(replaced)} diagram(s) have more than one version on this day; the STP (or draft) version "
+    notes = [f"{plural(len(replaced), 'diagram')} {agree(len(replaced), 'has', 'have')} more than one version on "
+             "this day; the STP (or draft) version "
              f"was used (e.g. {', '.join(sorted(replaced)[:8])})."] if replaced else []
     return list(best.values()), notes
 
@@ -288,7 +290,8 @@ def build_day(trent: TrentData, attune: Optional[AttuneData], fleet: FleetTable,
     if attune is not None and report_missing:
         missing = sorted({m.headcode for d in included for m in d.moves if not m.found})
         if missing:
-            warnings.append(f"{len(missing)} train(s) in the TRENT print were not found in the XML for this day "
+            warnings.append(f"{plural(len(missing), 'train')} in the TRENT print "
+                            f"{agree(len(missing), 'was', 'were')} not found in the XML for this day "
                             f"(e.g. {', '.join(missing[:12])}). Their calling points and seconds come from the "
                             "TRENT print instead - check the XML is from the same plan as the TRENT print.")
     trains = _build_trains(included)

@@ -17,6 +17,7 @@ from .layout import GridSheet, Layout, read_chart
 from .mapping import load as load_locations
 from .stays import build
 from .xmlread import BerthingError, read_xml
+from rstools.naming import plural
 
 STP_FILL = "E4DFEC"
 Log = Callable[[str], None]
@@ -231,7 +232,7 @@ def generate(xml_paths: Sequence[str], layout_path: str = "", out_dir: str = "",
                                _legend(stp, operator, bool(others)), _notes(xml_paths, where, warnings, others),
                                counts), path)
     n = _count(filled)
-    return Result(path, "", f"{n} unit stay(s) placed on {len(filled.sheets)} sheet(s)." +
+    return Result(path, "", f"{plural(n, 'unit stay')} placed on {plural(len(filled.sheets), 'sheet')}." +
                   (" STP trains are in bold on lavender." if stp else ""), warnings)
 
 
@@ -310,7 +311,7 @@ def blank(operator: str = "SNGX", layout_path: str = "", xml_paths: Sequence[str
             + (where if where.startswith("the ") else os.path.basename(where))
             + (" (locations from " + ", ".join(map(os.path.basename, xml_paths)) + ")" if xml_paths else "") + ".")
     _save(lambda: writer.write(layout, path, cover, _legend(False, operator), [made] + (warnings or [])), path)
-    return Result(path, "", f"Blank chart with {len(layout.sheets)} location sheet(s).", warnings)
+    return Result(path, "", f"Blank chart with {plural(len(layout.sheets), 'location sheet')}.", warnings)
 
 
 def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], colour: str, out_dir: str = "",
@@ -356,7 +357,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
              ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
     progress(0.92, "Writing the change report...")
     _save(lambda: write_report(report, changes, "Berthing chart changes", about), report)
-    return Result(path, report, f"{len(changes)} change(s) highlighted in {shade}.", warnings)
+    return Result(path, report, f"{plural(len(changes), 'change')} highlighted in {shade}.", warnings)
 
 
 def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "", name: str = "",
@@ -387,7 +388,7 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
              ("Highlight colour", shade), ("Made", f"{datetime.datetime.now():%d/%m/%Y %H:%M}")]
     progress(0.92, "Writing the change report...")
     _save(lambda: write_report(report, changes, "Berthing chart changes", about), report)
-    return Result(path, report, f"{len(changes)} difference(s) between the charts, highlighted in {shade}.", [])
+    return Result(path, report, f"{plural(len(changes), 'difference')} between the charts, highlighted in {shade}.", [])
 
 
 def _updates_line(text: str, shade: str) -> str:
@@ -425,7 +426,7 @@ def _location_notes(layout: Layout, xmls, show: bool, log: Log, operator: str = 
     tt = notes.timetable_of_start(starts[-1]) if starts else notes.timetable_of_name(timetable)
     n = notes.apply(layout, tt, operator=operator) if tt else 0
     if n:
-        log(f"{n} location note(s) from the app's {notes.timetable_label(tt)} notes.")
+        log(f"{plural(n, 'location note')} from the app's {notes.timetable_label(tt)} notes.")
 
 
 def _timetable(xmls) -> str:
@@ -446,7 +447,8 @@ def _notes(xmls: Sequence[str], layout_path: str, warnings: Sequence[str], other
     if others:
         lines.append("Other operators' trains from " + ", ".join(map(os.path.basename, others)) + ".")
     if len(xmls) > 1:
-        lines.append("LTP and STP: each day's STP diagrams replace the LTP ones; STP trains are in bold on lavender.")
+        lines.append("LTP and STP: each day's STP diagrams replace the LTP ones; STP trains are shown in bold on a "
+                     "lavender fill.")
     lines += list(warnings) or ["Nothing needs checking."]
     return lines
 

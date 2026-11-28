@@ -20,6 +20,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from rstools.days import DAY_LABELS as DAY_SHORT
+from rstools.naming import agree, plural
 
 from . import s4lines as S4L
 from .s4lines import line_codes, verdict as line_verdict
@@ -689,10 +690,12 @@ def check(plan, statement: Statement, lines=None, others=()) -> CheckResult:
     trains = len({c.train for c in kept})
     warnings = []
     if not_found:
-        warnings.append(f"{len(not_found)} place(s) in the Section 4 tables are not in the XML (see 'Not "
+        warnings.append(f"{plural(len(not_found), 'place')} in the Section 4 tables "
+                        f"{agree(len(not_found), 'is', 'are')} not in the XML (see 'Not "
                         "Checked'), so those sections were not checked - most are lines GTR does not run on.")
     if skipped:
-        warnings.append(f"{len(skipped)} train(s) were not checked (runs as required and not passenger, or on a "
+        warnings.append(f"{plural(len(skipped), 'train')} {agree(len(skipped), 'was', 'were')} not checked (runs as "
+                        "required and not passenger, or on a "
                         "MAINT diagram) - see 'Trains Not Checked'.")
     other_trains = len({(c.operator, c.train) for c in kept if c.operator})
     return CheckResult(kept, not_found, checked, trains, used, warnings, exempt, sorted(skipped.items()), settled,

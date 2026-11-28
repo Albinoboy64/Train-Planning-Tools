@@ -447,6 +447,8 @@ class TimetableTab(ttk.Frame):
             self._set_mode(self._last_cmp)
 
     def _mode_changed(self):
+        from rstools.widgets import close_popups
+        close_popups()                          # lists and tips of the last task's boxes
         mode = self.mode.get()
         util = mode == S4
         (self.util_frame.grid if util else self.util_frame.grid_remove)()
@@ -574,6 +576,13 @@ class TimetableTab(ttk.Frame):
             self._last_dir = s["last_dir"]
         if isinstance(s.get("passenger_only"), bool):
             self.pax_var.set(s["passenger_only"])
+
+    def clear_inputs(self):
+        """Settings > Clear remembered inputs: every file box, the folder and the name emptied; options kept."""
+        for var in (*self.vars.values(), *self.s4_vars.values(), self.out_dir, self.out_name):
+            var.set("")
+        self._last_dir = ""
+        self._save_settings()
 
     def _save_settings(self):
         s = {"mode": self.mode.get(), "fmt": self.fmt_var.get(), "output_dir": self.out_dir.get().strip(),

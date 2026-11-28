@@ -13,6 +13,7 @@ from rstools import others as O
 
 from .stays import End, Stay, build
 from .xmlread import BerthingError, read_xml
+from rstools.naming import plural
 
 SOURCE = 1000                   # other operators' files are told apart from the chart's own XMLs (0, 1)
 
@@ -68,7 +69,8 @@ def other_stays(paths: Sequence[str], log=lambda _m: None) -> Tuple[List[Stay], 
             how = "where each train ends and the next one starts (no next-day workings in the file)"
         if found and all(s.by_headcode for s in found):
             how += "; no unit types, so the headcodes are shown"
-        warnings.append(f"Other operator {op} ({os.path.basename(path)}): {len(found)} overnight stay(s), from {how}. "
+        warnings.append(f"Other operator {op} ({os.path.basename(path)}): {plural(len(found), 'overnight stay')}, "
+                        f"from {how}. "
                         "They are shown in grey.")
         stays += found
     return stays, warnings, names

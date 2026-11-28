@@ -14,6 +14,7 @@ from typing import List, Sequence, cast
 
 from .compare import Comparison, service_groups
 from .parse import TTrain
+from rstools.naming import agree, plural
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, "template.xlsx")
@@ -126,7 +127,7 @@ def build_workbook(cmp: Comparison):
             g = cast(TTrain, m.gtr)
             finding = (f"All {m.nr_points} timings match; headcode differs ({B} {m.nr.headcode}, {O} {g.headcode})"
                        if not m.issues else f"Headcode differs ({B} {m.nr.headcode}, {O} {g.headcode}); "
-                       f"{len(m.issues)} timing issue(s) on the Issues sheet")
+                       f"{plural(len(m.issues), 'timing issue')} on the Issues sheet")
             rows.append([res.section, m.nr.headcode, g.headcode, g.days, finding, m.confidence])
     write(wb["Headcode Mismatches"], rows, {6: '0.0"%"'})
     # Service Group Review
@@ -144,18 +145,22 @@ def build_workbook(cmp: Comparison):
     rows = []
     for res in sections:
         if res.not_compared:
-            status = (f"Not complete - {res.not_compared} cell(s) belong to {len(res.missing)} {B} train(s) missing "
+            status = (f"Not complete - {plural(res.not_compared, 'cell')} "
+                      f"{agree(res.not_compared, 'belongs', 'belong')} to "
+                      f"{len(res.missing)} {B} {agree(len(res.missing), 'train', 'trains')} missing "
                       f"from {O} (see Missing Trains)")
         else:
             status = "Complete"
         if res.out_of_scope:
-            status += f". {res.out_of_scope} other-operator train(s) out of scope"
+            status += f". {plural(res.out_of_scope, 'other-operator train')} out of scope"
         if res.not_in_table:
-            status += f". {res.not_in_table} {B} train(s) not at any location shown in the {O} table"
+            status += (f". {res.not_in_table} {B} {agree(res.not_in_table, 'train', 'trains')} not at any "
+                       f"location shown in the {O} table")
         rows.append([res.section, res.cells, res.compared, res.not_compared, status])
     cells, compared = sum(r.cells for r in sections), sum(r.compared for r in sections)
     rows.append(["All sections", cells, compared, cells - compared,
-                 "Complete" if cells == compared else f"Not complete - {cells - compared} cell(s) not compared"])
+                 "Complete" if cells == compared
+                 else f"Not complete - {plural(cells - compared, 'cell')} not compared"])
     ws = wb["Audit Totals"]
     ws.column_dimensions["E"].width = 70
     write(ws, rows, total=True)
@@ -240,6 +245,6 @@ def summary_lines(cmp: Comparison) -> List[str]:
         issues = sum(len(m.issues) for m in res.matched)
         B, O = cmp.base_label, cmp.other_label
         lines.append(f"{res.section}: {len(res.nr_trains)} {B} / {len(res.gtr_trains)} {O} trains, "
-                     f"{len(res.matched)} matched, {len(res.missing)} missing from {O}, {issues} issue(s), "
-                     f"{len(res.headcode_mismatches)} headcode mismatch(es)")
+                     f"{len(res.matched)} matched, {len(res.missing)} missing from {O}, {plural(issues, 'issue')}, "
+                     f"{plural(len(res.headcode_mismatches), 'headcode mismatch')}")
     return lines

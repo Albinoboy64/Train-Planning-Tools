@@ -586,6 +586,8 @@ class StatsPackTab(ttk.Frame):
         self.task_box.show(self.mode.get())
 
     def _mode_changed(self):
+        from rstools.widgets import close_popups
+        close_popups()                          # lists and tips of the last task's boxes
         mode = self.mode.get()
         shown = dict(files_for(mode, self.two_plans.get()))
         for key, row in self.file_rows.items():
@@ -969,6 +971,23 @@ class StatsPackTab(ttk.Frame):
         self.flag_var.set(flag is not None)
         if flag is not None:
             self.flag_miles.set(f"{float(flag):g}")
+
+    def clear_inputs(self):
+        """Settings > Clear remembered inputs: files, folder, name, groups, corridors, stations, times, fleets and
+        mileage dates back to empty or their defaults; the task and the options (output, format, tick boxes) kept."""
+        for var in (*self.vars.values(), self.out_dir, self.out_name, *self.seat_group.values(), self.journey_from,
+                    self.journey_to, self.mileage_month, self.mileage_from, self.mileage_to):
+            var.set("")
+        self.seat_station.set("London Victoria")
+        self.seat_from.set("07:00")
+        self.seat_to.set("10:00")
+        self._last_dir = ""
+        self._saved_fleets = {}
+        for f, v in self.fleet_vars.items():
+            v.set(f.upper() != "MAINT" and self.fleet_info.get(f, ("", True))[1])
+        for v in self.day_vars:
+            v.set(True)
+        self._save_settings()
 
     def _save_settings(self):
         s = {"mode": self.mode.get(), "output": self.output.get(), "output_dir": self.out_dir.get().strip(),

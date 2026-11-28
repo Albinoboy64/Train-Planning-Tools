@@ -23,6 +23,7 @@ import re
 from bisect import bisect_left
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
+from rstools.naming import plural
 
 _TRAIN = re.compile(r"^\s*Train:\s*(?P<cat>\S+?)\s*(?P<id>[0-9][A-Z][0-9]{2}[A-Z0-9]{0,2})(?:\((?P<biz>[^)]*)\))?\s+"
                     r"(?P<days>\S+)\s+(?:\[(?P<code>[^\]]*)\]\s*)?(?P<toc>.*)$")
@@ -334,7 +335,7 @@ def skipped_note(trains: Sequence[AttuneTrain]) -> str:
     if not lost:
         return ""
     eg = "; ".join(f"{tid}: '{line}'" for tid, line in lost[:3])
-    return (f"{len(lost)} location line(s) in the train print could not be read (a time printed on to the "
+    return (f"{plural(len(lost), 'location line')} in the train print could not be read (a time printed on to the "
             f"station name), so those calls are not compared - check them by eye (e.g. {eg}).")
 
 

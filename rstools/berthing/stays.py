@@ -13,6 +13,7 @@ from rstools.statspack.model import PLAN_PRIORITY
 from rstools.statspack.trent import is_empty_headcode
 
 from .xmlread import BerthXML, Move, TrainVersion, UnitDiagram, platform
+from rstools.naming import agree, plural
 
 # 'BI8 05+03TO (R)': next diagram, its departure time, the day it runs and the unit's position (front/rear)
 _NOTE = re.compile(r"^\s*([A-Z]{1,4})\s*(\d+[A-Z]?)\s+(\d{1,2})[:+.](\d{2})\s*([A-Za-z]*)\s*(?:\(([FMR])\))?")
@@ -158,10 +159,12 @@ def build(xmls: Sequence[BerthXML], mark_stp: bool = False) -> Berthing:
         warnings.append("The XML has no diagrams for " + ", ".join(missing) + ", so those days are empty. "
                         "Use an export covering the whole week.")
     if clashes:
-        warnings.append(f"{clashes} next-day working(s) name a diagram another unit already forms; the first was "
+        warnings.append(f"{plural(clashes, 'next-day working')} {agree(clashes, 'names', 'name')} a diagram another "
+                        "unit already forms; the first was "
                         "kept and the other shows only its arrival. Check the plan.")
     if elsewhere:
-        warnings.append(f"{elsewhere} unit(s) start their next diagram away from where they berthed (a move the "
+        warnings.append(f"{plural(elsewhere, 'unit')} {agree(elsewhere, 'starts', 'start')} their next diagram away "
+                        "from where they berthed (a move the "
                         "diagrams do not show).")
     return Berthing(stays, dict(finishes), dict(starts), days, warnings, unlinked)
 

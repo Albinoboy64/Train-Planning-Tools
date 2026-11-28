@@ -115,7 +115,7 @@ def compare_reports(old: List[Report], new: List[Report], old_label: str, new_la
                         counts["only_new"]])
     first = Report("Comparison Summary", "What changed between the two timetables",
                    ["Report", "Rows in both", "Rows with changes", ONLY_OLD, ONLY_NEW], summary,
-                   ["body"] * len(summary), f"Original: {old_label}.  Updated: {new_label}.")
+                   ["body"] * len(summary), f"Original: {old_label}. Updated: {new_label}.")
     note_rows = [[n] for n in notes]
     for rep in (r for r in old + new if r.name == "Notes"):
         note_rows += [list(r[:1]) for r in rep.rows]

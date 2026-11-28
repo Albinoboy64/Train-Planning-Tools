@@ -9,6 +9,7 @@ from __future__ import annotations
 import ntpath
 import re
 import tkinter as tk
+import weakref
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from rstools.naming import shorten_path
@@ -19,6 +20,19 @@ _NAV = {"Up", "Down", "Return", "KP_Enter", "Escape", "Tab", "Shift_L", "Shift_R
 
 
 MISSING = " (moved, renamed or deleted)"
+
+_LIVE: "weakref.WeakSet" = weakref.WeakSet()       # every suggestion list made, so all can be closed at once
+
+
+def close_all():
+    """Close every suggestion list that is open (the task or tab changed, the window moved): a list is a
+    window of its own, always on top, so it would otherwise stay where it was over whatever is shown now."""
+    for s in list(_LIVE):
+        try:
+            if s.shown:
+                s.hide()
+        except tk.TclError:
+            pass
 
 
 class Choice(str):
@@ -107,6 +121,8 @@ class Suggest:
         entry.bind("<FocusOut>", lambda _e: self._later_hide(), add="+")
         entry.bind("<Destroy>", lambda _e: self._gone(), add="+")
         entry.bind("<Configure>", lambda _e: self._place() if self.shown else None, add="+")
+        entry.bind("<Unmap>", lambda _e: self.hide() if self.shown else None, add="+")     # its row was hidden
+        _LIVE.add(self)
 
     def _on_arrow(self, e) -> bool:
         try:
@@ -306,7 +322,7 @@ class Suggest:
 
     # ------------------------------------------------------------------ events
     def _typed(self, event):
-        if event.keysym in _NAV:
+        if event.keysym in _NAV or (getattr(event, "state", 0) or 0) & 0x4:   # Ctrl+1..4 etc.: a shortcut
             return
         text = self.entry.get()
         items = matches(text, self.names())

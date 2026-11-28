@@ -31,9 +31,9 @@ CATEGORIES = [
      "An inbound service now forms a different outbound service (or vice versa)."),
     ("BERTHING", "Berthing / next-day working change", True,
      "AM / PM berth, or a next-day working (berth road or next departure time) changed. "
-     "Re-ordered lines and day-of-week-only differences are not changes."),
+     "Reordered lines and day-of-week-only differences are not changes."),
     ("DAYS", "Days run change", True,
-     "Days-run code changed. If nothing else about the train changed only the days are highlighted."),
+     "Days run code changed. If nothing else about the train changed, only the days are highlighted."),
     ("NOTES", "Notes / routing change", True, "Free-text note rows (e.g. '(via Redhill)') changed."),
 ]
 CATEGORY_LABELS = {k: lbl for k, lbl, _, _ in CATEGORIES}

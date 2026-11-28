@@ -482,6 +482,8 @@ class LiveTab(ttk.Frame):
             self._mode_changed()
 
     def _mode_changed(self):
+        from rstools.widgets import close_popups
+        close_popups()                          # lists and tips of the last task's boxes
         mode = self._mode_now = self.mode()
         try:
             self.app.opts.live_mode = mode
@@ -911,6 +913,13 @@ class LiveTab(ttk.Frame):
             return output_folder(getattr(self.app.opts, "output_dir", "") or "")
         except Exception:
             return ""
+
+    def clear_inputs(self):
+        """Settings > Clear remembered inputs: every file box emptied and the comparison shown cleared; the task and
+        the view options kept."""
+        for var in self.vars.values():
+            var.set("")
+        self._clear()
 
     def _clear(self):
         if getattr(self, "_autosave_after", None):          # ticks made just before: saved, not lost
