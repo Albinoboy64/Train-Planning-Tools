@@ -339,7 +339,8 @@ class Builder:
         found = []
         for d, i in self._index[day].get(hc, []):
             m = d.moves[i]
-            if m.origin in self.tips and abs(m.dep % 86400 - dep_mod) <= 1800:
+            gap = abs(m.dep % 86400 - dep_mod)
+            if m.origin in self.tips and min(gap, 86400 - gap) <= 1800:     # 23:55 and 00:05 are 10 minutes apart
                 found.append((d, i, False))
             elif m.origin not in self.tips and _covers(m, train, call_index):
                 found.append((d, i, True))

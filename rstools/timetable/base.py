@@ -64,15 +64,18 @@ def _user_tiplocs() -> str:
 def load_tiplocs() -> Dict[str, str]:
     """Location code -> station name: the built-in list, plus every code learnt from train prints read
     on this PC (kept in the settings folder)."""
+    import csv
     table = {}
     for path in (TIPLOCS, _user_tiplocs()):
         try:
-            with open(path, encoding="utf-8-sig") as fh:
-                for line in fh.read().splitlines()[1:]:
-                    code, _sep, name = line.partition(",")
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                rows = csv.reader(fh)
+                next(rows, None)                   # the heading row
+                for row in rows:
+                    code, name = (row[0] if row else ""), ",".join(row[1:])   # a name may hold a comma
                     if code.strip() and name.strip():
                         table[code.strip().upper()] = name.strip()
-        except (OSError, UnicodeDecodeError):      # e.g. re-saved from Excel in another encoding: skipped
+        except (OSError, UnicodeDecodeError, csv.Error):   # e.g. re-saved from Excel in another encoding: skipped
             pass
     return table
 
@@ -80,17 +83,25 @@ def load_tiplocs() -> Dict[str, str]:
 def learn_tiplocs(atrains):
     """Remember the location codes and names seen in an Attune print, for train lists that use codes."""
     known = load_tiplocs()
-    new = {r.tiploc: r.name for t in atrains for r in t.rows if r.tiploc not in known and "," not in r.name}
+    new = {r.tiploc: r.name for t in atrains for r in t.rows if r.tiploc and r.tiploc not in known}
     if not new:
         return
+    import csv
     path = _user_tiplocs()
     try:
         fresh = not os.path.exists(path)
-        with open(path, "a", encoding="utf-8") as fh:
+        if not fresh:                          # what this run (or another) already added is not added again
+            with open(path, newline="", encoding="utf-8") as fh:
+                have = {(r.get("TIPLOC") or "").strip() for r in csv.DictReader(fh)}
+            new = {k: v for k, v in new.items() if k not in have}
+            if not new:
+                return
+        with open(path, "a", encoding="utf-8", newline="") as fh:
+            w = csv.writer(fh)                 # a name with a comma is quoted, not split or left out
             if fresh:
-                fh.write("TIPLOC,Name\n")
-            fh.writelines(f"{k},{v}\n" for k, v in sorted(new.items()))
-    except OSError:
+                w.writerow(["TIPLOC", "Name"])
+            w.writerows(sorted(new.items()))
+    except (OSError, UnicodeDecodeError, csv.Error):
         pass
 
 

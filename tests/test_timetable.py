@@ -1388,3 +1388,17 @@ def test_times_past_midnight_and_with_seconds_are_read():
     assert norm_time(1.0) == "0000" and norm_time(634.0) == "0634"
     assert norm_time("06:34:30") == "0634½" and norm_time("06:34:10") == "0634"
     assert norm_time("25:10:00") is None
+
+
+def test_learnt_location_codes_keep_commas_and_are_added_once(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from rstools.timetable import base
+    path = str(tmp_path / "tiplocs.csv")
+    monkeypatch.setattr(base, "_user_tiplocs", lambda: path)
+    rows = [SimpleNamespace(tiploc="ZZTEST1", name="Somewhere, Sidings"), SimpleNamespace(tiploc="ZZTEST2", name="X")]
+    base.learn_tiplocs([SimpleNamespace(rows=rows)])
+    base.learn_tiplocs([SimpleNamespace(rows=rows)])
+    table = base.load_tiplocs()
+    assert table["ZZTEST1"] == "Somewhere, Sidings" and table["ZZTEST2"] == "X"
+    with open(path, encoding="utf-8") as fh:
+        assert fh.read().count("ZZTEST1") == 1

@@ -216,6 +216,12 @@ def _as_set(x):
     return x if isinstance(x, (set, frozenset)) else {x}
 
 
+def _name_key(name: str) -> str:
+    """A place name as TRENT prints and the XML are matched (the same rule as trent._name_key)."""
+    from .trent import _name_key as key
+    return key(name)
+
+
 def _tiplocs(attune, loc: str):
     """A TRENT location as XML TIPLOC(s): itself, or the TIPLOCs whose name it is (TLGN prints)."""
     if loc in attune.locations:
@@ -224,9 +230,9 @@ def _tiplocs(attune, loc: str):
     if names is None:
         names = defaultdict(set)
         for tip, name in attune.locations.items():
-            names[" ".join(name.replace(".", " ").casefold().split())].add(tip)
+            names[_name_key(name)].add(tip)
         attune._by_name = names
-    return names.get(" ".join(loc.replace(".", " ").casefold().split())) or loc
+    return names.get(_name_key(loc)) or loc
 
 
 def _find_train(attune: Optional[AttuneData], headcode: str, day: int, origin: str, dep_min: int,
