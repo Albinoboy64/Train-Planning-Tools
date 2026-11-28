@@ -13,8 +13,8 @@ from rstools.branding import APP_NAME
 from rstools.theme import px
 
 TITLE = f"{APP_NAME} - Settings"
-PAGES = ("General", "Updates", "Fleet data", "Depots", "Corridors", "Berthing locations", "Berthing notes", "Rules",
-         "File limits")
+PAGES = ("General", "Updates", "Fleet data", "Depots", "Stabling locations", "Corridors", "Berthing locations",
+         "Berthing notes", "Rules", "File limits")
 _OPEN: Dict[str, "SettingsWindow"] = {}
 
 
@@ -119,7 +119,7 @@ class SettingsWindow(tk.Toplevel):
             return GeneralPage(self.body, app)
         if page == "Updates":
             return UpdatesPage(self.body, app)
-        if page in ("Fleet data", "Depots", "Corridors"):
+        if page in ("Fleet data", "Depots", "Stabling locations", "Corridors"):
             return _csv_page(self.body, app, page)
         if page == "Berthing locations":
             return BerthingPage(self.body, app)
@@ -243,9 +243,17 @@ def _csv_page(master, app, page: str) -> ttk.Frame:
         ed = csv_editor(frame, fleet.ensure_user_copy, fleet.DEFAULT_CSV, numbers, open_path=open_path)
     elif page == "Depots":
         from rstools.statspack import units
-        text = ("The locations that are depots (TIPLOC, the depot each belongs to and its operator), for unit "
-                "reports and charts. A blank depot marks a location as not a depot.")
+        text = ("The depots (TIPLOC, the depot each belongs to and its operator), for unit reports and charts. "
+                "Sidings, yards and stations where units stable are under Stabling locations.")
         ed = csv_editor(frame, units.ensure_user_depots, units.DEFAULT_DEPOTS, open_path=open_path)
+    elif page == "Stabling locations":
+        from rstools.statspack import stabling
+        text = ("Where units stable overnight that is not a depot: sidings, yards and stations. These never count "
+                "as a depot, even when the name says 'Shed'. A place found in a run's XML or TRENT print that is "
+                "in neither list is added here automatically (with the file and date it was found in); change "
+                "or remove rows as you like.")
+        ed = csv_editor(frame, stabling.ensure_user_stabling, stabling.DEFAULT_STABLING, open_path=open_path,
+                        widths={"Found": 200, "Location": 200})
     else:
         from rstools.statspack import seats
         text = ("The corridors and service groups of capacity reports: the stations on the route, the stations a "

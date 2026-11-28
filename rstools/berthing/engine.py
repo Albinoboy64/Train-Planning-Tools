@@ -65,6 +65,7 @@ def _fill(layout: Layout, paths: Sequence[str], log: Log, fleets=None, read=None
     import dataclasses
     xmls, berthing = read if read is not None else _stays(paths, log)
     warnings = list(berthing.warnings)
+    _learn_stabling(berthing, _names(xmls), _operator_of(layout), fleets, paths[0] if paths else "", log)
     if extra is not None and extra[0]:
         berthing = dataclasses.replace(berthing, stays=list(berthing.stays) + list(extra[0]))
     if extra is not None:
@@ -74,6 +75,20 @@ def _fill(layout: Layout, paths: Sequence[str], log: Log, fleets=None, read=None
         warnings.append(locations.warning)
     filled = place(layout, berthing, auto.with_auto_berths(locations, layout), Units(_table()), warnings, fleets)
     return xmls, filled, warnings
+
+
+def _learn_stabling(berthing, names: dict, operator: str, fleets, source: str, log: Log):
+    """Places the operator's units berth overnight that are neither depots nor known stabling locations are added
+    to Settings > Stabling locations (and said in the log). Never stops the chart."""
+    try:
+        from rstools.statspack.stabling import learn
+        from rstools.statspack.units import Depots
+        depots = Depots.load(names)
+        found = auto.places(berthing, names, depots, (), fleets)
+        learn([(p.tiploc, p.name, operator) for p in found if not p.depot], lambda t: bool(depots.depot_of(t)),
+              source, log)
+    except Exception:
+        pass
 
 
 def _legend(stp: bool, operator: str = "SNGX", others: bool = False) -> List[str]:

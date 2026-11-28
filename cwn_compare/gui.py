@@ -493,7 +493,8 @@ class App(tk.Tk):
         sizes.add_command(label="Back to normal", accelerator="Ctrl+0", command=lambda: self.step_text_size(0))
         opt.add_cascade(label="Text size", menu=sizes)
         opt.add_separator()
-        for label, page in (("Fleet data...", "Fleet data"), ("Depots...", "Depots"), ("Corridors...", "Corridors"),
+        for label, page in (("Fleet data...", "Fleet data"), ("Depots...", "Depots"),
+                            ("Stabling locations...", "Stabling locations"), ("Corridors...", "Corridors"),
                             ("Berthing locations...", "Berthing locations"), ("Berthing notes...", "Berthing notes"),
                             ("Rules...", "Rules")):
             opt.add_command(label=label, command=lambda p=page: self.open_settings(p))

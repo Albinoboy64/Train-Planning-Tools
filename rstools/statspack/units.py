@@ -78,12 +78,25 @@ def upgrade_user_depots(path: str) -> bool:
     builtin = {r["TIPLOC"].strip().upper(): r for r in drows if r.get("TIPLOC", "").strip()}
     changed = False
     out: List[Dict[str, str]] = []
+    moved: List[Dict[str, str]] = []                # rows that are not depots: to the stabling locations list
     for r in rows:
         tip = r.get("TIPLOC", "").strip().upper()
         if tip and _retired(tip, r.get("Depot", "")):
             r = dict(builtin.get(tip, {"TIPLOC": r.get("TIPLOC", ""), "Depot": ""}))
             changed = True
+        if r.get("TIPLOC", "").strip() and not r.get("Depot", "").strip():
+            moved.append({"TIPLOC": r["TIPLOC"].strip(), "Location": r["TIPLOC"].strip(),
+                          "Operator": r.get("Operator", ""), "Found": "moved from the depot list"})
+            changed = True
+            continue
         out.append(r)
+    if moved:
+        from .stabling import add_rows, keys
+        beside = os.path.join(os.path.dirname(path), "stabling.csv")      # the same data folder
+        add_rows(moved, beside)
+        listed = keys(beside)
+        kept = [r for r in moved if r["TIPLOC"].upper() not in listed]    # could not be written there: kept here
+        out += [{"TIPLOC": r["TIPLOC"], "Depot": "", "Operator": r["Operator"]} for r in kept]
     have = {r.get("TIPLOC", "").strip().upper() for r in out}
     for tip, r in builtin.items():
         if tip not in have:
@@ -117,8 +130,8 @@ def ensure_user_depots() -> str:
 class Depots:
     """Which locations are depots, grouped so every road of one depot counts as that depot (SNGX: Lovers Walk,
     Selhurst, St Leonards, Stewarts Lane; TLGN: Hornsey, Three Bridges, Bedford Cauldwell, Cricklewood).
-    The editable list wins (a blank Depot marks a location as not a depot); otherwise a location
-    is a depot when its name says so (T&RSMD, TMD, EMUD, Depot, Shed, Traincare)."""
+    The editable depot list wins; a location in the stabling locations list (rstools.statspack.stabling) is never a
+    depot; otherwise a location is a depot when its name says so (T&RSMD, TMD, EMUD, Depot, Shed, Traincare)."""
 
     def __init__(self, table: Dict[str, str], names: Dict[str, str]):
         self.table, self.names = table, names
@@ -146,6 +159,12 @@ class Depots:
                     continue
                 except OSError:                 # missing / locked list: the name rules still apply
                     break
+        from .stabling import keys as stabling_keys
+        # sidings and yards (Settings > Stabling locations) are never a depot, whatever the name says; a location
+        # listed as a depot stays one. The stabling list is the one beside the depot list (the same data folder)
+        beside = os.path.join(os.path.dirname(path), "stabling.csv") if path else None
+        for key in stabling_keys(beside):
+            table.setdefault(key, "")
         return cls(table, names)
 
     def depot_of(self, tiploc: str) -> str:

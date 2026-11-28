@@ -367,6 +367,16 @@ def _unit_report_list(plan: LoadedPlan, opts: PackOptions, which: Sequence[str],
                 and (opts.fleets is None or x.fleet in opts.fleets))
     per_day = {d: [x for x in diags if wanted(x)] for d, diags in per_day.items()}
     units = [u for u in units if wanted(u.diagrams[0])]
+    from .stabling import learn                   # where units start and end their day (not depots): kept as
+    places = {}                                   # stabling locations, new ones said in the log
+    for diags in per_day.values():
+        for x in diags:
+            for loc in (x.start_loc, x.end_loc):
+                if loc and loc not in places:
+                    places[loc] = (loc, names.get(loc, loc), operator_of(depot_of.get(x.key, ""),
+                                                                          table.operator(x.fleet)))
+    learn(places.values(), lambda t: bool(depots.depot_of(t)), getattr(plan.attune, "path", "") or "",
+          warnings.append)
     if not any(per_day.values()):
         raise StatsPackError("No diagrams match the selected days, operators and fleets.")
     progress(0.6, "Writing the report...")

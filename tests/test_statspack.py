@@ -1284,6 +1284,27 @@ def test_old_user_depot_list_is_brought_up_to_date():
             text = fh.read()
         assert text.startswith("TIPLOC,Depot,Operator") and "CRKLDPS,Cricklewood,TLGN" in text
         assert "STRHSH,Streatham Hill" not in text
+        assert ",," not in text and "LTLHSHD" not in text   # no 'not a depot' rows left in the depot list...
+        from rstools.statspack import stabling
+        listed = stabling.keys(os.path.join(d, "stabling.csv"))
+        assert {"STRHSH", "LTLHSHD"} <= listed                # ...they are stabling locations
+
+
+def test_stabling_locations_found_in_inputs_are_added_once_and_never_as_depots(tmp_path, monkeypatch):
+    from rstools.statspack import stabling
+    path = str(tmp_path / "stabling.csv")
+    monkeypatch.setattr(stabling, "user_stabling_path", lambda: path)
+    said = []
+    got = stabling.learn([("BRGHTN", "Brighton", "SNGX"), ("LOVRSWS", "Lovers Walk", "SNGX"),
+                          ("STRHSH", "Streatham Hill", "SNGX")], lambda t: t == "LOVRSWS", "plan.xml", said.append)
+    assert got == ["Brighton (BRGHTN)"] and "Stabling locations" in said[0]   # depots and listed ones left out
+    assert stabling.learn([("BRGHTN", "Brighton", "SNGX")], lambda t: False, "plan.xml", said.append) == []
+    rows = stabling.read_rows(path)
+    assert [r["TIPLOC"] for r in rows if r["TIPLOC"] == "BRGHTN"] == ["BRGHTN"]
+    assert rows[-1]["Found"].startswith("plan.xml ")
+    from rstools.statspack.units import Depots
+    depots = Depots.load({"STRHSH": "Streatham Hill Shed"}, str(tmp_path / "depots.csv"))
+    assert depots.depot_of("STRHSH") == "" and depots.depot_of("Streatham Hill Shed") == ""
 
 
 def test_retired_rows_ignored_when_the_user_list_cannot_be_rewritten():
