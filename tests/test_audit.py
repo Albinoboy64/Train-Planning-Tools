@@ -209,5 +209,28 @@ def test_gitignore_covers_planning_data_in_any_letter_case():
     for path in ("rstools/statspack/fleet_default.csv", "rstools/timetable/template.xlsx",
                  "tests/fixtures/synthetic_cwn.xls", "packaging/TrainPlanningTools.spec", "README.md",
                  "requirements.txt", "packaging/build-requirements.txt", "rstools/assets/THIRD_PARTY_NOTICES.txt",
-                 "rstools/timetable/tiplocs.csv", "rstools/berthing/berth_locations_default.csv"):
+                 "rstools/timetable/tiplocs.csv", "rstools/berthing/berth_locations_default.csv",
+                 "rstools/statspack/stabling_default.csv"):
         assert not ignored(path), path
+
+
+def test_every_built_in_data_file_is_in_the_repository():
+    """The app's own tables and assets (data files under rstools/) are all tracked by git: an ignore rule must
+    never leave one out of the build (as happened to the built-in stabling locations list)."""
+    import shutil
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if shutil.which("git") is None or not os.path.isdir(os.path.join(root, ".git")):
+        pytest.skip("not a git checkout")
+    tracked = set(subprocess.run(["git", "ls-files", "rstools"], cwd=root, capture_output=True, text=True,
+                                 check=True).stdout.split("\n"))
+    missing = []
+    for folder, _dirs, files in os.walk(os.path.join(root, "rstools")):
+        if "__pycache__" in folder:
+            continue
+        for name in files:
+            rel = os.path.relpath(os.path.join(folder, name), root).replace(os.sep, "/")
+            if not name.endswith((".pyc",)) and rel not in tracked:
+                missing.append(rel)
+    assert not missing, missing
+

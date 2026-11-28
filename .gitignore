@@ -20,6 +20,7 @@ dist/
 !rstools/statspack/fleet_default.csv
 !rstools/statspack/groups_default.csv
 !rstools/statspack/service_groups_default.csv
+!rstools/statspack/stabling_default.csv
 !rstools/statspack/trent_names.csv
 !rstools/timetable/tiplocs.csv
 # a CIF can be saved as .txt (the app reads it): text files are ignored too, apart from the app's own
