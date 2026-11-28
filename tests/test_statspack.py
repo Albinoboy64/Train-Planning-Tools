@@ -1207,3 +1207,105 @@ def test_the_window_makes_mileage_for_a_month(tmp_path, monkeypatch):
         assert [k for k, _m in shown] == ["showinfo"]
     finally:
         app.destroy()
+
+
+DEPOT_GROUPS = {
+    "Lovers Walk": ("LOVRSWS",),
+    "Selhurst": ("SLHRSTD", "SLHRSTF", "SLHDGUL", "SLHDSRX", "SLHDTRB", "SLHDYRD"),
+    "St Leonards": ("STLNDEM",),
+    "Stewarts Lane": ("STWTTMD", "STWTBS"),
+    "Hornsey": ("HRNSYMD", "HRNSDRS", "HRNS176"),
+    "Three Bridges": ("THBDUTD", "THBDUTE", "THBDNCS", "THBDDTE", "THBDTGS", "THBDTGE"),
+    "Bedford Cauldwell": ("BEDFDCD", "BEDFDWR", "BEDFDCS", "BEDFCW2"),
+    "Cricklewood": ("CRKLDAE", "CRKLDPS", "CRKLWRL", "CRKLREC", "CRKLDNJ"),
+}
+NOT_DEPOTS = ("LTLHSHD", "LTLHOSH", "LTLHWSR", "LTLHUPS", "STRHSH", "STRHDS", "WLWYCSD", "LTCEMUS", "SELHRST")
+
+
+def _tiploc_names():
+    import csv
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rstools", "timetable",
+                        "tiplocs.csv")
+    with open(path, encoding="utf-8-sig") as fh:
+        return {r["TIPLOC"]: r["Name"] for r in csv.DictReader(fh)}
+
+
+def test_built_in_depots_are_the_sngx_and_tlgn_depots():
+    """Every road of each SNGX and TLGN depot is in the built-in list under its depot, and stabling sidings
+    (Littlehampton, Streatham Hill - named 'Shed') are not depots, by TIPLOC or by name."""
+    import csv
+    from rstools.statspack.units import DEFAULT_DEPOTS, Depots
+    names = _tiploc_names()
+    with tempfile.TemporaryDirectory() as d:
+        depots = Depots.load(names, os.path.join(d, "none.csv"))
+        for group, tips in DEPOT_GROUPS.items():
+            for t in tips:
+                assert depots.depot_of(t) == group, (t, depots.depot_of(t))
+        for t in NOT_DEPOTS:
+            assert depots.depot_of(t) == "", t
+        for n in ("Littlehampton Shed", "Littlehampton O. Shed", "Streatham Hill Shed"):
+            assert depots.depot_of(n) == "", n
+        assert depots.depot_of("Hornsey E.M.U.D.") == "Hornsey"
+    with open(DEFAULT_DEPOTS, encoding="utf-8-sig") as fh:
+        rows = list(csv.DictReader(fh))
+    groups = {r["Depot"] for r in rows if r["Depot"]}
+    assert groups == set(DEPOT_GROUPS), groups
+    for r in rows:                                   # every TIPLOC row is a real location
+        t = r["TIPLOC"]
+        if " " not in t and "." not in t:
+            assert t in names, t
+        if r["Depot"]:
+            assert r["Operator"] in ("SNGX", "TLGN"), r
+
+
+def test_old_user_depot_list_is_brought_up_to_date():
+    """A user's depots.csv copied from the earlier list (Littlehampton and Streatham Hill as depots) is rewritten:
+    the retired rows take the built-in values, missing depots are added, the user's own changes are kept, and
+    nothing else in the folder is touched."""
+    from rstools.statspack.units import Depots, upgrade_user_depots
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "depots.csv")
+        with open(p, "w", encoding="utf-8-sig", newline="") as fh:
+            fh.write("TIPLOC,Depot\nLOVRSWS,Lovers Walk\nSTRHSH,Streatham Hill\nLTLHSHD,Littlehampton\n"
+                     "LTLHOSH,Lham sheds\nXYZ123,My depot\n")
+        other = os.path.join(d, "depots.csv.tmp")
+        with open(other, "w") as fh:
+            fh.write("keep me")
+        assert upgrade_user_depots(p)
+        assert not upgrade_user_depots(p)            # once only
+        with open(other) as fh:
+            assert fh.read() == "keep me"
+        depots = Depots.load({}, p)
+        assert depots.depot_of("STRHSH") == "" and depots.depot_of("LTLHSHD") == ""
+        assert depots.depot_of("LTLHOSH") == "Lham sheds"           # the user's own change
+        assert depots.depot_of("XYZ123") == "My depot"
+        assert depots.depot_of("CRKLDPS") == "Cricklewood" and depots.depot_of("STLNDEM") == "St Leonards"
+        with open(p, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        assert text.startswith("TIPLOC,Depot,Operator") and "CRKLDPS,Cricklewood,TLGN" in text
+        assert "STRHSH,Streatham Hill" not in text
+
+
+def test_retired_rows_ignored_when_the_user_list_cannot_be_rewritten():
+    from rstools.statspack.units import Depots
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "depots.csv")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("TIPLOC,Depot\nSTRHSH,Streatham Hill\n")
+        assert Depots.load({}, p).depot_of("STRHSH") == ""
+
+
+def test_berthing_places_flag_depots():
+    from rstools.berthing import auto
+    from rstools.statspack.units import Depots
+
+    class Stay:
+        def __init__(self, loc):
+            self.loc, self.fleet = loc, "700/0"
+
+    class B:
+        stays = [Stay("LTLHSHD"), Stay("CRKLDPS"), Stay("STRHSH"), Stay("THBDTGS")]
+    with tempfile.TemporaryDirectory() as d:
+        places = auto.places(B(), {}, Depots.load({}, os.path.join(d, "none.csv")), ())   # type: ignore[arg-type]
+    flags = {p.tiploc: p.depot for p in places}
+    assert flags == {"LTLHSHD": False, "CRKLDPS": True, "STRHSH": False, "THBDTGS": True}, flags

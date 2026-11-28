@@ -1,25 +1,43 @@
-TIPLOC,Depot
-LOVRSWS,Lovers Walk
-SLHRSTD,Selhurst
-SLHRSTF,Selhurst
-SLHDGUL,Selhurst
-SLHDSRX,Selhurst
-SLHDTRB,Selhurst
-SLHDYRD,Selhurst
-STWTTMD,Stewarts Lane
-STWTBS,Stewarts Lane
-STRHSH,Streatham Hill
-LTLHSHD,Littlehampton
-LTLHOSH,Littlehampton
-LTLHWSR,Littlehampton
-HRNSYMD,Hornsey
-Hornsey E.M.U.D.,Hornsey
-Hornsey EMUD,Hornsey
-THBDUTD,Three Bridges
-Three Bridges Up TL Depot,Three Bridges
-THBDNCS,Three Bridges
-Three Bridges Down TL Sdgs,Three Bridges
-THBDTGS,Three Bridges
-Three Bridges Tilgate Sdgs,Three Bridges
-BEDFDCD,Bedford Cauldwell
-Bedford Cauldwell Depot,Bedford Cauldwell
+TIPLOC,Depot,Operator
+LOVRSWS,Lovers Walk,SNGX
+SLHRSTD,Selhurst,SNGX
+SLHRSTF,Selhurst,SNGX
+SLHDGUL,Selhurst,SNGX
+SLHDSRX,Selhurst,SNGX
+SLHDTRB,Selhurst,SNGX
+SLHDYRD,Selhurst,SNGX
+STLNDEM,St Leonards,SNGX
+St. Leonards Rly Eng Ltd,St Leonards,SNGX
+STWTTMD,Stewarts Lane,SNGX
+STWTBS,Stewarts Lane,SNGX
+HRNSYMD,Hornsey,TLGN
+Hornsey E.M.U.D.,Hornsey,TLGN
+Hornsey EMUD,Hornsey,TLGN
+HRNSDRS,Hornsey,TLGN
+HRNS176,Hornsey,TLGN
+THBDUTD,Three Bridges,TLGN
+Three Bridges Up TL Depot,Three Bridges,TLGN
+THBDUTE,Three Bridges,TLGN
+THBDNCS,Three Bridges,TLGN
+Three Bridges Down TL Sdgs,Three Bridges,TLGN
+THBDDTE,Three Bridges,TLGN
+THBDTGS,Three Bridges,TLGN
+Three Bridges Tilgate Sdgs,Three Bridges,TLGN
+THBDTGE,Three Bridges,TLGN
+BEDFDCD,Bedford Cauldwell,TLGN
+Bedford Cauldwell Depot,Bedford Cauldwell,TLGN
+BEDFDWR,Bedford Cauldwell,TLGN
+BEDFDCS,Bedford Cauldwell,TLGN
+BEDFCW2,Bedford Cauldwell,TLGN
+CRKLDAE,Cricklewood,TLGN
+CRKLDPS,Cricklewood,TLGN
+CRKLWRL,Cricklewood,TLGN
+CRKLREC,Cricklewood,TLGN
+CRKLDNJ,Cricklewood,TLGN
+LTLHSHD,,
+LTLHOSH,,
+LTLHWSR,,
+Littlehampton Shed,,
+Littlehampton O. Shed,,
+STRHSH,,
+Streatham Hill Shed,,

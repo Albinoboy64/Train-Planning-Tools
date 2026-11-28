@@ -237,7 +237,8 @@ def _csv_page(master, app, page: str) -> ttk.Frame:
         ed = csv_editor(frame, fleet.ensure_user_copy, fleet.DEFAULT_CSV, numbers, open_path=open_path)
     elif page == "Depots":
         from rstools.statspack import units
-        text = "The locations that are depots (TIPLOC and the depot each belongs to), for unit reports and charts."
+        text = ("The locations that are depots (TIPLOC, the depot each belongs to and its operator), for unit "
+                "reports and charts. A blank depot marks a location as not a depot.")
         ed = csv_editor(frame, units.ensure_user_depots, units.DEFAULT_DEPOTS, open_path=open_path)
     else:
         from rstools.statspack import seats

@@ -36,18 +36,86 @@ def user_depots_path() -> str:
     return os.path.join(os.path.dirname(user_fleet_path()), "depots.csv")
 
 
+# Rows of earlier built-in lists that were wrong (Littlehampton and Streatham Hill are stabling sidings, not
+# depots): in a user's copy made from those lists they give way to the built-in row, unless the user changed them
+RETIRED_DEPOT_ROWS = frozenset({("STRHSH", "Streatham Hill"), ("LTLHSHD", "Littlehampton"),
+                                ("LTLHOSH", "Littlehampton"), ("LTLHWSR", "Littlehampton"),
+                                ("STREATHAM HILL SHED", "Streatham Hill"),
+                                ("LITTLEHAMPTON SHED", "Littlehampton")})
+
+
+def _read_depot_rows(path: str) -> Tuple[List[str], List[Dict[str, str]]]:
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            with open(path, newline="", encoding=enc) as fh:
+                rd = csv.DictReader(fh)
+                rows = [{k: (v or "") for k, v in r.items() if k} for r in rd]
+                return list(rd.fieldnames or []), rows
+        except UnicodeDecodeError:
+            continue
+    return [], []
+
+
+def _retired(tip: str, depot: str) -> bool:
+    return (tip.strip().upper(), depot.strip()) in RETIRED_DEPOT_ROWS
+
+
+def upgrade_user_depots(path: str) -> bool:
+    """Bring a user's depot list made from an earlier built-in list up to date: rows still as the old list had
+    them take the built-in values, and built-in locations missing from it are added. Rows the user changed are
+    kept. Written atomically; True if the file was rewritten."""
+    from rstools import limits
+    from rstools.fsutil import atomic_path
+    try:
+        limits.check_size(path, "SETTINGS_CSV_MAX_BYTES", "depot list")
+        names, rows = _read_depot_rows(path)
+        dnames, drows = _read_depot_rows(DEFAULT_DEPOTS)
+    except OSError:
+        return False
+    if not names or "TIPLOC" not in names:
+        return False
+    builtin = {r["TIPLOC"].strip().upper(): r for r in drows if r.get("TIPLOC", "").strip()}
+    changed = False
+    out: List[Dict[str, str]] = []
+    for r in rows:
+        tip = r.get("TIPLOC", "").strip().upper()
+        if tip and _retired(tip, r.get("Depot", "")):
+            r = dict(builtin.get(tip, {"TIPLOC": r.get("TIPLOC", ""), "Depot": ""}))
+            changed = True
+        out.append(r)
+    have = {r.get("TIPLOC", "").strip().upper() for r in out}
+    for tip, r in builtin.items():
+        if tip not in have:
+            out.append(dict(r))
+            changed = True
+    if not changed:
+        return False
+    fields = names + [n for n in dnames if n not in names]
+    try:
+        with atomic_path(path) as tmp, open(tmp, "x", encoding="utf-8-sig", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(out)
+    except OSError:
+        return False
+    return True
+
+
 def ensure_user_depots() -> str:
-    """The editable depot list (created from the built-in one on first use)."""
+    """The editable depot list (created from the built-in one on first use, brought up to date afterwards)."""
     path = user_depots_path()
     if not os.path.exists(path):
         from rstools.fsutil import copy_default
         if not copy_default(DEFAULT_DEPOTS, path):
             return DEFAULT_DEPOTS
+    else:
+        upgrade_user_depots(path)
     return path
 
 
 class Depots:
-    """Which locations are depots, grouped so every road of one depot counts as that depot.
+    """Which locations are depots, grouped so every road of one depot counts as that depot (SNGX: Lovers Walk,
+    Selhurst, St Leonards, Stewarts Lane; TLGN: Hornsey, Three Bridges, Bedford Cauldwell, Cricklewood).
     The editable list wins (a blank Depot marks a location as not a depot); otherwise a location
     is a depot when its name says so (T&RSMD, TMD, EMUD, Depot, Shed, Traincare)."""
 
@@ -69,8 +137,9 @@ class Depots:
                     with open(p, newline="", encoding=enc) as fh:
                         for rec in csv.DictReader(fh):
                             tip = (rec.get("TIPLOC") or "").strip().upper()
-                            if tip:
-                                table[tip] = (rec.get("Depot") or "").strip()
+                            dep = (rec.get("Depot") or "").strip()
+                            if tip and not (p != DEFAULT_DEPOTS and _retired(tip, dep)):
+                                table[tip] = dep
                     break
                 except UnicodeDecodeError:
                     continue

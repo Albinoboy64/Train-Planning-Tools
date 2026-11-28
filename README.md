@@ -286,7 +286,7 @@ How units are followed: each diagram's WASH / CET / FUEL lines and start and end
 
 **Lovers Walk, Stewarts Lane and Selhurst end a unit's cycle.** Those depots do whatever the units need, so a unit stabling there could form anything the next day: no next-day working is inferred from them, and the unit's cycle ends there (shown as the end of its chain). A next-day working the XML or TRENT print states is still followed.
 
-Which locations are depots: any location named *T&RSMD*, *TMD*, *EMUD*, *Depot*, *Shed* or *Traincare*, grouped by depot (so every road at Selhurst counts as Selhurst), plus the depot list in **Settings > Depots**: add a TIPLOC with its depot name, or leave the depot blank to mark a location as not a depot.
+Which locations are depots: the depot list in **Settings > Depots** has every road of GTR's depots - **SNGX:** Lovers Walk, Selhurst, St Leonards and Stewarts Lane; **TLGN:** Hornsey, Three Bridges (with its Down Thameslink and Tilgate sidings), Bedford Cauldwell and Cricklewood - grouped by depot (so every road at Selhurst counts as Selhurst). Littlehampton and Streatham Hill are stabling sidings, not depots, though their names say *Shed*. Any other location named *T&RSMD*, *TMD*, *EMUD*, *Depot*, *Shed* or *Traincare* counts as a depot too. Add a TIPLOC with its depot name, or leave the depot blank to mark a location as not a depot.
 
 **Next-day numbers, berths and limits (3.35.0)**
 * Where the XML and TRENT print give no next-day number, a unit is linked to the next day's diagram only if it is the **only** one it could form (same fleet, starting where it stabled, best match first: same place, same depot, same station area); it is marked *inferred* with the reason *next-day number missing*. If more than one could be formed, or another unit could form the same one, the unit is **not followed further**: it is listed on **Next-Day Checks** with the candidates. A unit that stands (berths) all day is followed to the diagram that leaves where it stands, on the days after; if it stands somewhere other than where it arrived (a different siding), or the diagram it forms starts somewhere else, that is flagged there too.
@@ -464,6 +464,11 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.38.8** - Depot list: every SNGX and TLGN depot, and only depots
+* **All of GTR's depots** are in *Settings > Depots*, each with its operator: SNGX's Lovers Walk, Selhurst, **St Leonards** (new) and Stewarts Lane; TLGN's Hornsey (now with its down reversing sidings), Three Bridges (with its depot and sidings' entry points), Bedford Cauldwell (now with its wash road and sidings) and **Cricklewood** (new). They count as depots in the unit reports and stay off automatic berthing location lists.
+* **Littlehampton and Streatham Hill are no longer depots**: they are stabling sidings, so they appear in berthing location lists and count as sidings in depot returns / swaps and captive units, although their names say *Shed*.
+* A depot list saved by an earlier version is brought up to date the next time it is used; rows you changed yourself are kept.
 
 **3.38.7** - Release build checks
 * **Each release is built from the exact commit merged into main**, and a release tag must match the version and be new.
