@@ -269,6 +269,7 @@ def save_workbook(wb, path: str, progress=None, trim: str = "visible"):
     import datetime
     from openpyxl.writer.excel import ExcelWriter
     from rstools.fsutil import plain_text
+    wb.template = False                  # a template read in (.xltx/.xltm) is saved as an ordinary .xlsx workbook
     for ws in wb.worksheets:
         plain_text(ws)                   # text copied from an input is never stored as a live formula
     if trim:

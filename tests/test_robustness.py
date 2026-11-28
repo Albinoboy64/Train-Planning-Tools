@@ -991,3 +991,17 @@ def test_xlsb_values_are_read_through_pyxlsb(tmp_path, monkeypatch):
     assert len(wb.sheetnames) == 2 and len(set(n.lower() for n in wb.sheetnames)) == 2
     ws = wb[wb.sheetnames[0]]
     assert ws["A1"].value == "Train" and ws["B2"].value == 5 and ws["B1"].value is None
+
+
+# --------------------------------------------------------------------------- inputs shared with the file cache
+def test_leaving_out_an_unread_tab_never_changes_the_models_given():
+    """Models may come from the file cache (Live View re-compares): leaving a tab out works on copies."""
+    from cwn_compare.model import CWNModel, SheetModel, leave_out_unread
+    sat = SheetModel("SAT", "Sat", 2, {}, 1, [])
+    mon = SheetModel("MON", "Mon", 2, {}, 1, [])
+    old = CWNModel({"SAT": sat, "MON": mon}, [])
+    new = CWNModel({"MON": mon}, [], unread=["Sat"])
+    old2, new2, warnings = leave_out_unread(old, new)
+    assert set(old2.sheets) == {"MON"} and len(warnings) == 1
+    assert set(old.sheets) == {"SAT", "MON"}                 # the cached original still has its Saturday tab
+    assert leave_out_unread(old, CWNModel({"MON": mon}, []))[0] is old      # nothing left out: no copy needed

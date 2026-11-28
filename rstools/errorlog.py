@@ -54,6 +54,15 @@ def file_problem(exc: BaseException) -> str:
                 "can be written to, then try again." + (f"\n\n{name}" if name else ""))
     if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
         return "The disk is full, so the output could not be saved. Free some space, then try again."
+    if isinstance(exc, FileExistsError):
+        where = f"\n\n{exc.filename}" if exc.filename else ""
+        return ("A file with the output's name appeared in the folder while it was being saved, so nothing was "
+                "written over. Run it again to save under a new name." + where)
+    if isinstance(exc, FileNotFoundError) and exc.filename:
+        return ("The output could not be saved: its folder is missing or the path is too long for Windows. Choose a "
+                f"shorter output name or a folder nearer the top of the drive.\n\n{exc.filename}")
+    if isinstance(exc, ValueError) and "too large" in str(exc).lower():
+        return f"The output is too large to save as one Excel file ({exc}). Choose fewer days or tabs and try again."
     return ""
 
 

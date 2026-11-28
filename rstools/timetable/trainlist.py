@@ -198,24 +198,48 @@ class ListComparison:
     ignored: List[str] = field(default_factory=list)    # record-keeping columns in both, not compared
     loose_headers: List[str] = field(default_factory=list)  # retimed trains paired by these (one each side)
     retimed: int = 0                                     # trains paired that way
+    columns: List[Tuple[str, int, int]] = field(default_factory=list)   # (label, original col, updated col) compared
+
+
+def _match_columns(a: TrainList, b: TrainList) -> List[Tuple[str, int, int]]:
+    """(label, original column, updated column) for every column in both lists, in the original's order. Columns
+    with the same role (headcode, UID, days, origin, departure...) are matched whatever their headings say
+    ('Headcode' and 'Train ID'); the others by heading. The label is the original's heading, with the updated's
+    after a slash when they differ."""
+    match: Dict[int, int] = {}
+    for role, ca in a.roles.items():
+        cb = b.roles.get(role)
+        if cb is not None and cb not in match.values():
+            match[ca] = cb
+    for ca, h in enumerate(a.headers):
+        if ca not in match and h in b.headers and b.headers.index(h) not in match.values():
+            match[ca] = b.headers.index(h)
+    out = []
+    for ca in sorted(match):
+        cb = match[ca]
+        ha, hb = a.headers[ca], b.headers[cb]
+        out.append((ha if ha.casefold() == hb.casefold() else f"{ha} / {hb}", ca, cb))
+    return out
 
 
 def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
-    key_a = [a.headers[i] for i in a.key_columns()]
-    key_b = [b.headers[i] for i in b.key_columns()]
-    keys = [h for h in key_a if h in key_b]
+    columns = _match_columns(a, b)
+    by_a = {ca: (label, cb) for label, ca, cb in columns}
+    key_cols = [c for c in a.key_columns() if c in by_a]
+    keys = [by_a[c][0] for c in key_cols]
     if not keys:
+        key_a = ", ".join(a.headers[i] for i in a.key_columns())
+        key_b = ", ".join(b.headers[i] for i in b.key_columns())
         raise TrainListError("The two train lists do not share their key columns (UID or headcode, days...), so "
-                             f"their trains cannot be paired.\nOriginal: {', '.join(key_a)}\n"
-                             f"Updated: {', '.join(key_b)}")
+                             f"their trains cannot be paired.\nOriginal: {key_a}\nUpdated: {key_b}")
     pairs: List[Tuple[int, int]] = []
     left_a, left_b = list(range(len(a.rows))), list(range(len(b.rows)))
 
-    def pair(heads: List[str], unique: bool = False):
-        """Pair the trains still unpaired that share these columns (in order when a key repeats; only a
-        key held by exactly one train on each side when unique)."""
+    def pair(cols: List[int], unique: bool = False):
+        """Pair the trains still unpaired that share these columns (original column numbers; in order when a key
+        repeats; only a key held by exactly one train on each side when unique)."""
         nonlocal left_a, left_b
-        ia, ib = [a.headers.index(h) for h in heads], [b.headers.index(h) for h in heads]
+        ia, ib = cols, [by_a[c][1] for c in cols]
         right: Dict[tuple, List[int]] = {}
         for j in left_b:
             right.setdefault(tuple(b.rows[j][c].casefold() for c in ib), []).append(j)
@@ -234,22 +258,22 @@ def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
         left_a = [i for i in left_a if i not in took_a]
         left_b = [j for j in left_b if j not in took_b]
 
-    stage = a.headers[a.roles["stp"]] if "stp" in a.roles else ""
-    if stage and stage in b.headers and stage not in keys:
-        pair(keys + [stage])            # an LTP row and its STP twin (same key) keep to their own stage
-    pair(keys)
-    dep = a.headers[a.roles["origin_time"]] if "origin_time" in a.roles else ""
-    loose = [h for h in keys if h != dep]
-    if "uid" not in a.roles and dep in keys and loose:
+    stage = a.roles.get("stp")
+    if stage is not None and stage in by_a and stage not in key_cols:
+        pair(key_cols + [stage])        # an LTP row and its STP twin (same key) keep to their own stage
+    pair(key_cols)
+    dep = a.roles.get("origin_time")
+    loose_cols = [c for c in key_cols if c != dep]
+    if "uid" not in a.roles and dep in key_cols and loose_cols:
         n = len(pairs)
-        pair(loose, unique=True)        # a retimed train: the only one left with its headcode, days and origin
+        pair(loose_cols, unique=True)   # a retimed train: the only one left with its headcode, days and origin
         retimed = len(pairs) - n
     else:
-        loose, retimed = [], 0
+        loose_cols, retimed = [], 0
     removed, added = left_a, left_b
     pairs.sort()
-    common = [h for h in a.headers if h in b.headers and not _AUDIT.match(h)]
-    cols = [(h, a.headers.index(h), b.headers.index(h)) for h in common]
+    cols = [(label, ca, cb) for label, ca, cb in columns
+            if not _AUDIT.match(a.headers[ca]) and not _AUDIT.match(b.headers[cb])]
     changes = []
     for i, j in pairs:
         ra, rb = a.rows[i], b.rows[j]
@@ -257,10 +281,14 @@ def compare_train_lists(a: TrainList, b: TrainList) -> ListComparison:
             old, new = ra[ca], rb[cb]
             if old != new and not _same(old, new):
                 changes.append((i, j, h, old, new))
-    return ListComparison(a, b, keys, common, [h for h in a.headers if h not in b.headers],
-                          [h for h in b.headers if h not in a.headers], pairs, added, sorted(removed), changes,
-                          ignored=[h for h in a.headers if h in b.headers and _AUDIT.match(h)],
-                          loose_headers=loose, retimed=retimed)
+    used_a = {ca for _l, ca, _cb in columns}
+    used_b = {cb for _l, _ca, cb in columns}
+    return ListComparison(a, b, keys, [h for h, _ca, _cb in cols],
+                          [h for c, h in enumerate(a.headers) if c not in used_a],
+                          [h for c, h in enumerate(b.headers) if c not in used_b], pairs, added, sorted(removed),
+                          changes,
+                          ignored=[h for h, ca, cb in columns if (h, ca, cb) not in cols],
+                          loose_headers=[by_a[c][0] for c in loose_cols], retimed=retimed, columns=cols)
 
 
 def _same(old: str, new: str) -> bool:

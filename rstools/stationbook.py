@@ -893,6 +893,9 @@ def _books_job(xml: str, entries: Sequence[Tuple[str, str]], kw: dict) -> List[t
             out.append((station, path, warnings, summary, ""))
         except StationBookError as exc:
             out.append((station, "", [], "", str(exc)))
+        except Exception as exc:                # any other failure is this station's alone: the rest are still made
+            from rstools import errorlog
+            out.append((station, "", [], "", errorlog.file_problem(exc) or errorlog.describe(exc)))
     return out
 
 
@@ -907,13 +910,14 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
     station that cannot be made gives its error, the others are still made."""
     if not xml or not os.path.isfile(xml):
         raise StationBookError("Choose the Attune XML.")
-    entries = [(s.strip(), p.strip()) for s, p in entries if s.strip()]
+    entries = list(dict.fromkeys((s.strip(), p.strip()) for s, p in entries if s.strip()))   # each book once
     if not entries:
         raise StationBookError("Choose the station(s).")
     kw = dict(out_dir=out_dir, operator=operator, timetable=timetable, services=services, day_types=tuple(day_types),
               merge_xml=tuple(merge_xml), book_operator=book_operator,
               other_operators=None if other_operators is None else tuple(other_operators))
     import multiprocessing
+    done: Dict[int, tuple] = {}
     workers = min(max(1, (os.cpu_count() or 1) - 1), len(entries) // 2)
     if workers >= 2 and multiprocessing.parent_process() is None:
         from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -924,18 +928,20 @@ def make_books(xml: str, entries: Sequence[Tuple[str, str]], out_dir: str = "", 
             from rstools.pools import stoppable
             with stoppable(ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"))) as pool:
                 jobs = {pool.submit(_books_job, xml, [e], kw): i for i, e in enumerate(entries)}
-                done = {}
                 for fut in as_completed(jobs):
-                    done[jobs[fut]] = fut.result()[0]
+                    done[jobs[fut]] = fut.result()[0]       # each station's own errors are in its result
                     progress(0.02 + 0.98 * len(done) / len(entries), f"{len(done)} of {len(entries)} books made")
             results = [done[i] for i in range(len(entries))]
             for st, _path, _w, summary, err in results:
                 log(f"{st}: {summary or err}")
             return results
-        except Exception as exc:                    # helpers unavailable: make them here instead
-            log(f"(made one at a time: {exc})")
+        except Exception as exc:                    # helpers unavailable or lost: make the rest here instead
+            log(f"(the rest made one at a time: {exc})")
     results = []
     for n, (station, plats) in enumerate(entries):
+        if n in done:                               # already made by a helper: never made twice
+            results.append(done[n])
+            continue
         part = (lambda f, m, n=n: progress((n + f) / len(entries), m))
         res = _books_job(xml, [(station, plats)], dict(kw, log=log, progress=part))[0]
         results.append(res)

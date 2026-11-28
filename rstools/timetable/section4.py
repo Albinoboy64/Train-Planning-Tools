@@ -13,6 +13,7 @@ inside one of its possession windows, on a day and in a period both apply to.
 """
 from __future__ import annotations
 
+import copy
 import os
 import re
 from dataclasses import dataclass, field
@@ -620,7 +621,9 @@ def check(plan, statement: Statement, lines=None, others=()) -> CheckResult:
         op = other.operator or os.path.splitext(os.path.basename(other.path))[0][:12]
         for vs in other.trains.values():
             for t in vs:
-                t.operator = t.operator or op       # an F3 print names each train's own operator
+                if not t.operator:                  # an F3 print names each train's own operator
+                    t = copy.copy(t)                # the plan may be shared with the file cache: never change it
+                    t.operator = op
                 versions.append((t, _times_of(t)))
     by_id: Dict[str, List[Any]] = {}
     for vs in (lines.trains.values() if lines is not None else ()):

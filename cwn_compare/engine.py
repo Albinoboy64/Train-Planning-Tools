@@ -194,7 +194,8 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
         raise RunError(NO_TABS.format("the first file"))
     if not m_new.sheets:
         raise RunError(NO_TABS.format("the updated file"))
-    for w in leave_out_unread(m_old, m_new):
+    m_old, m_new, unread = leave_out_unread(m_old, m_new)
+    for w in unread:
         lg("WARNING: " + w)
     if not m_old.sheets or not m_new.sheets:
         raise RunError(NOTHING_LEFT)

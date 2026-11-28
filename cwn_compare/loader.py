@@ -78,7 +78,9 @@ def load_any(path: str, read_only: bool = False, rich_text: bool = False, progre
         if ext in NATIVE_EXT:
             from rstools.fsutil import check_office_file
             check_office_file(path)     # refuse a 'zip bomb' before unpacking
-            return _load_native(path, read_only, rich_text, progress)
+            wb = _load_native(path, read_only, rich_text, progress)
+            wb.template = False         # a template's content becomes an ordinary workbook: outputs are .xlsx
+            return wb
         if ext == ".xls":
             return _load_xls(path)
         if ext == ".xlsb":
@@ -95,10 +97,14 @@ def load_any(path: str, read_only: bool = False, rich_text: bool = False, progre
         raise LoadError(f"Could not read '{os.path.basename(path)}' - it looks damaged or is not an Excel workbook "
                         f"({exc}). Open it in Excel, save it and try again.") from exc
     # Unknown extension: try openpyxl then xlrd.
+    from rstools.fsutil import UnsafeFileError, check_office_file
     try:
-        from rstools.fsutil import check_office_file
         check_office_file(path)     # refuse a 'zip bomb' before unpacking
-        return openpyxl.load_workbook(path, data_only=True)
+        wb = openpyxl.load_workbook(path, data_only=True)
+        wb.template = False
+        return wb
+    except UnsafeFileError as exc:  # the guard's own message, not "not a recognised Excel file"
+        raise LoadError(str(exc)) from exc
     except Exception:
         try:
             return _load_xls(path)

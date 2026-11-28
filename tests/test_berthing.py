@@ -942,3 +942,14 @@ def test_tlgn_chart_puts_a_station_and_its_sidings_on_one_sheet(data):
     r3 = engine.generate([str(data / "tl.xml")], "", str(data), "fromset", operator="TLGN")
     assert openpyxl.load_workbook(r3.chart).sheetnames == ["Cover", "Bedford", "Notes"]
     sets.reset("TLGN")
+
+
+def test_a_left_over_change_report_never_stops_the_chart_being_saved(data):
+    """An earlier change report whose chart was moved away: the new chart and report take a free name together."""
+    make_chart(str(data / "old.xlsx"))
+    make_chart(str(data / "new.xlsx"))
+    first = engine.compare_charts(str(data / "old.xlsx"), str(data / "new.xlsx"), "FFC000", str(data), name="Cmp")
+    os.remove(first.chart)                                   # only the report is left in the folder
+    second = engine.compare_charts(str(data / "old.xlsx"), str(data / "new.xlsx"), "FFC000", str(data), name="Cmp")
+    assert os.path.exists(second.chart) and os.path.exists(second.report) and second.report != first.report
+    assert os.path.splitext(second.chart)[0] + " - Change Report.xlsx" == second.report

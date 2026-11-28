@@ -490,12 +490,13 @@ def _compare_notes(ctx: _Ctx, o: Block, n: Block, lbl: str):
     pool: Dict[str, int] = defaultdict(int)
     for _r, t, _d in o.notes:
         pool[key(t)] += 1
-    for _r, t, d in n.notes:
-        t = key(t)
+    for _r, stored, d in n.notes:
+        t = key(stored)
         if pool[t] > 0:
             pool[t] -= 1
-        else:
-            ctx.add("NOTES", n, "note", "note", "", d, f"{lbl}: note added - {d}", target_key=t, kind="add_row")
+        else:       # target_key is the note as stored in the block, so the writer finds its row (resolve_row)
+            ctx.add("NOTES", n, "note", "note", "", d, f"{lbl}: note added - {d}", target_key=stored,
+                    kind="add_row")
     for r, t, d in o.notes:     # whatever is left in the pool was removed
         t = key(t)
         if pool[t] > 0:

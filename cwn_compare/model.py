@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as _dt
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Logical field -> accepted header captions (upper-case, stripped)
 HEADER_SYNONYMS = {
@@ -370,18 +370,24 @@ def parse_workbook(wb) -> CWNModel:
     return CWNModel(sheets, others, warnings, " ".join(h for h in hints if h)[:4000], unread)
 
 
-def leave_out_unread(old: CWNModel, new: CWNModel) -> List[str]:
+def leave_out_unread(old: CWNModel, new: CWNModel) -> Tuple[CWNModel, CWNModel, List[str]]:
     """A tab that could not be read in one CWN is left out of the other too, so its trains are not reported
-    as cancelled, new or moved. Returns a warning for each."""
+    as cancelled, new or moved. Returns (original, updated, a warning for each). The models given are never
+    changed (they may be shared with the file cache): copies without those tabs are returned."""
+    import dataclasses
     out = []
-    for label, src, other in (("original", old, new), ("updated", new, old)):
+    drop_old = set(new.unread)
+    drop_new = set(old.unread)
+    if drop_old:
+        old = dataclasses.replace(old, sheets={k: sh for k, sh in old.sheets.items() if sh.title not in drop_old})
+    if drop_new:
+        new = dataclasses.replace(new, sheets={k: sh for k, sh in new.sheets.items() if sh.title not in drop_new})
+    for label, src in (("original", old), ("updated", new)):
         for title in src.unread:
-            for k in [k for k, sh in other.sheets.items() if sh.title == title]:
-                del other.sheets[k]
             out.append(f"Tab '{title}' could not be read in the {label} CWN, so it is left out of the comparison "
                        "(its trains are not reported as changed). Open the file in Excel, save it and run again "
                        "to include it.")
-    return out
+    return old, new, out
 
 
 def _head_text(ws, rows: int) -> List[str]:

@@ -123,6 +123,13 @@ def cli(argv):
             o.categories[k] = {"cwn": False, "show_old": False, "report": False}
     if o.mode == "batch":
         from cwn_compare.batch import pair_files, run_batch
+        for label, folder in (("original", o.original), ("updated", o.updated)):
+            if not os.path.isdir(folder):
+                print(f"ERROR: the {label} folder '{folder}' does not exist.")
+                sys.exit(1)
+        if os.path.normcase(os.path.abspath(o.original)) == os.path.normcase(os.path.abspath(o.updated)):
+            print("ERROR: the original and updated folders are the same folder.")
+            sys.exit(1)
         pairs, left, right = pair_files(o.original, o.updated)
         for x in left + right:
             print("Not paired:", x)
@@ -136,7 +143,12 @@ def cli(argv):
                                                                else f"ERROR {err}"))
             if not res:
                 bad.append(upd)
-        run_batch(pairs, o, done)
+        try:
+            run_batch(pairs, o, done)
+        except Exception as exc:              # e.g. the output folder could not be made
+            from rstools import errorlog
+            print("ERROR:", errorlog.file_problem(exc) or exc)
+            sys.exit(1)
         sys.exit(1 if bad else 0)
     try:
         res = run(o, log=print)
@@ -216,12 +228,17 @@ def stationbook_cli(argv):
 def _local_out(ap, a):
     """--out must be a folder on this PC: outputs are never written to a network or shared drive."""
     from rstools.fsutil import NETWORK_REFUSED, is_network_path
-    if getattr(a, "out", "") and is_network_path(a.out):
+    out = getattr(a, "out", "")
+    if out and is_network_path(out):
         ap.error(NETWORK_REFUSED)
+    if out and not os.path.isdir(out):     # never quietly saved somewhere else (as the window refuses it too)
+        ap.error(f"--out: the folder '{out}' does not exist. Create it first, or leave --out out to save to "
+                 "Downloads.")
     return a
 
 
 def reorder_cli(argv):
+    from cwn_compare.loader import LoadError
     from cwn_compare.reorder import ReorderError, reorder_cwn
     ap = argparse.ArgumentParser(prog="TrainPlanningTools reorder",
                                  description="Save a copy of a multi-day CWN with each train's day variants in "
@@ -244,7 +261,7 @@ def reorder_cli(argv):
         from cwn_compare.reorder import MergeRules
         res = reorder_cwn(a.cwn, a.out, a.name, a.by_time, log=print, merge=a.merge,
                           rules=MergeRules(a.merge_diagrams, a.merge_berths, a.merge_berths and a.merge_berth_diagrams))
-    except ReorderError as exc:
+    except (ReorderError, LoadError) as exc:          # a damaged or non-CWN file: its reader's own message
         print("ERROR: " + str(exc))
         sys.exit(1)
     if res["trains"]:

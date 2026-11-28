@@ -122,7 +122,8 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
         if not m.sheets:
             raise ValueError(f"No CWN location tabs (with an ID / TIME heading row) were found in the {label} CWN, "
                              f"{os.path.basename(path)}.")
-    warnings += leave_out_unread(m_old, m_new)
+    m_old, m_new, unread = leave_out_unread(m_old, m_new)
+    warnings += unread
     if not m_old.sheets or not m_new.sheets:
         from cwn_compare.engine import NOTHING_LEFT
         raise ValueError(NOTHING_LEFT)
@@ -142,8 +143,9 @@ def cwn(orig: str, upd: str, days: Optional[Sequence[int]], log: Log, passenger_
     keys = list(m_new.sheets) + [k for k in m_old.sheets if k not in m_new.sheets]
     for sk in keys:
         so, sn = m_old.sheets.get(sk), m_new.sheets.get(sk)
-        title = (sn or so).title
-        cols = list((sn or so).cols)
+        sheet = sn or so
+        assert sheet is not None                    # every key is a tab of one CWN or the other
+        title, cols = sheet.title, list(sheet.cols)
         pairs, removed, added = match_blocks(so.blocks if so else [], sn.blocks if sn else [])
         entries = [(o, n) for o, n, _m in pairs] + [(o, None) for o in removed] + [(None, n) for n in added]
         entries.sort(key=lambda e: ((e[1] or e[0]).order if e[1] else 10 ** 6 + e[0].order))
@@ -362,7 +364,7 @@ def lists(cmp) -> LiveResult:
         key below it, which would lose their confirmations); a second identical train gets '#2'."""
         seen[base] = seen.get(base, 0) + 1
         return base if seen[base] == 1 else f"{base}#{seen[base]}"
-    cols = [(h, a.headers.index(h), b.headers.index(h)) for h in cmp.common]
+    cols = cmp.columns
     for i, j in cmp.pairs:
         diff = changed.get((i, j), {})
         ra, rb = a.rows[i], b.rows[j]

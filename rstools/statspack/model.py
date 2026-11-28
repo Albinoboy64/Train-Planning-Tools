@@ -277,12 +277,15 @@ def build_day(trent: TrentData, attune: Optional[AttuneData], fleet: FleetTable,
     picked, notes = _pick_diagrams(trent, day)
     warnings.extend(notes)
     all_diags: Dict[str, Diagram] = {}
+    # place names for this run: the XML's, plus print names matched to TIPLOCs below. A copy, so the parsed XML
+    # (shared with the file cache and other runs) is never changed and every run gives the same result
+    names: Dict[str, str] = dict(attune.locations) if attune else {}
     for td in picked:
         info = fleet.get(td.fleet)
         dg = Diagram(td.depot, td.number, td.fleet, td.plan, info.cars if info else None,
                      info.length if info else None, operator_of(td.depot, info.operator if info else ""))
         all_diags[dg.key] = dg
-        _build_moves(dg, td, attune, day)
+        _build_moves(dg, td, attune, day, names)
     running = list(all_diags.values())               # before other days' diagrams are added for look-ups
     _resolve_formations(all_diags, trent, fleet)
     included = [d for d in running
@@ -297,7 +300,7 @@ def build_day(trent: TrentData, attune: Optional[AttuneData], fleet: FleetTable,
     trains = _build_trains(included)
     return DayModel(day=day, diagrams=sorted(included, key=lambda d: (d.fleet, d.depot, _num(d.number))),
                     all_diagrams=all_diags, trains=trains,
-                    locations=attune.locations if attune else {}, fleet=fleet, warnings=warnings)
+                    locations=names, fleet=fleet, warnings=warnings)
 
 
 def _resolve_formations(all_diags: Dict[str, Diagram], trent: TrentData, fleet: FleetTable):
@@ -345,7 +348,7 @@ def _num(n: str):
     return (int(digits) if digits else 0, n)
 
 
-def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
+def _build_moves(dg: Diagram, td: TrentDiagram, attune, day, names: Dict[str, str]):
     rows = td.rows
     i = 0
     while i < len(rows):
@@ -407,13 +410,13 @@ def _build_moves(dg: Diagram, td: TrentDiagram, attune, day):
         if legs and attune is not None:                   # a TLGN print names places: use the XML's TIPLOCs
             # (same name, or - where TRENT and Attune name a place differently - the XML train leaving /
             # arriving within a minute of the print's time there)
-            if start_loc not in attune.locations and (legs[0].origin in _as_set(_tiplocs(attune, start_loc))
-                                                      or abs(dep - r.dep * 60) <= 60):
-                attune.locations.setdefault(legs[0].origin, start_loc)    # e.g. MRGT has no name in the XML
+            if start_loc not in names and (legs[0].origin in _as_set(_tiplocs(attune, start_loc))
+                                           or abs(dep - r.dep * 60) <= 60):
+                names.setdefault(legs[0].origin, start_loc)    # e.g. MRGT has no name in the XML
                 start_loc = legs[0].origin
-            if stop_loc not in attune.locations and (legs[-1].dest in _as_set(_tiplocs(attune, stop_loc))
-                                                     or abs(arr - end_arr * 60) <= 60):
-                attune.locations.setdefault(legs[-1].dest, stop_loc)
+            if stop_loc not in names and (legs[-1].dest in _as_set(_tiplocs(attune, stop_loc))
+                                          or abs(arr - end_arr * 60) <= 60):
+                names.setdefault(legs[-1].dest, stop_loc)
                 stop_loc = legs[-1].dest
         formation = tuple(r.positions) or (dg.number,)    # diagram numbers; depots resolved later
         headcode = r.headcode                             # a 4-character print headcode: the XML's full ID

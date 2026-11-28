@@ -6,6 +6,7 @@ import os
 import threading
 import webbrowser
 from datetime import date
+import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from rstools import rules
@@ -128,13 +129,26 @@ class RulesPanel(ttk.Frame):
         self.add_btn.state(["disabled"])
         self.status.configure(text="Reading the Section 4 PDF(s)...")
 
+        box: list = []                       # the helper thread's result, picked up here (Tk is not thread-safe)
+
         def work():
             try:
-                info = rules.add_section4_set(name.strip(), [os.path.normpath(p) for p in pdfs])
-                self.after(0, lambda: self._added(info, ""))
+                box.append((rules.add_section4_set(name.strip(), [os.path.normpath(p) for p in pdfs]), ""))
             except Exception as exc:
-                self.after(0, lambda e=str(exc): self._added(None, e))
+                box.append((None, str(exc)))
         threading.Thread(target=work, daemon=True).start()
+
+        def wait():
+            try:
+                if not self.winfo_exists():
+                    return                   # the window was closed: the set is still saved by the thread
+            except tk.TclError:
+                return
+            if box:
+                self._added(*box[0])
+            else:
+                self.after(150, wait)
+        self.after(150, wait)
 
     def _added(self, info, error):
         if not self.winfo_exists():

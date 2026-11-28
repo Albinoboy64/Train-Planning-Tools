@@ -44,6 +44,9 @@ def _check_paths(paths: Sequence[str], what: str):
             raise BerthingError(f"This file could not be found:\n{p}")
 
 
+WITH_REPORT = (".xlsx", " - Change Report.xlsx")       # a chart and its change report: both names must be free
+
+
 def _out(folder: str, name: str, default: str, tails=(".xlsx",)) -> str:
     folder = output_folder(folder)
     return os.path.join(folder, unique_stem(folder, naming.clip(name or default), tails) + tails[0])
@@ -342,7 +345,7 @@ def add_round(chart_path: str, original: Sequence[str], updated: Sequence[str], 
     carry_colours(chart, after, skip=[STP_FILL])
     _location_notes(after, xmls, show_notes, log, operator)
     stem = os.path.splitext(os.path.basename(chart_path))[0]
-    path = _out(out_dir, name, f"{stem} - {issue}" if issue else f"{stem} updated")
+    path = _out(out_dir, name, f"{stem} - {issue}" if issue else f"{stem} updated", WITH_REPORT)
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
     first = xmls[-1]
@@ -379,7 +382,7 @@ def compare_charts(old_path: str, new_path: str, colour: str, out_dir: str = "",
     changes, marked = diff(old, new)
     highlight(new, marked, colour.upper())
     a, b = (naming.short_label(p) for p in (old_path, new_path))
-    path = _out(out_dir, name, f"{naming.today()} {naming.vs(a, b)}")
+    path = _out(out_dir, name, f"{naming.today()} {naming.vs(a, b)}", WITH_REPORT)
     report = os.path.splitext(path)[0] + " - Change Report.xlsx"
     shade = colour_name(colour) or f"#{colour.upper()[-6:]}"
     progress(0.75, "Writing the chart...")

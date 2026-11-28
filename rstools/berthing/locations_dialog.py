@@ -121,6 +121,11 @@ class LocationsDialog(tk.Toplevel):
                 out["error"] = str(exc)
 
         def wait():
+            try:
+                if not self.winfo_exists():
+                    return                    # the dialog was closed while the XML was read
+            except tk.TclError:
+                return
             if t.is_alive():
                 self.after(150, wait)
                 return

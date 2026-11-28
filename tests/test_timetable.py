@@ -1348,3 +1348,29 @@ def test_section4_check_takes_an_f3_print_for_another_operator(tmp_path):
     assert code == 2 and "F3 prints" in text
     code, text = _s4_cli(["--xml", xml, "--pdf", f["s4_old"], "--other", f3, "--out", d, "--name", "f3"])
     assert code in (0, None) and os.path.isfile(os.path.join(d, "f3.xlsx")), text
+
+
+def test_train_lists_with_different_headings_pair_by_column_role():
+    """Two exports naming the same columns differently ('Headcode' / 'Train ID', 'Dep' / 'Departure Time') still
+    pair their trains by headcode, days, origin and time, and compare the headcode column too."""
+    import openpyxl
+    from rstools.timetable.trainlist import compare_train_lists, read_train_list
+    second = ["2B10", "SX", "Horsham", dt.time(7, 15), "Victoria"]
+    rows_a = [["1A08", "SX", "Victoria", dt.time(9, 0), "Brighton"], second]
+    rows_b = [["1A08", "SX", "Victoria", dt.time(9, 0), "Eastbourne"], second]
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for n, (heads, rows) in enumerate(((["Headcode", "Days", "Origin", "Dep", "Destination"], rows_a),
+                                           (["Train ID", "Days Run", "Origin Location", "Departure Time",
+                                             "Destination"], rows_b))):
+            wb = openpyxl.Workbook()
+            wb.active.append(heads)
+            for r in rows:
+                wb.active.append(r)
+            paths.append(os.path.join(d, f"l{n}.xlsx"))
+            wb.save(paths[-1])
+        a, b = read_train_list(paths[0]), read_train_list(paths[1])
+    cmp = compare_train_lists(a, b)
+    assert len(cmp.pairs) == 2 and not cmp.added and not cmp.removed
+    assert [(h, old, new) for _i, _j, h, old, new in cmp.changes] == [("Destination", "Brighton", "Eastbourne")]
+    assert "Headcode / Train ID" in cmp.common and not cmp.only_original and not cmp.only_updated

@@ -255,3 +255,33 @@ def test_short_sections_share_a_page_and_empty_wide_tables_are_not_split(tmp_pat
     wide = Section("Clashes", [f"H{i}" for i in range(30)], [["None identified"]])
     assert len(split_wide(wide)) == 1
     assert len(split_wide(Section("Full", [f"H{i}" for i in range(30)], [[str(i) for i in range(30)]]))) == 2
+
+
+@pytest.mark.parametrize("cmd", ["compare", "statspack", "reorder", "berthing"])
+def test_a_missing_out_folder_is_refused_not_sent_to_downloads(cmd, capsys, tmp_path):
+    import TrainPlanningTools as T
+    first = {"compare": ["--original", "a.xlsx", "--updated", "b.xlsx"], "statspack": ["--xml", "a.xml", "--trent",
+             "t.docx"], "reorder": ["reorder", "a.xlsx"], "berthing": ["berthing", "--xml", "a.xml"]}[cmd]
+    argv = ([cmd] if cmd == "statspack" else []) + first + ["--out", str(tmp_path / "typo")]
+    with pytest.raises(SystemExit) as exc:
+        T.main(argv)
+    assert exc.value.code == 2 and "does not exist" in capsys.readouterr().err
+
+
+def test_reorder_on_a_damaged_file_gives_an_error_line_not_a_traceback(capsys, tmp_path):
+    import TrainPlanningTools as T
+    bad = tmp_path / "not a cwn.xlsx"
+    bad.write_bytes(b"this is not a workbook")
+    with pytest.raises(SystemExit) as exc:
+        T.main(["reorder", str(bad), "--out", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert exc.value.code == 1 and "\nERROR: " in out and "Traceback" not in out
+
+
+def test_batch_with_a_missing_or_repeated_folder_says_so(capsys, tmp_path):
+    import TrainPlanningTools as T
+    for argv, says in ((["--original-folder", str(tmp_path / "nope"), "--updated", str(tmp_path)], "does not exist"),
+                       (["--original-folder", str(tmp_path), "--updated", str(tmp_path)], "the same folder")):
+        with pytest.raises(SystemExit) as exc:
+            T.main(argv)
+        assert exc.value.code == 1 and says in capsys.readouterr().out

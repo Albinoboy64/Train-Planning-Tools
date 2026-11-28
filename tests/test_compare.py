@@ -948,3 +948,31 @@ def test_change_reports_list_dated_day_tabs_monday_first():
             "WO 16-12-26"]
     assert sorted(tabs, key=tab_order) == ["MO 14-12-26 ", "TO 15-12-26", "WO 16-12-26", "ThO 17-12-26", "FO 18-12-26",
                                            "SO", "SuO 13-12-26", "Brighton", "Victoria"]
+
+
+def test_added_note_is_highlighted_with_ignore_spacing_on():
+    """An added note row is coloured in the CWN, not only listed in the report (its key keeps the brackets)."""
+    u = [list(r) for r in BTN_ORIG]
+    u.insert(6, N("(via Redhill)"))                # a new note under 2U08BT
+    res, changes = _run_pair(BTN_ORIG, u, "note")
+    assert [(c["category"], c["train"]) for c in changes] == [("NOTES", "2U08BT")]
+    ws = openpyxl.load_workbook(res["cwn"])["BTN"]
+    cell = next(c for row in ws.iter_rows(min_row=3) for c in row if c.value == "(via Redhill)")
+    assert cell.fill.fgColor.rgb.endswith("FFFF00"), cell.fill.fgColor.rgb
+
+
+def test_template_input_gives_a_workbook_excel_opens():
+    """A CWN saved as an Excel template (.xltx) gives an ordinary .xlsx output, not a template in disguise."""
+    import zipfile
+    d = tempfile.mkdtemp()
+    o_p, u_p = os.path.join(d, "o.xlsx"), os.path.join(d, "u.xltx")
+    make(o_p, BTN_ORIG, VIC_ORIG)
+    btn, vic = _upd_rows()
+    make(u_p, btn, vic)
+    wb = openpyxl.load_workbook(u_p)
+    wb.template = True
+    wb.save(u_p)
+    res = run(Options(original=o_p, updated=u_p, output_dir=d, output_name="tpl"))
+    with zipfile.ZipFile(res["cwn"]) as z:
+        types = z.read("[Content_Types].xml").decode()
+    assert "spreadsheetml.template" not in types and "spreadsheetml.sheet.main+xml" in types

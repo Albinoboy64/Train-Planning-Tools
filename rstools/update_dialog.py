@@ -19,6 +19,7 @@ class UpdateDialog(tk.Toplevel):
         super().__init__(app)
         self.app, self.current, self.token = app, current, token
         self.release = release
+        self._downloading = False
         self.q: "queue.Queue" = queue.Queue()
         self.title(TITLE)
         self.transient(app)
@@ -77,6 +78,7 @@ class UpdateDialog(tk.Toplevel):
         self.prog.stop()
         self.prog.configure(mode="determinate", value=0)
         self.sub.configure(text="Downloading...")
+        self._downloading = True
         target = updater.download_target(self.release)
 
         def work():
@@ -109,10 +111,16 @@ class UpdateDialog(tk.Toplevel):
 
     def _downloaded(self, path: str):
         self.prog.configure(value=1.0)
+        self._downloading = False
         if self.release is not None and updater.can_replace_in_place() \
                 and path == updater.download_target(self.release):
+            busy = any(getattr(t, "running", False) for t in (self.app, getattr(self.app, "stats_tab", None),
+                                                              getattr(self.app, "tt_tab", None),
+                                                              getattr(self.app, "live_tab", None)))
+            warn = ("\n\nA run has started since the download began: it will be stopped and its output not saved."
+                    if busy else "")
             if messagebox.askokcancel(TITLE, f"Version {self.release.version} is ready.\n\n"
-                                      f"{APP_NAME} will close, update and reopen.", parent=self):
+                                      f"{APP_NAME} will close, update and reopen.{warn}", parent=self):
                 self.app.save_app_settings()            # before the new version starts and reads them
                 # the files are swapped only after the window has closed (see updater.install_after_close):
                 # closing first saves Live View progress and stops helpers while this version's exe is in place
@@ -122,6 +130,10 @@ class UpdateDialog(tk.Toplevel):
                     closing(ask=False)
                 else:
                     self.app.destroy()
+            else:                                       # kept for later: Install again when ready
+                self.sub.configure(text=f"Version {self.release.version} is downloaded. Press Install to update "
+                                        "when you are ready.")
+                self.install_btn.state(["!disabled"])
             return
         self.sub.configure(text=f"Saved to {path}")
         messagebox.showinfo(TITLE, f"The new version was saved to:\n{path}\n\nClose this app and "
@@ -134,7 +146,8 @@ class UpdateDialog(tk.Toplevel):
     def _error(self, text: str):
         self.prog.stop()
         self.prog.configure(mode="determinate", value=0)
-        self.head.configure(text="Could not check for updates")
+        self.head.configure(text="The download failed" if self._downloading else "Could not check for updates")
+        self._downloading = False
         self.sub.configure(text=text)
         if self.release and updater.is_newer(self.release.version, self.current):
             self.install_btn.state(["!disabled"])
