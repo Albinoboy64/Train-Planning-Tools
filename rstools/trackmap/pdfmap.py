@@ -11,8 +11,10 @@ import gzip
 import json
 import math
 import os
+import re
+from functools import cached_property
 from dataclasses import asdict, dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 Point = Tuple[float, float]
 
@@ -59,8 +61,19 @@ class MapPage:
     title: str = ""                  # 'Sussex 25'
     tracks: List[Track] = field(default_factory=list)
     labels: List[Label] = field(default_factory=list)
+    codes: Dict[str, Point] = field(default_factory=dict)     # TIPLOC -> where the page names it
 
-    @property
+    @cached_property
+    def texts(self) -> List[str]:
+        """Each label's text as place names are compared (norm_place)."""
+        return [norm_place(lb.text) for lb in self.labels]
+
+    @cached_property
+    def blob(self) -> str:
+        """Every label as words between spaces, one per line (to find a name among them quickly)."""
+        return "\n".join(" " + " ".join(re.split(r"[^a-z0-9]+", t)) + " " for t in self.texts)
+
+    @cached_property
     def headings(self) -> List[str]:
         """The largest station-style names on the page (e.g. 'BRIGHTON'), largest first."""
         named = [lb for lb in self.labels if any(c.isalpha() for c in lb.text) and len(lb.text) > 3
@@ -94,9 +107,37 @@ def _colour(get, raw):
     return (r.value, g.value, b.value) if get(raw, *(ctypes.byref(v) for v in (r, g, b, a))) else None
 
 
+def _thick_kind(stroke, width: float, length: float) -> Optional[str]:
+    """Track in the strip-diagram books (East Midlands, LNE, Anglia): thick strokes, coloured by track circuit or
+    direction. Thick black lines are crossovers when short, the frames of the strips when long."""
+    if stroke is None or width < 1.8 or length < MIN_TRACK:
+        return None
+    r, g, b = stroke
+    if min(r, g, b) > 235:
+        return None                            # white
+    if max(r, g, b) < 70:
+        return "points" if length < 120 else None
+    if abs(r - g) < 12 and abs(g - b) < 12:
+        return None                            # grey: grid and boxes
+    return "running"
+
+
+def _page_point(rotation: int, w0: float, h0: float):
+    """The function turning a point of the page's own space into the page as shown (top left origin), for a page
+    stored turned (/Rotate 90 in the strip-diagram books)."""
+    if rotation == 90:
+        return lambda x, y: (y, x)
+    if rotation == 180:
+        return lambda x, y: (w0 - x, y)
+    if rotation == 270:
+        return lambda x, y: (h0 - y, w0 - x)
+    return lambda x, y: (x, h0 - y)
+
+
 def read_page_layout(pdf_path: str, index: int) -> dict:
     """One page's layout as plain data (runs in a helper process)."""
     import ctypes
+    import re
 
     import pypdfium2 as pdfium
     import pypdfium2.raw as R
@@ -104,6 +145,8 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
     try:
         page = pdf[index]
         width, height = page.get_size()
+        left, bottom, right, top = page.get_mediabox()
+        shown = _page_point(page.get_rotation(), right - left, top - bottom)
         tracks: List[dict] = []
         for obj in page.get_objects(max_depth=8):
             if obj.type != R.FPDF_PAGEOBJ_PATH:
@@ -111,11 +154,12 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
             raw = obj.raw
             mode, stroked = ctypes.c_int(), ctypes.c_int()
             R.FPDFPath_GetDrawMode(raw, ctypes.byref(mode), ctypes.byref(stroked))
-
             fill = _colour(R.FPDFPageObj_GetFillColor, raw) if mode.value else None
             stroke = _colour(R.FPDFPageObj_GetStrokeColor, raw) if stroked.value else None
             kind = (KINDS.get(stroke) if stroke else None) or (KINDS.get(fill) if fill else None)
-            if not kind:
+            lw = ctypes.c_float()
+            R.FPDFPageObj_GetStrokeWidth(raw, ctypes.byref(lw))
+            if not kind and not (stroke and lw.value >= 1.8):
                 continue
             m = obj.get_matrix()
             pts: List[Point] = []
@@ -124,28 +168,38 @@ def read_page_layout(pdf_path: str, index: int) -> dict:
                 x, y = ctypes.c_float(), ctypes.c_float()
                 R.FPDFPathSegment_GetPoint(seg, ctypes.byref(x), ctypes.byref(y))
                 px, py = m.on_point(x.value, y.value)
-                pts.append((round(px, 2), round(height - py, 2)))
+                sx, sy = shown(px - left, py - bottom)
+                pts.append((round(sx, 2), round(sy, 2)))
+            length = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+            if not kind:
+                kind = _thick_kind(stroke, lw.value, length)
+                if not kind:
+                    continue
             if fill and not stroke:
                 pts = _spine(pts)              # a band drawn filled: its edge is the line
+                length = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
             w, h = _bounds(pts) if pts else (0, 0)
-            if len(pts) < 2 or sum(math.dist(a, b) for a, b in zip(pts, pts[1:])) < MIN_TRACK:
+            if len(pts) < 2 or length < MIN_TRACK:
                 continue                       # signal heads, arrows, buffer stops
             if kind in ("siding", "running") and min(w, h) > 6 and math.dist(pts[0], pts[-1]) < 0.5:
                 continue                       # a closed shape: a symbol or a box, not a road
             if any(t["kind"] == kind and _same_line(t["pts"], pts) for t in tracks):
                 continue                       # the same track drawn twice (its outline and its band)
             tracks.append({"kind": kind, "pts": pts})
-        labels = _labels(page, height)
+        labels = _labels(page, shown, left, bottom, page.get_rotation() in (90, 270))
     finally:
         pdf.close()
-    import re
     title = next((lb["text"] for lb in sorted(labels, key=lambda lb: -lb["size"])      # 'Sussex 25'
                   if re.fullmatch(r"[A-Za-z][A-Za-z ]*\s\d+[A-Za-z]?", lb["text"]) and lb["size"] >= 10), "")
+    codes: Dict[str, Point] = {}
+    for lb in labels:                          # '54299 : MORGATEGN' (STANOX : TIPLOC) in the strip-diagram books
+        for code in re.findall(r"\b\d{5}\s*:\s*([A-Z][A-Z0-9]{2,8})\b", lb["text"]):
+            codes.setdefault(code, (lb["x"], lb["y"]))
     return {"index": index, "width": round(width, 1), "height": round(height, 1), "title": title,
-            "tracks": tracks, "labels": labels}
+            "tracks": tracks, "labels": labels, "codes": codes}
 
 
-def _labels(page, height: float) -> List[dict]:
+def _labels(page, shown, left: float = 0.0, bottom: float = 0.0, turned: bool = False) -> List[dict]:
     """Every line of text with its centre and height, read character by character (labels at an angle, such as a
     siding's name drawn along it, are kept whole)."""
     tp = page.get_textpage()
@@ -160,8 +214,9 @@ def _labels(page, height: float) -> List[dict]:
             r = max(b[2] for b in boxes)
             b_ = min(b[1] for b in boxes)
             t = max(b[3] for b in boxes)
-            out.append({"text": text, "x": round((l + r) / 2, 1), "y": round(height - (b_ + t) / 2, 1),
-                        "size": round(max(bx[3] - bx[1] for bx in boxes), 1)})
+            x, y = shown((l + r) / 2 - left, (b_ + t) / 2 - bottom)
+            size = max((bx[2] - bx[0]) if turned else (bx[3] - bx[1]) for bx in boxes)   # a character's height
+            out.append({"text": text, "x": round(x, 1), "y": round(y, 1), "size": round(size, 1)})
         word.clear()
         boxes.clear()
     def centre(b):
@@ -278,26 +333,77 @@ def page_from_dict(p: dict) -> MapPage:
     return MapPage(int(p["index"]), float(p["width"]), float(p["height"]), str(p.get("title", "")),
                    [Track(str(t["kind"]), [(float(x), float(y)) for x, y in t["pts"]]) for t in p.get("tracks", [])],
                    [Label(str(lb["text"]), float(lb["x"]), float(lb["y"]), float(lb.get("size", 0)))
-                    for lb in p.get("labels", [])])
+                    for lb in p.get("labels", [])],
+                   {str(k): (float(v[0]), float(v[1])) for k, v in (p.get("codes") or {}).items()})
 
 
 def page_to_dict(page: MapPage) -> dict:
     return asdict(page)
 
 
-def find_pages(pages: List[MapPage], place: str) -> List[MapPage]:
-    """The pages a place is on (by a label naming it), the page where it is a heading first."""
-    want = " ".join(place.split()).casefold()
+_SPELL = ((" g c ", " garden city "), (" peterboro ", " peterborough "), (" rd ", " road "), (" jn ", " junction "))
 
-    def rank(p: MapPage) -> int:
-        if len(p.tracks) < 4:
-            return 9                                  # an index or key page, not a drawing
-        if any(h.casefold() == want or h.casefold().startswith(want + " ") for h in p.headings):
-            return 0                                  # the place is the page's heading
-        if any(lb.text.casefold() == want for lb in p.labels):
-            return 1
-        return 2 if any(want in lb.text.casefold() for lb in p.labels) else 9
-    return sorted((p for p in pages if rank(p) < 9), key=lambda p: (rank(p), p.index))
+
+def norm_place(name: str) -> str:
+    """A place name as maps write it: no '(C)' / '(Surrey)' suffix, 'St.' as 'St', '&' as 'and'."""
+    text = re.sub(r"\([^)]*\)", " ", name or "").replace("&", " and ").replace(".", " ")
+    text = " " + " ".join(text.split()).casefold() + " "
+    for short, full in _SPELL:
+        text = text.replace(short, full)
+    return text.strip()
+
+
+# what a siding, depot or yard's name adds to the place it is at ('Selhurst T&R.S.M.D', 'Bognor Sidings',
+# 'Letchworth C.S.D'): the place is found on a map by what is left
+_STABLING_TAIL = re.compile(r"(?:\s+(?:t\s*and\s*r\s*s\s*m\s*d|t\s*r\s*s\s*m\s*d|tmd|e\s*m\s*u\s*d|emud|"
+                            r"depot|traincare|"
+                            r"c\s*s\s*d|c\s*h\s*s|c\s*s|carriage\s+sidings?|sidings?|sdgs?|yard|turnback|reception|"
+                            r"run\s+round|a/d\s+line|shed|\w*\d\w*))+$")
+_GENERIC = {"bridge", "road", "street", "junction", "park", "central", "station"}
+
+
+def place_variants(name: str) -> List[str]:
+    """The ways a map may name a place: 'London Victoria (C)' -> 'london victoria', 'victoria'; a depot or siding
+    by the place it is at as well ('Selhurst T&R.S.M.D' -> 'selhurst')."""
+    base = norm_place(name)
+    out = [base]
+    if base.startswith("london ") and base[len("london "):] not in _GENERIC:
+        out.append(base[len("london "):])
+    for tail in (" station", " low level", " high level"):
+        if base.endswith(tail):
+            out.append(base[:-len(tail)])
+    short = _STABLING_TAIL.sub("", base).strip(" -")
+    if short and short != base and short not in _GENERIC:
+        out.append(short)
+    return [v for v in dict.fromkeys(out) if v]
+
+
+def name_codes(place: str) -> List[str]:
+    """The codes a strip-diagram book may give a place instead of its TIPLOC: its name in capitals without spaces
+    ('Old Street' -> 'OLDSTREET')."""
+    return [re.sub(r"[^A-Z0-9]", "", v.upper()) for v in place_variants(place)]
+
+
+def page_rank(p: MapPage, place: str, tiplocs: Sequence[str] = ()) -> int:
+    """How surely a page shows a place: 0 its heading or its TIPLOC code, 1 a label naming it, 2 a label containing
+    its name, 9 not at all (or an index or key page, with no drawing)."""
+    if len(p.tracks) < 4:
+        return 9
+    variants = place_variants(place)
+    if any(t in p.codes for t in list(tiplocs) + name_codes(place)):
+        return 0
+    if any(norm_place(h) == v or norm_place(h).startswith(v + " ") for h in p.headings for v in variants):
+        return 0
+    if any(t in variants for t in p.texts):
+        return 1
+    blob = p.blob
+    return 2 if any(" " + " ".join(re.split(r"[^a-z0-9]+", v)) + " " in blob for v in variants) else 9
+
+
+def find_pages(pages: List[MapPage], place: str, tiplocs: Sequence[str] = ()) -> List[MapPage]:
+    """The pages a place is on (by a label naming it, or its TIPLOC code), the page where it is a heading first."""
+    ranked = [(page_rank(p, place, tiplocs), p) for p in pages]
+    return [p for r, p in sorted(((r, p) for r, p in ranked if r < 9), key=lambda x: (x[0], x[1].index))]
 
 
 def page_by_title(pages: List[MapPage], title: str) -> Optional[MapPage]:

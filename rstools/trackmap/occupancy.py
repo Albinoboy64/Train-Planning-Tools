@@ -129,13 +129,26 @@ def present(all_stands: Sequence[Stand], t: int) -> Dict[Tuple[str, str], List[S
     return by
 
 
+# the words that make a location part of the station it is named after ('Brighton Wall Siding', 'Selhurst Depot
+# Gullet Road'), not a station of its own ('Streatham Common', 'Luton Airport Parkway')
+_PART = re.compile(r"\b(?:sidings?|sdgs?|yard|yd|depot|t&rsmd|tmd|e\.?m\.?u\.?d|emud|traincare|shed|carriage|c\.?h\.?s|"
+                   r"chs|roads?|rd|reception|loop|bay|headshunt|neck|dock|stabling|wash|cet|fuel|stops?|"
+                   r"platforms?|dn|up|down|north|south|east|west|nth|sth|[a-z]?\d+[a-z]?)\b", re.I)
+_NOT_STAND = (" jn", "junction", "signal", " sig ")
+
+
+def part_of(name: str, place: str) -> bool:
+    """Whether a location named `name` is part of the place: the place itself, or a siding, depot, yard or road
+    named after it - never a junction or signal, or another station sharing its first word."""
+    n, key = " ".join(name.split()).casefold(), " ".join(place.split()).casefold()
+    if any(w in n + " " for w in _NOT_STAND):
+        return False
+    if n == key:
+        return True
+    return n.startswith(key + " ") and bool(_PART.search(n[len(key):]))
+
+
 def place_locations(xml_locations: Dict[str, str], place: str) -> List[str]:
     """The XML's locations that are part of a place: its name, and those named after it ('Brighton', 'Brighton Wall
     Siding', 'Brighton Down Siding'), not junctions or signals."""
-    key = " ".join(place.split()).casefold()
-    out = []
-    for tip, name in xml_locations.items():
-        n = " ".join(name.split()).casefold()
-        if (n == key or n.startswith(key + " ")) and not any(w in n for w in (" jn", "junction", "signal", " sig ")):
-            out.append(tip)
-    return sorted(out)
+    return sorted(tip for tip, name in xml_locations.items() if part_of(name, place))

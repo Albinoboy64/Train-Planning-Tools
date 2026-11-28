@@ -8,7 +8,7 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Optional
+from typing import Optional, Tuple
 
 from rstools.branding import APP_NAME
 from rstools.days import DAY_NAMES
@@ -80,6 +80,8 @@ class TrackMapWindow(tk.Toplevel):
                      width=12).grid(row=3, column=1, sticky="w", padx=4, pady=(4, 0))
         self.show_btn = ttk.Button(top, text="Show", style="Run.TButton", command=self._show)
         self.show_btn.grid(row=3, column=3, sticky="w", padx=4, pady=(4, 0))
+        self.cover_btn = ttk.Button(top, text="Coverage report", command=self._coverage)
+        self.cover_btn.grid(row=3, column=4, padx=4, pady=(4, 0))
         self.status = ttk.Label(top, text="", style="Small.TLabel")
         self.status.grid(row=4, column=0, columnspan=5, sticky="w", pady=(4, 0))
 
@@ -118,10 +120,12 @@ class TrackMapWindow(tk.Toplevel):
     # ------------------------------------------------------------------ inputs
     def _fill_maps(self, pick: str = ""):
         from .pdfmap import stored_maps
+        from .engine import ALL_MAPS
         names = stored_maps()
-        self.map_box.configure(values=names)
-        if pick or (names and not self.map_var.get()):
-            self.map_var.set(pick or names[0])
+        values = [ALL_MAPS] + names if len(names) > 1 else names
+        self.map_box.configure(values=values)
+        if pick or (values and self.map_var.get() not in values):
+            self.map_var.set(values[0] if len(values) > 1 else (pick or values[0]))
 
     def _add_map(self):
         path = filedialog.askopenfilename(parent=self, title="Choose a track diagram PDF",
@@ -145,30 +149,34 @@ class TrackMapWindow(tk.Toplevel):
             self.xml_var.set(os.path.normpath(path))
 
     def _find_pages(self):
-        name, place = self.map_var.get(), self.place_var.get().strip()
+        name, place, xml = self.map_var.get(), self.place_var.get().strip(), self.xml_var.get().strip()
         if not name or not place:
             messagebox.showinfo(TITLE, "Choose a track map and type the station or siding.", parent=self)
             return
 
         def work():
-            from .engine import pages_for
+            from .engine import ALL_MAPS, pages_for
             from .pdfmap import TrackMapError
             try:
-                pages = pages_for(name, place)
-                self.q.put(("pages", [(p.index, f"{p.title or 'Page ' + str(p.index + 1)} - "
-                                                f"{', '.join(p.headings[:1])}") for p in pages], ""))
+                pages = pages_for(name, place, xml)
+                self.q.put(("pages", [((m, p.index), (f"{m}: " if name == ALL_MAPS else "")
+                                       + f"{p.title or 'Page ' + str(p.index + 1)} - {', '.join(p.headings[:1])}")
+                                      for m, p in pages], ""))
             except TrackMapError as exc:
                 self.q.put(("pages", [], str(exc)))
+            except Exception as exc:                 # shown, and in the error log
+                from rstools import errorlog
+                self.q.put(("pages", [], errorlog.describe(exc)))
         threading.Thread(target=work, daemon=True).start()
 
-    def _page_index(self) -> Optional[int]:
+    def _page_index(self) -> Optional[Tuple[str, int]]:
         text = self.page_var.get()
         return next((i for i, label in getattr(self, "_pages", []) if label == text), None)
 
     def _show(self):
-        name, xml, place = self.map_var.get(), self.xml_var.get().strip(), self.place_var.get().strip()
-        page = self._page_index()
-        if not (name and xml and place and page is not None):
+        xml, place = self.xml_var.get().strip(), self.place_var.get().strip()
+        picked = self._page_index()
+        if not (xml and place and picked is not None):
             messagebox.showinfo(TITLE, "Choose the track map, the Attune XML, the station or siding and its page "
                                        "(Find pages).", parent=self)
             return
@@ -181,12 +189,35 @@ class TrackMapWindow(tk.Toplevel):
             from .pdfmap import TrackMapError
             try:
                 d = DAY_NAMES.index(day) if day in DAY_NAMES else busiest_day(xml)
-                self.q.put(("view", build(name, page, xml, place, d), ""))
+                self.q.put(("view", build(picked[0], picked[1], xml, place, d), ""))
             except TrackMapError as exc:
                 self.q.put(("view", None, str(exc)))
             except Exception as exc:                 # shown, and in the error log
                 from rstools import errorlog
                 self.q.put(("view", None, errorlog.describe(exc)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _coverage(self):
+        """Which of the XML's stabling and turnround places the kept maps show, as a workbook."""
+        xml, name, day = self.xml_var.get().strip(), self.map_var.get(), self.day_var.get()
+        if not (xml and name):
+            messagebox.showinfo(TITLE, "Choose the track map (or all of them) and the Attune XML.", parent=self)
+            return
+        self.cover_btn.state(["disabled"])
+        self.status.configure(text="Checking every place units stand at against the track maps...")
+
+        def work():
+            from .engine import busiest_day, coverage, save_coverage
+            from .pdfmap import TrackMapError
+            try:
+                d = DAY_NAMES.index(day) if day in DAY_NAMES else busiest_day(xml)
+                rows = coverage(xml, d, name)
+                self.q.put(("coverage", (save_coverage(rows, "", d), rows), ""))
+            except TrackMapError as exc:
+                self.q.put(("coverage", None, str(exc)))
+            except Exception as exc:                 # shown, and in the error log
+                from rstools import errorlog
+                self.q.put(("coverage", None, errorlog.describe(exc)))
         threading.Thread(target=work, daemon=True).start()
 
     def _poll(self):
@@ -196,6 +227,7 @@ class TrackMapWindow(tk.Toplevel):
                 if error:
                     self.status.configure(text="")
                     self.show_btn.state(["!disabled"])
+                    self.cover_btn.state(["!disabled"])
                     messagebox.showwarning(TITLE, error, parent=self)
                 elif kind == "map":
                     self.status.configure(text="Track map added.")
@@ -209,6 +241,16 @@ class TrackMapWindow(tk.Toplevel):
                     self.status.configure(text=f"{plural(len(value), 'page')} {agree(len(value), 'names', 'name')} "
                                                f"{self.place_var.get().strip()}." if value
                                           else "No page names that place.")
+                elif kind == "coverage":
+                    self.cover_btn.state(["!disabled"])
+                    path, rows = value
+                    full = sum(1 for r in rows if r.roads and r.placed == r.roads)
+                    some = sum(1 for r in rows if 0 < r.placed < r.roads)
+                    self.status.configure(text=f"{full} of {len(rows)} places fully on the maps, {some} partly. "
+                                               f"Saved: {path}")
+                    self._details("\n".join(f"{r.place}: {r.placed} of {r.roads}"
+                                            + (f" ({r.map_name} {r.page})" if r.map_name else " (no page)")
+                                            for r in rows))
                 elif kind == "view":
                     self.show_btn.state(["!disabled"])
                     self.view = value
@@ -268,6 +310,13 @@ class TrackMapWindow(tk.Toplevel):
             c.create_text(bx, by + 9 * self.scale_k, text=f"{u.stand.arrived_as or '-'} > {u.stand.leaves_as or '-'}",
                           anchor="e", fill="#1B3A8A", font=("Segoe UI", size), tags=("unit",))
             c.tag_bind(item, "<Button-1>", lambda _e, s=u.stand: self._details(describe(s, self.view.locations)))
+        r = max(8, int(9 * self.scale_k))
+        for name, where, n in sc.counts:             # depots: only how many units are there
+            x, y = self._xy(where)
+            c.create_oval(x - r, y - r, x + r, y + r, fill="#1B3A8A", outline="", tags=("unit",))
+            c.create_text(x, y, text=str(n), fill="white", font=("Segoe UI", size, "bold"), tags=("unit",))
+            c.create_text(x + r + 3, y, text=name, anchor="w", fill="#1B3A8A", font=("Segoe UI", size),
+                          tags=("unit",))
         lines = [describe(s, self.view.locations) for group in sc.unplaced.values() for s in group]
         self._details("\n\n".join(["Not on this page:"] + lines) if lines else "")
         if sc.warnings:

@@ -461,12 +461,18 @@ The Live View uses exactly the same reading and matching as the other tabs, so i
 
 **Track map view...** (on the Live View tab) shows the units at a station or siding on a track diagram, at any time of the day.
 
-1. **Add track map PDF...** once: choose a route track diagram PDF (vector drawings, such as Network Rail's route track diagrams). The app reads only the track layout from it - the tracks, platforms, road names and page names - and keeps that (a few hundred KB) in the data folder. The PDF itself is not copied, shipped or sent anywhere, so each user adds their own copy.
-2. Choose the **Attune XML**, type the **station or siding** (e.g. *Brighton*) and press **Find pages**: the page where it is the heading comes first (e.g. *Sussex 25 - BRIGHTON*).
+1. **Add track map PDF...** once for each book: choose a route track diagram PDF (vector drawings, such as Network Rail's route track diagrams - both the colour-coded books such as Sussex and Kent and the strip-diagram books such as East Midlands, LNE and Anglia, including pages stored turned). The app reads only the track layout from it - the tracks, platforms, road names and page names - and keeps that (a few hundred KB) in the data folder. The PDF itself is not copied, shipped or sent anywhere, so each user adds their own copy.
+2. Choose the **Attune XML**, type the **station or siding** (e.g. *Brighton*) and press **Find pages**. With more than one book added, **All track maps** searches every one. The page where the place is the heading, or that carries its TIPLOC code (*63011 : BEDFDM*), comes first (e.g. *Sussex 25 - BRIGHTON*).
 3. Choose the **day** (or leave *(busiest)* for the day with most diagrams) and press **Show**.
 4. Drag the **time slider**, step from one arrival or departure to the next (**<<** / **>>**, or the arrow keys), or press **Play** (Space) at 1, 5 or 15 minutes a second.
 
 Each unit is drawn on its platform or road from the buffer stop end, in the order units stand (the first to arrive nearest the stop, a train's units front first), with its fleet and diagram and the headcodes it arrived as and leaves as. A unit that comes in after midnight and forms another diagram the same morning is drawn once. Click a unit for its details. Platforms are matched by their labels (*Plat 7*; *7F* / *7R* are its front and rear parts); sidings by their names (*Brighton Wall Siding* is the *WALL SIDING* road, each road of it on its own track). Places the page does not show (e.g. a siding on the next page) are listed beside the map, never guessed. Units longer than the road as drawn are shown in red.
+
+Platform labels are read however the book writes them: *Plat 7*, *P1*, *P 3*, *Platform 9*, *Platform A*. On a page with several stations, each station's platforms are the ones nearest its own name or code. Names are matched as maps write them: *London Victoria (C)* is *Victoria*, *Dn Sdgs* is *Down Sidings*, *C.H.S.* is a carriage siding. Junctions, signals, and stations that only share a name (*Streatham Common* at *Streatham*) are not counted as part of a place.
+
+**Depots** (Settings > Depots) are not drawn road by road, because their roads are not planned: a badge on the depot shows how many units are there at the time shown.
+
+**Coverage report** lists every place units stand at between trains on the day, with the page that shows it and any platforms or roads the maps do not show. It is saved as a workbook in the output folder.
 
 ## Licence
 
@@ -477,6 +483,12 @@ Train Planning Tools is free software under the [GNU General Public License v3.0
 Train Planning Tools is built with open-source software (Python, Tcl/Tk, openpyxl, xlrd, pyxlsb, tkinterdnd2, ReportLab, pypdf, pypdfium2 / PDFium, Pillow and PyInstaller), each used under its own licence. The list and licences are under **Help > Third-party software and licences**, and in [`rstools/assets/THIRD_PARTY_NOTICES.txt`](rstools/assets/THIRD_PARTY_NOTICES.txt).
 
 ## Version history
+
+**3.41.0** - Track maps for every route book
+* The **track map view** now reads the **East Midlands, LNE and Anglia** strip-diagram books (pages stored turned, tracks drawn by track circuit, stations by their codes) as well as Sussex and Kent. **All track maps** finds a place in any book added.
+* Platforms are found whichever way a page labels them (*P1*, *Platform 9*, *Platform A*), and on pages with several stations the right station's platforms are used. Sidings and depots are found by the names the maps use (*Dn Sdgs*, *C.H.S.*, *T&RSMD*).
+* **Depots show a total**: the number of units at the depot at the time shown, not each unit.
+* **Coverage report**: every place units stand at between trains, with the page that shows it and what the maps do not show.
 
 **3.40.0** - Track map view
 * **Track map view** (Live View tab): the units at a station or siding drawn on a route track diagram, in their formations with their headcodes, at any time of the day - drag the time, step train by train or play the day. Add the track diagram PDF once; only its track layout is kept on this PC. See [Track map view](#track-map-view).
