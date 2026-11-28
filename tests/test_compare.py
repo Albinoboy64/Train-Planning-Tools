@@ -1030,3 +1030,25 @@ def test_comments_and_hidden_rows_move_with_their_trains():
     note = out.cell(row=row, column=1).comment
     assert note is not None and note.text == "check this one"
     assert out.row_dimensions[row].hidden and not out.row_dimensions[last].hidden
+
+
+def test_output_name_taken_while_saving_moves_to_the_next_free_name(monkeypatch):
+    """Another run took the chosen name while this one was saving: saved under the next free name, never over it."""
+    from cwn_compare import engine
+    d = tempfile.mkdtemp()
+    o_p, u_p = os.path.join(d, "o.xlsx"), os.path.join(d, "u.xlsx")
+    make(o_p, BTN_ORIG, VIC_ORIG)
+    btn, vic = _upd_rows()
+    make(u_p, btn, vic)
+    real = engine.save_workbook
+    calls = []
+
+    def first_taken(wb, path, **kw):
+        calls.append(path)
+        if len(calls) == 1:
+            open(path, "wb").write(b"another run's file")
+            raise FileExistsError(17, "exists", path)
+        return real(wb, path, **kw)
+    monkeypatch.setattr(engine, "save_workbook", first_taken)
+    res = run(Options(original=o_p, updated=u_p, output_dir=d, output_name="taken"))
+    assert res["cwn"].endswith("taken (2).xlsx") and open(calls[0], "rb").read() == b"another run's file"

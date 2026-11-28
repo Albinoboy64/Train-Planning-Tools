@@ -17,6 +17,8 @@ from __future__ import annotations
 import datetime as _dt
 import os
 import re
+import zipfile
+import zlib
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -212,7 +214,10 @@ def read_timetable(path: str) -> Timetable:
             for item in locs:
                 if item not in seen:
                     seen.append(item)
-    except ET.ParseError as exc:                   # a damaged sheet inside the workbook
+    except TimetableError:
+        raise
+    except (ET.ParseError, zipfile.BadZipFile, zlib.error, KeyError, ValueError, EOFError, OSError) as exc:
+        # a damaged sheet inside the workbook (bad XML, a cut-off or corrupt part)
         raise TimetableError(f"'{os.path.basename(path)}' looks damaged and could not be read ({exc}). Open it in "
                              "Excel, save it and try again.")
     finally:

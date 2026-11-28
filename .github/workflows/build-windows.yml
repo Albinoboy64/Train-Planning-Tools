@@ -263,6 +263,8 @@ jobs:
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO','--out','smoke','--name','sp_mo') 'smoke\sp_mo.xlsx' 'make a one-day stats pack'
           Smoke @('reorder','smoke\multi.xlsx','--by-time','--out','smoke','--name','reordered_time') 'smoke\reordered_time.xlsx' 'put day variants in time order'
           Smoke @('--original','smoke\a.xlsx','--updated','smoke\b.xlsx','--days','MO,FO','--report-format','pdf','--out','smoke','--name','cmp_pdf') 'smoke\cmp_pdf - Change Report.pdf' 'compare chosen days with a PDF change report'
+          Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--days','MO,TO','--output','totals','--out','smoke','--name','sp_totals') 'smoke\sp_totals.xlsx' 'make a stats pack of totals only'
+          Smoke @('statspack','--trent','smoke\sp.docx','--days','MO,TO','--unit-reports','washes,depots','--out','smoke','--name','units_noxml') 'smoke\units_noxml.xlsx' 'make unit reports from the TRENT print alone'
           Smoke @('statspack','--old-pack','smoke\sp.xlsx','--new-pack','smoke\sp_mo.xlsx','--out','smoke','--name','packs') 'smoke\packs.xlsx' 'compare two stats packs'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','timetable','--out','smoke','--name','sp_tt') 'smoke\sp_tt.xlsx' 'make the mileage for the whole timetable'
           Smoke @('statspack','--xml','smoke\sp.xml','--trent','smoke\sp.docx','--mileage-period','month','--month','2027-01','--out','smoke','--name','sp_month') 'smoke\sp_month.xlsx' 'make the mileage for one month'

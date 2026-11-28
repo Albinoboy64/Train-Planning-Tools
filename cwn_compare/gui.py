@@ -875,12 +875,19 @@ class App(tk.Tk):
         from rstools.autocomplete import recent_choices
         now = time.monotonic()
         seen = self.__dict__.setdefault("_exists", {})
+        stale = [p for p in self.opts.recent.get(kind, []) if p not in seen or now - seen[p][1] > 30]
+        if stale:                       # looked up by a helper thread: an offline drive never holds up typing
+            def look(paths=tuple(stale)):
+                for p in paths:
+                    try:
+                        seen[p] = (os.path.exists(p), time.monotonic())
+                    except Exception:
+                        seen[p] = (True, time.monotonic())
+            threading.Thread(target=look, daemon=True).start()
 
         def exists(p: str) -> bool:
             hit = seen.get(p)
-            if hit is None or now - hit[1] > 30:
-                hit = seen[p] = (os.path.exists(p), now)
-            return hit[0]
+            return True if hit is None else hit[0]     # not known yet: shown as there (marked once known)
 
         paths = [p for p in self.opts.recent.get(kind, []) if not exts or p.lower().endswith(exts)]
         return list(recent_choices(paths, bool(self.opts.recent_full_path), exists))

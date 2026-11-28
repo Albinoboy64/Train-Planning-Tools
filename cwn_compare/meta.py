@@ -48,9 +48,15 @@ def read_meta_file(path: str):
     if not is_comparison_output(path):
         return None
     import openpyxl
-    from rstools.fsutil import check_office_file
-    check_office_file(path)     # refuse a 'zip bomb' before unpacking
-    wb = openpyxl.load_workbook(path, read_only=True)
+    from rstools.fsutil import UnsafeFileError, check_office_file
+    try:
+        check_office_file(path)     # refuse a 'zip bomb' before unpacking
+        wb = openpyxl.load_workbook(path, read_only=True)
+    except UnsafeFileError as exc:  # the guard's own words, as a reader's error (never an 'Unexpected error')
+        from .loader import LoadError
+        raise LoadError(str(exc)) from exc
+    except Exception:               # cannot be opened this way: read as an ordinary CWN, which says why
+        return None
     try:
         ws = wb[META_SHEET]
         col = [r[0] for r in ws.iter_rows(min_col=1, max_col=1, values_only=True)]

@@ -82,6 +82,10 @@ def _baseline(meta: dict, path: str) -> CWNModel:
         raise RunError(f"The comparison data inside '{os.path.basename(path)}' could not be used: {exc}")
 
 
+class _NameTaken(Exception):
+    """The output's name was taken while it was being saved (it is chosen again)."""
+
+
 def _save(fn, path):
     from rstools.fsutil import save_output
     save_output(fn, path, RunError)
@@ -272,8 +276,19 @@ def run(opts: Options, progress: Optional[Callable[[float, str], None]] = None,
 
     cwn_path, rep_path = output_paths(opts)
     p(0.82, "Saving output CWN...")
-    _save(lambda: save_workbook(wb_new, cwn_path, trim="data",
-                                progress=lambda f: p(0.82 + 0.1 * f, "Saving output CWN...")), cwn_path)
+
+    def save_cwn(path: str, retry: bool):
+        try:
+            save_workbook(wb_new, path, trim="data", progress=lambda f: p(0.82 + 0.1 * f, "Saving output CWN..."))
+        except FileExistsError as exc:      # another run took this name since it was chosen
+            if retry:
+                raise _NameTaken() from exc
+            raise
+    try:
+        _save(lambda: save_cwn(cwn_path, True), cwn_path)
+    except _NameTaken:                      # the next free name, once (never written over)
+        cwn_path, rep_path = output_paths(opts)
+        _save(lambda: save_cwn(cwn_path, False), cwn_path)
     lg(f"Saved CWN: {cwn_path}")
 
     result = {"cwn": cwn_path, "report": None, "changes": len(changes) - sum(left_out.values()),
